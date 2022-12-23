@@ -1,1 +1,2 @@
-Add the webpage controls for working with the python autopilot
+- Copy the webpage controls for working with the python autopilot from the other ap branch
+- The autopilot seems to stop working after some while (maybe losing the MSFS connection?)
