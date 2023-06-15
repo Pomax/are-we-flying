@@ -1,0 +1,311 @@
+#attitude {
+  --bank: 0;
+  --pitch: 0;
+  --safety-pad: -5%;
+  --frame-pad: 7%;
+  --box-pad: 5%;
+  --active-pad: 10%;
+  --dial-space: 3px;
+
+  position: absolute;
+  z-index: 1000;
+  left: calc(1200px - 250px - 1.5em);
+  width: 250px;
+  height: 250px;
+  margin: 1em;
+  background: #444;
+  background-image: url(images/gray-textured-pattern-background-1488751952b8R.jpg);
+  background-size: 120% 130%;
+  box-shadow: 0 0 13px 0 inset black, 7px 9px 10px 0px #0008;
+  border-radius: 1em;
+}
+
+#attitude .frame {
+  position: absolute;
+  top: var(--frame-pad);
+  left: var(--frame-pad);
+  right: var(--frame-pad);
+  bottom: var(--frame-pad);
+}
+
+#attitude .frame .inner-shadow {
+  position: absolute;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  box-shadow: 0 0 7px 1px inset black;
+  border-radius: 0.3em;
+}
+
+#attitude .sky {
+  background: skyblue;
+  position: absolute;
+  top: 0;
+  bottom: 50%;
+  left: 0;
+  right: 0;
+  border-radius: 0.3em 0.3em 0 0;
+}
+
+#attitude .ground {
+  background: sienna;
+  position: absolute;
+  top: 50%;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border-radius: 0 0 0.3em 0.3em;
+}
+
+#attitude .scales {
+  --pad: calc(var(--frame-pad) + var(--dial-space));
+  position: absolute;
+  z-index: 1;
+  top: var(--pad);
+  right: var(--pad);
+  left: var(--pad);
+  bottom: var(--pad);
+  border-radius: 100%;
+  overflow: hidden;
+  border: 2px solid #eee;
+  transform-origin: 50% 50%;
+  transform: rotate(calc(1deg * var(--bank)));
+}
+
+#attitude .scales .sky {
+  top: var(--safety-pad);
+  left: var(--safety-pad);
+  right: var(--safety-pad);
+}
+
+#attitude .scales .ground {
+  bottom: var(--safety-pad);
+  left: var(--safety-pad);
+  right: var(--safety-pad);
+}
+
+#attitude .scales hr {
+  --angle: 0deg;
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: -5%;
+  right: 50%;
+  border: 1px solid #fff;
+  transform-origin: 100% 0;
+  transform: rotate(calc(90deg + var(--angle)));
+}
+
+#attitude .scales .center-mark {
+  --size: 7px;
+  position: absolute;
+  z-index: 5;
+  top: -5%;
+  left: calc(50% - var(--size) - 1px);
+  right: calc(50% + var(--size) + 1px);
+  width: 0;
+  height: 0;
+  border: var(--size) solid white;
+  border-right-color: transparent;
+  border-top-color: transparent;
+  transform: rotate(-45deg);
+}
+
+#attitude .scales hr.small {
+  left: 0%;
+  right: 50%;
+}
+
+#attitude .scales hr.minor {
+  border-color: #0002;
+}
+
+#attitude .scales hr:nth-child(1) {
+  --angle: 60deg;
+}
+#attitude .scales hr:nth-child(2) {
+  --angle: 50deg;
+}
+#attitude .scales hr:nth-child(3) {
+  --angle: 40deg;
+}
+#attitude .scales hr:nth-child(4) {
+  --angle: 30deg;
+}
+#attitude .scales hr:nth-child(5) {
+  --angle: 20deg;
+}
+#attitude .scales hr:nth-child(6) {
+  --angle: 10deg;
+}
+#attitude .scales hr:nth-child(7) {
+  --angle: 0deg;
+}
+#attitude .scales hr:nth-child(8) {
+  --angle: -10deg;
+}
+#attitude .scales hr:nth-child(9) {
+  --angle: -20deg;
+}
+#attitude .scales hr:nth-child(10) {
+  --angle: -30deg;
+}
+#attitude .scales hr:nth-child(11) {
+  --angle: -40deg;
+}
+#attitude .scales hr:nth-child(12) {
+  --angle: -50deg;
+}
+#attitude .scales hr:nth-child(13) {
+  --angle: -60deg;
+}
+#attitude .scales hr:nth-child(14) {
+  --angle: -90deg;
+  top: 45%;
+  left: -5%;
+  right: -5%;
+}
+
+#attitude .box {
+  border-radius: 100%;
+  position: absolute;
+  top: var(--box-pad);
+  bottom: var(--box-pad);
+  left: var(--box-pad);
+  right: var(--box-pad);
+  overflow: hidden;
+}
+
+#attitude .box .gyro {
+  border-radius: 100%;
+  position: absolute;
+  z-index: 3;
+  --step: calc(1px + 1%);
+  top: var(--active-pad);
+  left: var(--active-pad);
+  right: var(--active-pad);
+  bottom: var(--active-pad);
+  overflow: hidden;
+  transform-origin: center center;
+  transform: rotate(calc(1deg * var(--bank)));
+  border: 2px solid #eee;
+}
+
+#attitude .box .gyro .sky {
+  position: absolute;
+  top: 0;
+  bottom: calc(48% + calc(1% * var(--pitch)));
+  left: 0;
+  right: 0;
+}
+
+#attitude .box .bug {
+  --size: 7px;
+  position: absolute;
+  z-index: 4;
+  top: 15%;
+  left: calc(50% - var(--size));
+  right: calc(50% + var(--size));
+  width: 0;
+  height: 0;
+  border: var(--size) solid orange;
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  transform: rotate(-45deg);
+}
+
+#attitude .box .gyro .pitch-marker {
+  position: absolute;
+  border: 1px solid #333a;
+  left: 30%;
+  right: 30%;
+}
+
+#attitude .box .gyro .pitch-marker.small {
+  left: 40%;
+  right: 40%;
+}
+
+#attitude .box .gyro .sky .pitch-marker:nth-of-type(1) {
+  bottom: calc(var(--step) * -2);
+}
+#attitude .box .gyro .sky .pitch-marker:nth-of-type(2) {
+  bottom: calc(var(--step) * 1.5);
+}
+#attitude .box .gyro .sky .pitch-marker:nth-of-type(3) {
+  bottom: calc(var(--step) * 5);
+}
+#attitude .box .gyro .sky .pitch-marker:nth-of-type(4) {
+  bottom: calc(var(--step) * 9);
+}
+
+#attitude .box .gyro .ground .pitch-marker {
+  border-color: #fffa;
+}
+
+#attitude .box .gyro .ground {
+  position: absolute;
+  top: calc(52% - calc(1% * var(--pitch)));
+  bottom: 0%;
+  left: 0;
+  right: 0;
+}
+
+#attitude .box .gyro .ground .pitch-marker:nth-of-type(1) {
+  top: calc(var(--step) * -1);
+}
+#attitude .box .gyro .ground .pitch-marker:nth-of-type(2) {
+  top: calc(var(--step) * 2);
+}
+#attitude .box .gyro .ground .pitch-marker:nth-of-type(3) {
+  top: calc(var(--step) * 5);
+}
+#attitude .box .gyro .ground .pitch-marker:nth-of-type(4) {
+  top: calc(var(--step) * 8);
+}
+
+#attitude .box .gyro .box-shadow {
+  position: absolute;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  border-radius: 100%;
+  box-shadow: 0 0 25px -2px black inset;
+}
+
+#attitude .bird hr {
+  position: absolute;
+  z-index: 5;
+  border: 2px solid orange;
+  top: 46%;
+}
+
+#attitude .bird hr:nth-of-type(1) {
+  left: 15%;
+  right: 60%;
+}
+#attitude .bird hr:nth-of-type(2) {
+  left: 39%;
+  right: 55%;
+  transform-origin: 0 100%;
+  transform: rotate(30deg);
+}
+#attitude .bird hr:nth-of-type(3) {
+  top: 45%;
+  left: 50%;
+  right: 50%;
+  bottom: 55%;
+  margin: 5% 0 0 -2px;
+  border-width: 3px;
+  border-radius: 100%;
+}
+#attitude .bird hr:nth-of-type(4) {
+  left: 55%;
+  right: 39%;
+  transform-origin: 100% 0;
+  transform: rotate(-30deg);
+}
+#attitude .bird hr:nth-of-type(5) {
+  left: 61%;
+  right: 15%;
+}

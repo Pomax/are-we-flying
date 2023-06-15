@@ -1,0 +1,50 @@
+{
+  "name": "are-we-flying",
+  "version": "1.0.0",
+  "description": "Flying planes with JavaScript",
+  "type": "module",
+  "main": "README.md",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "start": "run-p api web",
+    "mock": "run-p web api:mock",
+    "api": "cd src/api && node api-server",
+    "api:mock": "npm run api -- --mock",
+    "web": "cd src && node web-server.js --browser"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pomax/are-we-flying.git"
+  },
+  "keywords": [
+    "MSFS",
+    "MSFS2020",
+    "Autopilot",
+    "Flight",
+    "Simulator"
+  ],
+  "author": "Pomax",
+  "license": "CC0-1.0",
+  "bugs": {
+    "url": "https://github.com/Pomax/are-we-flying/issues"
+  },
+  "homepage": "https://github.com/Pomax/are-we-flying#readme",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "express-http-proxy": "^1.6.3",
+    "express-ws": "^5.0.2",
+    "geomag": "^1.0.0",
+    "helmet": "^6.0.1",
+    "msfs-simconnect-api-wrapper": "^2.0.4",
+    "npm-run-all": "^4.1.5",
+    "open": "^8.4.0",
+    "pngjs": "^7.0.0",
+    "tiff": "^5.0.3",
+    "ws": "^8.12.1"
+  }
+}

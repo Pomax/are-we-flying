@@ -1,0 +1,63 @@
+:root {
+  --flight-path-colour: #0003;
+}
+
+#autopilot {
+  margin: 0.5em 0;
+}
+
+#autopilot input[type="number"] {
+  width: 5em;
+}
+
+#autopilot button.active {
+  background: red;
+  color: white;
+}
+
+#autopilot button[disabled] {
+  border-radius: 6px;
+  opacity: 0.5;
+}
+
+/* waypoints... need their own file? */
+
+.waypoint-div {
+  border: none;
+  background: transparent;
+}
+
+.waypoint-div::before {
+  content: attr(data-alt);
+  position: relative;
+  width: 40px;
+  display: inline-block;
+  text-align: center;
+  bottom: -40px;
+  text-shadow: 0px 0px 5px black, 0px 0px 10px black, 0px 0px 15px black;
+  color: white;
+  font-weight: bold;
+}
+
+.waypoint-div img.waypoint-marker {
+  z-index: 1 !important;
+  opacity: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  top: -20px;
+}
+
+.waypoint-div.active img.waypoint-marker {
+  filter: hue-rotate(145deg) brightness(2);
+}
+
+.waypoint-div.completed img.waypoint-marker {
+  filter: hue-rotate(-45deg);
+  opacity: 1;
+  width: 20px !important;
+  height: 20px !important;
+  position: relative;
+  top: 0px;
+  left: 10px;
+}
