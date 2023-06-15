@@ -35,7 +35,7 @@ And by the time we're done, we'll have something that looks a little bit like th
 
 And we'll just be a passenger on a JavaScript-powered flying tour that starts with pressing one button with the plane waiting on the runway. We're going to learn things.
 
-[TOC]
+
 
 # Part one: The prep work
 
@@ -6234,7 +6234,7 @@ There's a couple of steps and phases that we need to implement, starting with th
 <td style="width:33%"><img src="./runways-macro.png" alt="image-20230615120232718"></td>
 <td style="width:28%"><img src="./runways-meso.png" alt="image-20230615120256440"></td>
 <td style="width:38%"><img src="./runways-local.png" alt="image-20230615120308207"></td>
-</td>
+</tr>
 <table>
 
 Uhh, so... yeah: that can still be a _lot_ of airports, and not every plane can land at every airport (ever tried landing a regular plane on a water runway? Not the best landing), so we'll need a few checks:
