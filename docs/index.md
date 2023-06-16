@@ -37,84 +37,84 @@ And we'll just be a passenger on a JavaScript-powered flying tour that starts wi
 
 # Table of Contents
 
-- [Part one: The prep work](#part-one-the-prep-work)",
-  - [Creating an API that talks to MSFS using SimConnect](#creating-an-api-that-talks-to-msfs-using-simconnect)",
-  - [Creating a web server to connect to our API](#creating-a-web-server-to-connect-to-our-api)",
-  - [Making a web page](#making-a-web-page)",
-  - [Implementing the messaging protocol](#implementing-the-messaging-protocol)",
-    - [Implementing the MSFS interfacing functionality](#implementing-the-msfs-interfacing-functionality)",
-    - [Updating the web server](#updating-the-web-server)",
-    - [Updating our web page](#updating-our-web-page)",
-    - [Adding write protection](#adding-write-protection)",
-    - [Testing our code](#testing-our-code)",
-- [Part two: visualizing flights](#part-two-visualizing-flights)",
-  - [Checking the game data](#checking-the-game-data)",
-  - [Putting our plane on the map](#putting-our-plane-on-the-map)",
-  - [Recording our flight path](#recording-our-flight-path)",
-  - [Rolling the plane](#rolling-the-plane)",
-  - [Plotting flight data](#plotting-flight-data)",
-- [Part three: writing an autopilot](#part-three-writing-an-autopilot)",
-  - [Hot-reloading to make our dev lives easier](#hot-reloading-to-make-our-dev-lives-easier)",
-  - [How does an autopilot work?](#how-does-an-autopilot-work)",
-    - [The backbone of our Autopilot code: constrain-mapping](#the-backbone-of-our-autopilot-code-constrain-mapping)",
-  - [Implementing cruise control](#implementing-cruise-control)",
-    - [LVL: level mode](#lvl-level-mode)",
-    - [ALT: altitude hold](#alt-altitude-hold)",
-    - [Testing our code](#testing-our-code-1)",
-      - [Adding autopilot buttons to our web page](#adding-autopilot-buttons-to-our-web-page)",
-      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver)",
-      - [Cessna 310R](#cessna-310r)",
-      - [Beechcraft Model 18](#beechcraft-model-18)",
-      - [Douglas DC-3](#douglas-dc-3)",
-      - [Top Rudder Solo 103](#top-rudder-solo-103)",
-  - [A basic autopilot](#a-basic-autopilot)",
-    - [HDG: flying a heading](#hdg-flying-a-heading)",
-    - [ALT: changing altitudes on the fly](#alt-changing-altitudes-on-the-fly)",
-    - [Testing our code again](#testing-our-code-again)",
-      - [Top Rudder Solo 103](#top-rudder-solo-103-1)",
-      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver-1)",
-      - [Cessna 310R](#cessna-310r-1)",
-      - [Beechcraft Model 18](#beechcraft-model-18-1)",
-      - [Douglas DC-3](#douglas-dc-3-1)",
-  - [A fancy autopilot](#a-fancy-autopilot)",
-    - [Auto throttle](#auto-throttle)",
-    - [Using waypoints](#using-waypoints)",
-      - [The server side](#the-server-side)",
-      - [The client side](#the-client-side)",
-      - [Flying and transitioning over waypoints](#flying-and-transitioning-over-waypoints)",
-        - [Flight path policies](#flight-path-policies)",
-      - [Saving and loading flight paths](#saving-and-loading-flight-paths)",
-      - [Picking the right waypoint](#picking-the-right-waypoint)",
-    - [Testing our code](#testing-our-code-2)",
-      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver-2)",
-      - [Cessna 310R](#cessna-310r-2)",
-      - [Beechcraft Model 18](#beechcraft-model-18-2)",
-      - [Douglas DC-3](#douglas-dc-3-2)",
-- [Part four: “Let’s just have JavaScript fly the plane for us”](#part-four-lets-just-have-javascript-fly-the-plane-for-us)",
-  - [Terrain follow mode](#terrain-follow-mode)",
-    - [Working with ALOS data](#working-with-alos-data)",
-    - [Finishing up](#finishing-up)",
-    - [Testing our code](#testing-our-code-3)",
-      - [Top Rudder Solo 103](#top-rudder-solo-103-2)",
-      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver-3)",
-      - [Cessna 310R](#cessna-310r-3)",
-      - [Beechcraft Model 18](#beechcraft-model-18-3)",
-      - [Douglas DC-3](#douglas-dc-3-3)",
-  - [Auto takeoff](#auto-takeoff)",
-    - [Preflight checklist](#preflight-checklist)",
-    - [Runway roll](#runway-roll)",
-    - [Rotate/take-off](#rotatetake-off)",
-    - [Handoff to the autopilot](#handoff-to-the-autopilot)",
-    - [Testing our code](#testing-our-code-4)",
-  - [Auto-landing](#auto-landing)",
-    - [Browser experiments](#browser-experiments)",
-    - [Auto-landing phases](#auto-landing-phases)",
-    - [Finding an approach](#finding-an-approach)",
-    - [Getting lined up](#getting-lined-up)",
-    - [Landing the plane](#landing-the-plane)",
-      - [Getting onto the runway](#getting-onto-the-runway)",
-      - [Braking and steering](#braking-and-steering)",
-    - [Testing the code](#testing-the-code)",
+- [Part one: The prep work](#part-one-the-prep-work)
+  - [Creating an API that talks to MSFS using SimConnect](#creating-an-api-that-talks-to-msfs-using-simconnect)
+  - [Creating a web server to connect to our API](#creating-a-web-server-to-connect-to-our-api)
+  - [Making a web page](#making-a-web-page)
+  - [Implementing the messaging protocol](#implementing-the-messaging-protocol)
+    - [Implementing the MSFS interfacing functionality](#implementing-the-msfs-interfacing-functionality)
+    - [Updating the web server](#updating-the-web-server)
+    - [Updating our web page](#updating-our-web-page)
+    - [Adding write protection](#adding-write-protection)
+    - [Testing our code](#testing-our-code)
+- [Part two: visualizing flights](#part-two-visualizing-flights)
+  - [Checking the game data](#checking-the-game-data)
+  - [Putting our plane on the map](#putting-our-plane-on-the-map)
+  - [Recording our flight path](#recording-our-flight-path)
+  - [Rolling the plane](#rolling-the-plane)
+  - [Plotting flight data](#plotting-flight-data)
+- [Part three: writing an autopilot](#part-three-writing-an-autopilot)
+  - [Hot-reloading to make our dev lives easier](#hot-reloading-to-make-our-dev-lives-easier)
+  - [How does an autopilot work?](#how-does-an-autopilot-work)
+    - [The backbone of our Autopilot code: constrain-mapping](#the-backbone-of-our-autopilot-code-constrain-mapping)
+  - [Implementing cruise control](#implementing-cruise-control)
+    - [LVL: level mode](#lvl-level-mode)
+    - [ALT: altitude hold](#alt-altitude-hold)
+    - [Testing our code](#testing-our-code-1)
+      - [Adding autopilot buttons to our web page](#adding-autopilot-buttons-to-our-web-page)
+      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver)
+      - [Cessna 310R](#cessna-310r)
+      - [Beechcraft Model 18](#beechcraft-model-18)
+      - [Douglas DC-3](#douglas-dc-3)
+      - [Top Rudder Solo 103](#top-rudder-solo-103)
+  - [A basic autopilot](#a-basic-autopilot)
+    - [HDG: flying a heading](#hdg-flying-a-heading)
+    - [ALT: changing altitudes on the fly](#alt-changing-altitudes-on-the-fly)
+    - [Testing our code again](#testing-our-code-again)
+      - [Top Rudder Solo 103](#top-rudder-solo-103-1)
+      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver-1)
+      - [Cessna 310R](#cessna-310r-1)
+      - [Beechcraft Model 18](#beechcraft-model-18-1)
+      - [Douglas DC-3](#douglas-dc-3-1)
+  - [A fancy autopilot](#a-fancy-autopilot)
+    - [Auto throttle](#auto-throttle)
+    - [Using waypoints](#using-waypoints)
+      - [The server side](#the-server-side)
+      - [The client side](#the-client-side)
+      - [Flying and transitioning over waypoints](#flying-and-transitioning-over-waypoints)
+        - [Flight path policies](#flight-path-policies)
+      - [Saving and loading flight paths](#saving-and-loading-flight-paths)
+      - [Picking the right waypoint](#picking-the-right-waypoint)
+    - [Testing our code](#testing-our-code-2)
+      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver-2)
+      - [Cessna 310R](#cessna-310r-2)
+      - [Beechcraft Model 18](#beechcraft-model-18-2)
+      - [Douglas DC-3](#douglas-dc-3-2)
+- [Part four: “Let’s just have JavaScript fly the plane for us”](#part-four-lets-just-have-javascript-fly-the-plane-for-us)
+  - [Terrain follow mode](#terrain-follow-mode)
+    - [Working with ALOS data](#working-with-alos-data)
+    - [Finishing up](#finishing-up)
+    - [Testing our code](#testing-our-code-3)
+      - [Top Rudder Solo 103](#top-rudder-solo-103-2)
+      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver-3)
+      - [Cessna 310R](#cessna-310r-3)
+      - [Beechcraft Model 18](#beechcraft-model-18-3)
+      - [Douglas DC-3](#douglas-dc-3-3)
+  - [Auto takeoff](#auto-takeoff)
+    - [Preflight checklist](#preflight-checklist)
+    - [Runway roll](#runway-roll)
+    - [Rotate/take-off](#rotatetake-off)
+    - [Handoff to the autopilot](#handoff-to-the-autopilot)
+    - [Testing our code](#testing-our-code-4)
+  - [Auto-landing](#auto-landing)
+    - [Browser experiments](#browser-experiments)
+    - [Auto-landing phases](#auto-landing-phases)
+    - [Finding an approach](#finding-an-approach)
+    - [Getting lined up](#getting-lined-up)
+    - [Landing the plane](#landing-the-plane)
+      - [Getting onto the runway](#getting-onto-the-runway)
+      - [Braking and steering](#braking-and-steering)
+    - [Testing the code](#testing-the-code)
 - [Conclusions](#conclusions)"
 
 
