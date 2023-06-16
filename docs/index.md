@@ -6197,7 +6197,7 @@ import { Runner } from "../experiment.js";
 export class Experiment extends Runner {
   constructor(map, plane) {
     super(map, plane);
-    
+
     // Let's add an auto-lander button to the page, so we have something to click:
     const ATL = document.createElement(`button`);
     ATL.textContent = `land`;
@@ -6235,7 +6235,7 @@ There's a couple of steps and phases that we need to implement, starting with th
 <td style="width:28%"><img src="./runways-meso.png" alt="image-20230615120256440"></td>
 <td style="width:38%"><img src="./runways-local.png" alt="image-20230615120308207"></td>
 </tr>
-<table>
+</table>
 
 Uhh, so... yeah: that can still be a _lot_ of airports, and not every plane can land at every airport (ever tried landing a regular plane on a water runway? Not the best landing), so we'll need a few checks:
 
@@ -6366,7 +6366,7 @@ function computeApproachCoordinates(plane, airport, approachDistance) {
       [lat3, long3],
       [lat4, long4],
     ];
-    
+
     // Then, for each runway we need to figure out our approach points,
     // which will consist of, in reverse order:
     //
@@ -6404,10 +6404,10 @@ function computeApproachCoordinates(plane, airport, approachDistance) {
         runwayStart: start,
         runwayEnd: end,
       };
-      
+
       // And record how far we are from this approach
       approach.distanceToPlane = getDistanceBetweenPoints(planeLat, planeLong, alat, along);
-      
+
       // With some back-references to the runway and airport, for future ease-of-code.
       approach.airport = airport;
       approach.runway = runway;
@@ -6464,10 +6464,10 @@ function setApproachPath(plane, { easingPoints, anchor, runwayStart, runwayEnd }
   if (distToAirport < approachDistance - MARGIN_DISTANCE) {
     callAutopilot(`waypoint`, { lat: easingPoints[1][0], long: easingPoints[1][1] });
   }
-  
+
   // Then add the regular easing points.
   callAutopilot(`waypoint`, { lat: easingPoints[0][0], long: easingPoints[0][1] });
-  
+
   // And then the approach start, and runway end.
   callAutopilot(`waypoint`, { lat: anchor[0], long: anchor[1] });
   callAutopilot(`waypoint`, { lat: runwayEnd[0], long: runwayEnd[1] });
@@ -6491,9 +6491,9 @@ function getOntoGlideSlope(plane, approach, approachAltitude) {
     LVL: true,
     ALT: approachAltitude,  // we will either fly this altitude, or...
     ATT: true,
-    TER: true,              // ...if terrain follow is on, just do that. 
+    TER: true,              // ...if terrain follow is on, just do that.
   });
-  
+
   // Then return a runnable function that checks whether we made it to the approach point:
   return (done) => {
     const { lat, long, speed } = plane.lastUpdate;
@@ -6541,10 +6541,10 @@ async function autoLand(runner, map, plane) {
 
   // Get the runway altitude, in feet:
   const aalt = approach.airport.altitude * FEET_PER_METER;
- 
+
   // Get the airplane's "center of gravity" altitude.
   const cgToGround = CG_TO_GROUND;
-  
+
   // Then rewrite the runway altitude relative to the airplane's center of gravity.
   const runwayAltitude = aalt + cgToGround;
 
@@ -6613,7 +6613,7 @@ async function autoLand(runner, map, plane) {
   console.log(`Throttle down to ${pos}%...`);
   await runner.run(throttleTo(plane, engineCount, pos, setAltitude));
   console.log(`Done`);
-  
+
   // ============================
   // (4) Get to landing distance
   // ============================
@@ -6636,7 +6636,7 @@ function throttleTo(plane, engineCount, position, setAltitude) {
 function reachRunway(plane, { runway, coordinates }, distance, setAltitude) {
   // Note that we measure this relative to the runway end, not the start,
   // because if the distance is small we might overshoot the runway start
-  // and then the distance to the runway would start to increase. 
+  // and then the distance to the runway would start to increase.
   const { runwayEnd } = coordinates;
   const runwayLength = runway.length / 1000;
 
@@ -6675,7 +6675,7 @@ async function targetThrottle(engineCount = 4, target, step = 1) {
 }
 ```
 
-There's two things we need to answer before we can run this code, though: what's a safe throttle position, and what's the right distance from the runway to start the actual landing? Because those depend on the plane we're flying. Unfortunately, as far as I know (although I'd love to be shown otherwise) there is no good way to abstract that information from SimConnect variables and/or current flight information, so.... we hard code them. For example, for the DeHavilland DHC-2 "Beaver", `SAFE_THROTTLE` is 65%, and `DROP_DISTANCE_KM` is 0.5, and for the Cessna 310R, the `SAFE_THROTTLE` is 35%, and the `DROP_DISTANCE` is 0.8... how do we know? I flew those planes, many many times, over a nice flat stretch of Australia where you can just go in a straight line forever while setting the throttle to something and then wait to see what speed that eventually slows you down to. And then cutting the throttle to see how long it takes to hit the ground. Science! 
+There's two things we need to answer before we can run this code, though: what's a safe throttle position, and what's the right distance from the runway to start the actual landing? Because those depend on the plane we're flying. Unfortunately, as far as I know (although I'd love to be shown otherwise) there is no good way to abstract that information from SimConnect variables and/or current flight information, so.... we hard code them. For example, for the DeHavilland DHC-2 "Beaver", `SAFE_THROTTLE` is 65%, and `DROP_DISTANCE_KM` is 0.5, and for the Cessna 310R, the `SAFE_THROTTLE` is 35%, and the `DROP_DISTANCE` is 0.8... how do we know? I flew those planes, many many times, over a nice flat stretch of Australia where you can just go in a straight line forever while setting the throttle to something and then wait to see what speed that eventually slows you down to. And then cutting the throttle to see how long it takes to hit the ground. Science!
 
 But yeah, it means we're going to need some airplane-specific parameters, which means we might as well make some airplane profiles. We don't _want_ those, but I haven't figured out a way to make auto-landing work without them, so...  let's go? We'll make a little `parameters.js` file, and I'm giving you two airplanes but you get to do the rest:
 
@@ -6810,14 +6810,14 @@ function dropToRunway(plane, engineCount, cgToGround, dropAltitude) {
 
   // We only need to flare once, so we use a little boolean flag to check whether we already did this.
   let flared = false;
-  
+
   return async (done) => {
     changeThrottle(engineCount, -1, 0, 100);
-    
-    // Get the "true" altitude above the ground, 
+
+    // Get the "true" altitude above the ground,
     const { PLANE_ALT_ABOVE_GROUND_MINUS_CG: pacg } = await getAPI(`PLANE_ALT_ABOVE_GROUND_MINUS_CG`);
     const distanceToGround = pacg - cgToGround;
-    
+
     // If we're at or below flare altitude: flare
     if (distanceToGround < FLARE_ALTITUDE && !flared) {
       setAPI(`ELEVATOR_POSITION`, FLARE_AMOUNT);
@@ -6892,10 +6892,10 @@ function rollOut(plane, engineCount) {
     if (speed < 1) {
       // Release the brakes...
       brake(0);
-      
+
       // And kill the engine.
       triggerEvent(`ENGINE_AUTO_SHUTDOWN`);
-      
+
       // We are officially done!
       done();
     }
