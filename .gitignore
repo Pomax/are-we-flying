@@ -4,5 +4,4 @@ src/**/alos-index.json
 .DS_Store
 **/*.svg
 .env
-test.js
-temp.js
+temp
