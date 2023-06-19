@@ -10,6 +10,9 @@ import {
   CACHE_DIR,
 } from "./alos-constants.js";
 import { ALOSTile } from "./alos-tile.js";
+import { mergeCrops, saveImage } from "./image-utils.js";
+import fs from "fs";
+import path from "path";
 
 const COARSE_LEVEL = 10;
 const { floor, ceil, max } = Math;
@@ -74,6 +77,72 @@ export class ALOSInterface {
         this.findFiles(fullPath);
       }
     });
+  }
+
+  // For now, crops can cover at most 1x1 degree of arc
+  async getCrop(imagePath, lat1, long1, lat2, long2, x, y, z) {
+    console.log(
+      `cropping for ${z}/${x}/${y} between: ${lat1},${long1} and ${lat2},${long2}`
+    );
+    // we may need up to four tiles
+    const NW = this.getTileFor(lat1, long1);
+    if (!NW) {
+      return false;
+    }
+
+    let NE = this.getTileFor(lat1, long2);
+    let SW = this.getTileFor(lat2, long1);
+    let SE = this.getTileFor(lat2, long2);
+
+    // is anything a NW dupe?
+    if (NE === NW) {
+      console.log(`ne was dupe`);
+      NE = undefined;
+    }
+    if (SW === NW) {
+      console.log(`sw was dupe`);
+      SW = undefined;
+    }
+    if (SE === NW) {
+      console.log(`se was dupe`);
+      SE = undefined;
+    }
+
+    // If not, check duals
+    if (SE === NE) {
+      console.log(`se was dupe`);
+      SE = undefined;
+    }
+
+    if (SE === SW) {
+      console.log(`se was dupe`);
+      SE = undefined;
+    }
+
+    // ask each tile for its crop
+    const cNW = NW.crop(lat1, long1, lat2, long2);
+    const cNE = NE?.crop(lat1, long1, lat2, long2);
+    const cSW = SW?.crop(lat1, long1, lat2, long2);
+    const cSE = SE?.crop(lat1, long1, lat2, long2);
+
+    console.log(
+      [`paths:`, cNW.path, cNE?.path, cSW?.path, cSE?.path]
+        .filter(Boolean)
+        .join(`\n`)
+    );
+
+    // glue them together
+    let result = cNW;
+    if (cNE || cSW || cSE) {
+      console.log(`merging...`);
+      result = mergeCrops(cNW, cNE, cSW, cSE);
+      if (!result) return false;
+    }
+
+    // save as 256×256 PNG
+    const { width, height, data } = result;
+    await saveImage(imagePath, width, height, data);
+    return imagePath;
   }
 
   getTileFor(lat, long) {

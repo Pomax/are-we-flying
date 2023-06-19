@@ -66,6 +66,7 @@ const mapLayers = {
   googleHybrid,
   googleSat,
   googleTerrain,
+  ALOSTerrain: L.tileLayer(`/tiles/{z}/{x}/{y}`)
 };
 
 const activeLayers = [openStreetMap, googleTerrain];

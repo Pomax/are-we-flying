@@ -50,8 +50,6 @@ export async function altitudeHold(autopilot, state) {
   // We can't trim past +/- 100% of the trim range.
   if (trim.y * 10/Math.PI < -100) trim.y = -Math.PI/20;
   if (trim.y * 10/Math.PI > 100) trim.y = Math.PI/20;
-  console.log(trim.y);
-
   autopilot.set("ELEVATOR_TRIM_POSITION", trim.y);
 }
 
