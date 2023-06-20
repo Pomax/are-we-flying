@@ -20,7 +20,7 @@ import {
 import { pathIntersection, changeThrottle, targetThrottle } from "./compute.js";
 import { getAPI, setAPI, callAutopilot, triggerEvent } from "../../api.js";
 import { Runner } from "../experiment.js";
-import { BEAVER, C310R } from "./parameters.js";
+import { BEAVER, C310R, DEFAULT } from "./parameters.js";
 
 const { min } = Math;
 
@@ -57,7 +57,7 @@ function brake(percentage) {
 
 function assignParameters(plane) {
   const title = plane.flightModel.values.TITLE.toLowerCase();
-  let PARAMS;
+  let PARAMS = DEFAULT;
   if (title.includes(` beaver`)) PARAMS = BEAVER;
   if (title.includes(` 310`)) PARAMS = C310R;
 
