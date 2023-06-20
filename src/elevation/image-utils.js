@@ -23,10 +23,17 @@ const mag = (v) => sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2);
 const unit = (v, m = mag(v)) => ({ x: v.x / m, y: v.y / m, z: v.z / m });
 
 const reflect = (ray, normal) => {
-  ray = unit(ray);
-  normal = unit(normal);
-  return sub(ray, mul(normal, 2 * dot(ray, normal)));
+  return unit(
+    sub(mul(normal, (2 * dot(ray, normal)) / dot(normal, normal)), ray)
+  );
 };
+
+const light = { x: -1, y: -1, z: 1 };
+const flat = { x: 0, y: 0, z: 1 };
+const flatReflection = reflect(light, flat);
+console.log(flatReflection);
+const flatValue = constrainMap(flatReflection.z, 0, 1, 0, 255) | 0;
+console.log(`flatValue=${flatValue}`);
 
 const MERGE_HORIZONTALLY = Symbol();
 const MERGE_VERTICALLY = Symbol();
@@ -120,8 +127,6 @@ export async function saveImage(imagePath, width, height, pixels) {
   const baseImage = PImage.make(width, height);
   const normals = PImage.make(width, height);
   const hillShade = PImage.make(width, height);
-  const light = { x: 1, y: 1, z: 0.7 };
-
   const step = 1;
 
   const getElevation = (x, y, data = pixels) => {
@@ -135,7 +140,7 @@ export async function saveImage(imagePath, width, height, pixels) {
     }
     // discretize
     intensity = ((intensity / step) | 0) * step;
-    return intensity | 0;
+    return intensity;
   };
 
   // make a PNG out of this
@@ -156,57 +161,27 @@ export async function saveImage(imagePath, width, height, pixels) {
   // create the normal map
   for (let x = 0; x < width; x++) {
     for (let y = 0; y < height; y++) {
+      const a = getElevation(x - 1, y);
+      const b = getElevation(x + 1, y);
+      const c = getElevation(x, y - 1);
+      const d = getElevation(x, y + 1);
+
       // get the surface normal at (x,y)
-      const a = getElevation(x - 1, y);
-      const b = getElevation(x + 1, y);
-      const c = getElevation(x, y - 1);
-      const d = getElevation(x, y + 1);
       const n = unit({ x: a - b, y: c - d, z: 2 });
-      const i = (v) => (255 * v) | 0;
-      const RGBA = (i(n.x) << 24) + (i(n.y) << 16) + (i(n.z) << 8) + 0xff;
-      normals.setPixelRGBA(x, y, RGBA);
-    }
-  }
+      const F = (v) => (255 * v) | 0;
+      normals.setPixelRGBA(
+        x,
+        y,
+        (F(n.x) << 24) + (F(n.y) << 16) + (F(n.z) << 8) + 0xff
+      );
 
-  const getPixel = (x, y, img) => {
-    x = constrain(x, 0, width - 1);
-    y = constrain(y, 0, height - 1);
-    return img.getPixelRGBA(x, y);
-  };
-
-  // and let's hillshade it
-  for (let x = 0; x < width; x++) {
-    for (let y = 0; y < height; y++) {
-      // // get the average normal at (x,y)
-      // const pixels = [
-      //   getPixel(x - 1, y - 1, normals),
-      //   getPixel(x, y - 1, normals),
-      //   getPixel(x + 1, y - 1, normals),
-      //   getPixel(x - 1, y, normals),
-      //   getPixel(x, y, normals),
-      //   getPixel(x + 1, y, normals),
-      //   getPixel(x - 1, y + 1, normals),
-      //   getPixel(x, y + 1, normals),
-      //   getPixel(x + 1, y + 1, normals),
-      // ];
-      //
-      // const n = average(...pixels);
-
-      const a = getElevation(x - 1, y);
-      const b = getElevation(x + 1, y);
-      const c = getElevation(x, y - 1);
-      const d = getElevation(x, y + 1);
-      const n = { x: a - b, y: c - d, z: 2 };
-
-      // compute illumination
+      // and then hillshade the pixel
       const reflection = reflect(light, n);
       const i = constrainMap(reflection.z, 0, 1, 0, 255);
 
-      // noise reduction using the alpha channel
-      const m = mag(n);
-      const A = i === 0 ? 0 : 255;
-      const RGBA = (i << 24) + (i << 16) + (i << 8) + A;
-      hillShade.setPixelRGBA(x, y, RGBA);
+      // don't color flat surfaces:
+      const A = i === flatValue ? 0 : 255;
+      hillShade.setPixelRGBA(x, y, (i << 24) + (i << 16) + (i << 8) + A);
     }
   }
 
