@@ -8,17 +8,17 @@
 
 To allay any concerns: this is not about running JavaScript software to control an actual aircraft.
 
-​	***That would kill people***.
+​	**_That would kill people_**.
 
-Instead, we're writing a web page that can control an autopilot running in JS that, in turn, controls a little virtual aeroplane. And by "little" I actually mean "most aeroplanes in [Microsoft Flight Simulator 2020](https://www.flightsimulator.com/)" because as it turns out, MSFS comes with an API that can be used to both query **and set** values ranging from anything as simple as cockpit lights to something as complex as spawning a fleet of aircraft and making them fly in formation while making their smoke pattern spell out the works of Chaucer in its original middle English.
+Instead, we're writing a web page that can control an autopilot running in JS that, in turn, controls a little virtual aeroplane. And by "little" I actually mean "most aeroplanes in [Microsoft Flight Simulator 2020](https://www.flightsimulator.com/)" because as it turns out, MSFS comes with an API that can be used to both query *_and set_* values ranging from anything as simple as cockpit lights to something as complex as spawning a fleet of aircraft and making them fly in formation while making their smoke pattern spell out the works of Chaucer in its original middle English.
 
-While we're not doing that (...today?), we **are** going to write an autopilot for planes that don't have one, as well as planes that do have one but that are just a 1950's chore to work with, while also tacking on some functionality that just straight up doesn't exist in modern autopilots. The thing that lets us perform this trick is that MSFS comes with something called [SimConnect](https://docs.flightsimulator.com/html/Programming_Tools/SimConnect/SimConnect_SDK.htm), which is an SDK that lets people write addons for the game using C, C++, or languages with .NET support... and so, of course, folks have been writing connectors to "port" the SimConnect call functionals to officially unsupported languages like Go, Node, Python, etc.
+While we're not doing that (...today?), we *_are_* going to write an autopilot for planes that don't have one, as well as planes that do have one but that are just a 1950's chore to work with, while also tacking on some functionality that just straight up doesn't exist in modern autopilots. The thing that lets us perform this trick is that MSFS comes with something called [SimConnect](https://docs.flightsimulator.com/html/Programming_Tools/SimConnect/SimConnect_SDK.htm), which is an SDK that lets people write addons for the game using C, C++, or languages with .NET support... and so, of course, folks have been writing connectors to "port" the SimConnect function calls to officially unsupported languages like Go, Node, Python, etc.
 
-Which means that we could, say, write a web page that allows us to see what's going on in the game. And toggle in-game settings. And --and this is the one that's the most fun-- *fly the plane* from a web page. And once we're done, it'll be that easy, but the road to get there is going to take a little bit of prep work... some of it tedious, some of it weird, but all of it's going to set us up for just doing absolutely ridiculous things and at the end of it, we'll have a fully functional autopilot _with auto-takeoff and flight planning that's as easy as using google maps_ and whatever's missing, you can probably bolt on yourself!
+Which means that we could, say, write a web page that allows us to see what's going on in the game. And toggle in-game settings. And --and this is the one that's the most fun-- _fly the plane_ from a web page. And once we're done, it'll be that easy, but the road to get there is going to take a little bit of prep work... some of it tedious, some of it weird, but all of it's going to set us up for just doing absolutely ridiculous things and at the end of it, we'll have a fully functional autopilot _with auto-takeoff and flight planning that's as easy as using google maps_ and whatever's missing, you can probably bolt on yourself!
 
-Before we get there though, let's start at the start. If the idea is to interface with MSFS from a webpage, and webpages use JS, then your first thought might be "Cool, can I write an [express](https://expressjs.com/) server that connects to MSFS?" to which the answer is: yes! There is the [node-simconnect](https://www.npmjs.com/package/node-simconnect) package for [Node](https://nodejs.org), which implements full access to the SimConnect DLL file, but it's very true to the original C++ SDK, meaning it's a bit like "programming C++ in JavaScript". Now, you might like that (I don't know your background) but JS has its own set of conventions that don't really line up with the C++ way of doing things, and because I know my way around programming I created a somewhat more "JavaScripty" API on top of node-simconnect called [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper) (I am **great** at naming things) which lets me (and you!) write code that can talk to MSFS in a way that looks and feels much more like standard JavaScript, so... let's use that!
+Before we get there though, let's start at the start. If the idea is to interface with MSFS from a webpage, and webpages use JS, then your first thought might be "Cool, can I write an [express](https://expressjs.com/) server that connects to MSFS?" to which the answer is: yes! There is the [node-simconnect](https://www.npmjs.com/package/node-simconnect) package for [Node](https://nodejs.org), which implements full access to the SimConnect DLL file, but it's very true to the original C++ SDK, meaning it's a bit like "programming C++ in JavaScript". Now, you might like that (I don't know your background) but JS has its own set of conventions that don't really line up with the C++ way of doing things, and because I know my way around programming I created a somewhat more "JavaScripty" API on top of node-simconnect called [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper) (I am *_great_* at naming things) which lets me (and you!) write code that can talk to MSFS in a way that looks and feels much more like standard JavaScript, so... let's use that!
 
-Also, because we want to talk "from the browser to a game", we don't really want to have to rely on HTML GET and POST requests, because they're both slow, and unidirectional: the game will never be able to talk to us unless it's to answer a question we sent it. That's not great, especially not if we want to register event handlers, so instead we'll use [web sockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), which let us set up a persistent bidirectional data connection And to make that a trivial task, we'll use the [express-ws](https://github.com/HenningM/express-ws) package to bolt websockets onto our express server: just use `app.ws(....)` on the server in the same way we'd use `app.get(...)` or `app.post()`, with a plain Websocket in the browser, and things *just work*.
+Also, because we want to talk "from the browser to a game", we don't really want to have to rely on HTML GET and POST requests, because they're both slow, and unidirectional: the game will never be able to talk to us unless it's to answer a question we sent it. That's not great, especially not if we want to register event handlers, so instead we'll use [web sockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), which let us set up a persistent bidirectional data connection And to make that a trivial task, we'll use the [express-ws](https://github.com/HenningM/express-ws) package to bolt websockets onto our express server: just use `app.ws(....)` on the server in the same way we'd use `app.get(...)` or `app.post()`, with a plain Websocket in the browser, and things _just work_.
 
 If that sounds cool: you can check out the complete project over on the ["Are we flying?"](https://github.com/Pomax/are-we-flying) Github repository, but if you want to actually learn something... let's dive in!
 
@@ -327,7 +327,7 @@ async function setupSocket() {
 
 ## Making a web page
 
-We now have an API server and a web server, which means that last bit we need is a web *page*. We're just going to make this a page that, for now, has no real UI, but *will* have enough JS in place to talk to the API server (by proxy), in a way that we can verify using the developer tools' "console" tab:
+We now have an API server and a web server, which means that last bit we need is a web _page_. We're just going to make this a page that, for now, has no real UI, but _will_ have enough JS in place to talk to the API server (by proxy), in a way that we can verify using the developer tools' "console" tab:
 
 ```html
 <!DOCTYPE html>
@@ -400,7 +400,7 @@ First, let's update our API server to making sure we can deal with the various t
 
 1. get and set in-game values,
 2. register as event listener for MSFS events,
-3. obviously, also *un*-register as event listener, and finally
+3. obviously, also _un_-register as event listener, and finally
 4. trigger events in MSFS (because some things happen by setting variables, whereas other things happen by "triggering" them)
 
 ### Implementing the MSFS interfacing functionality
@@ -752,7 +752,7 @@ tryConnection();
 
 ### Adding write protection
 
-That just leaves one last thing: making sure everyone can *read* values, but that only we get to *write* values. You don't want someone just randomly messing with your flight! In order to do that, we first add a new key to our `.env`  file:
+That just leaves one last thing: making sure everyone can _read_ values, but that only we get to _write_ values. You don't want someone just randomly messing with your flight! In order to do that, we first add a new key to our `.env`  file:
 
 ```sh
 export API_PORT=8080
@@ -884,7 +884,7 @@ And we should get all the relevant info. For instance, if we started a flight in
 
 Of course, none of these things have units, but that's what the [SimConnect documentation](https://docs.flightsimulator.com/html/Programming_Tools/SimVars/Simulation_Variables.htm) is for: the Beaver is designed to cruise at 5000 feet, take off at 65 knots, it has a two wheels up front and a little wibble wheel at the back (i.e. it's a "tail dragger"), it has one engine, which is a piston propeller (which we know by looking up the enum for engine type); it weighs 3955 pounds, has a wing span of 48 feet, and has a typical descent rate of 16.667 feet per second.
 
-And of course, we can also ask for information that's relevant to our flight *right now* rather than just asking about the plane in general:
+And of course, we can also ask for information that's relevant to our flight _right now_ rather than just asking about the plane in general:
 
 ```javascript
 » await window.MSFS.get(
@@ -950,7 +950,7 @@ And now if we point our plane towards the ground and just let gravity do the res
 ...we crashed!
 ```
 
-Which means our crash event listener worked. So this is promising, we have a full loop, time to actually *use* this for something!
+Which means our crash event listener worked. So this is promising, we have a full loop, time to actually _use_ this for something!
 
 # Part two: visualizing flights
 
@@ -962,7 +962,7 @@ We know when we're connected to MSFS, so let's write a few functions that let us
 
 ![image-20230526165525395](./questions.png)
 
-Nothing particularly fancy (although we can pretty much use any amount of CSS to turn it *into* something fancy), but it lets us see where in the process of firing up MSFS, clicking through to the world map, and starting a flight we are. So let's update our HTML file to include these questions, and then we can update our JS to start answering them:
+Nothing particularly fancy (although we can pretty much use any amount of CSS to turn it _into_ something fancy), but it lets us see where in the process of firing up MSFS, clicking through to the world map, and starting a flight we are. So let's update our HTML file to include these questions, and then we can update our JS to start answering them:
 
 ```html
 <h1>Is Pomax flying?</h1>
@@ -1342,7 +1342,7 @@ export class FlightModel {
 }
 ```
 
-That's decidedly less code than `plane.js` at least. Now, we still only implemented the code that lets us answer the question list, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually *see* something on our webpage.
+That's decidedly less code than `plane.js` at least. Now, we still only implemented the code that lets us answer the question list, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually _see_ something on our webpage.
 
 ## Putting our plane on the map
 
@@ -1540,7 +1540,7 @@ export class Plane {
 }
 ```
 
-We have a plane marker, "in theory", but there's nothing in this code that actually tells us what our marker looks like, because we've hidden it behind `MapMarker.getHTML(heading)`. So... *fine*, what does that look like (and can we finally start seeing all of this come together)?
+We have a plane marker, "in theory", but there's nothing in this code that actually tells us what our marker looks like, because we've hidden it behind `MapMarker.getHTML(heading)`. So... _fine_, what does that look like (and can we finally start seeing all of this come together)?
 
 ```javascript
 import { defaultPlane } from "./airplane-src.js";
@@ -1561,7 +1561,7 @@ MapMarker.getHTML = (initialHeading) => {
 export { MapMarker };
 ```
 
-Yep, `MapMarker` is really just a front for a templating instruction that loads the markup from `map-marker.html` ... so what does *that* look like? Like this:
+Yep, `MapMarker` is really just a front for a templating instruction that loads the markup from `map-marker.html` ... so what does _that_ look like? Like this:
 
 ![image-20230527110207192](./plane-marker.png)
 
@@ -1990,11 +1990,11 @@ It looks spectacular, and we can see ourselves flying around on the map on our w
 
 
 
-> **"That looks cool! But hold up... why are there *two* compasses?"** - you, hopefully (again)
+> **"That looks cool! But hold up... why are there _two_ compasses?"** - you, hopefully (again)
 
 
 
-Yeah, so, here's a fun thing about our planet: you'd think magnetic lines run north to south, like those pictures of metal filings around a magnet... which they would, if the Earth was a bar-magnet-sized magnet. Instead, it's *absolutely huge* and a highly imperfect magnet, so a picture of the magnetic field plotted on a map looks more like this:
+Yeah, so, here's a fun thing about our planet: you'd think magnetic lines run north to south, like those pictures of metal filings around a magnet... which they would, if the Earth was a bar-magnet-sized magnet. Instead, it's _absolutely huge_ and a highly imperfect magnet, so a picture of the magnetic field plotted on a map looks more like this:
 
 <figure style="width: 80%; margin: auto;">
     <a href="https://en.wikipedia.org/wiki/File:World_Magnetic_Declination_2015.pdf">
@@ -2530,7 +2530,7 @@ And now we can see what our plane is doing over time:
   </a>
   <figcaption style="font-style: italic; text-align: center;">All the data</figcaption>
 </figure>
-And with that, we're *finally* ready to start writing our autopilot code, confident in the knowledge that we can see what effect our code will have on our plane, and that we can effectively analyze and debug anything we do in the next part.
+And with that, we're _finally_ ready to start writing our autopilot code, confident in the knowledge that we can see what effect our code will have on our plane, and that we can effectively analyze and debug anything we do in the next part.
 
 
 
@@ -2915,17 +2915,17 @@ At its core, an autopilot is a system that lets a plane fly "in a straight line"
 
 The first of these is achieved using, in autopilot parlance, a **wing leveler**, often found as the label `LVL` on autopilot controls, and the second of these is achieved using **altitude hold**, often found as `ALT` on autopilot controls. You can see where the names come from: the first keeps the plane's wings level, keeping us pointing in (roughly) the same compass direction, while the second keeps the plane (roughly) at some fixed altitude.
 
-More fully featured autopilots extend these two modes by adding **altitude set and hold**, which runs altitude hold "at a ***specific*** altitude", with additional logic to get us from one altitude to another if we need to change, as well as by adding **heading mode**, which effectively runs level mode "for a ***specific*** compass direction", with additional logic to get us from pointing in one direction to pointing in another.
+More fully featured autopilots extend these two modes by adding **altitude set and hold**, which runs altitude hold "at a *_specific_* altitude", with additional logic to get us from one altitude to another if we need to change, as well as by adding **heading mode**, which effectively runs level mode "for a *_specific_* compass direction", with additional logic to get us from pointing in one direction to pointing in another.
 
-We start by observing that we ***could*** try to take all our aeroplane's flight data, then run a bunch of maths on the numbers we get in order to predict when we need to perform which operations in order to make sure that our plane does the right thing in the future, but this will be a losing proposition: the weather, air density changes, random updrafts, terrain-induced wind, the ground effect etc. are all going to interfere with any predictions we'd make.
+We start by observing that we *_could_* try to take all our aeroplane's flight data, then run a bunch of maths on the numbers we get in order to predict when we need to perform which operations in order to make sure that our plane does the right thing in the future, but this will be a losing proposition: the weather, air density changes, random updrafts, terrain-induced wind, the ground effect etc. are all going to interfere with any predictions we'd make.
 
-Instead, we're going to implement our autopilot as a **reactionary** system: it looks at what the current flight data is, and then puts in small corrections that'll push us away from the wrong direction, and we repeat that process over and over and over, every time looking at the new flight data, and then saying which new corrections to make. The trick to getting an autopilot working based on this approach is that if we can do this in a way that makes the corrections smaller and smaller every time we run, we will converge on the desired flight path, barely having to correct anything after a while. The plane will just be flying the way we want it to.
+Instead, we're going to implement our autopilot as a *_reactionary_* system: it looks at what the current flight data is, and then puts in small corrections that'll push us away from the wrong direction, and we repeat that process over and over and over, every time looking at the new flight data, and then saying which new corrections to make. The trick to getting an autopilot working based on this approach is that if we can do this in a way that makes the corrections smaller and smaller every time we run, we will converge on the desired flight path, barely having to correct anything after a while. The plane will just be flying the way we want it to.
 
 Of course, a real autopilot does this kind of monitoring and correcting on a continuous basis. Something we don't really have the luxury of doing by using JavaScript: in order not to overload both Node.js and MSFS, and in order for us to be able to look at any log data flying by when we need to do console log debugging, let's pick go with running our autopilot twice per second. And despite how coarse that sounds, we'll be able to make our autopilot work at this interval length. And the main reason we'll be able to do that is because the following function:
 
 ### The backbone of our Autopilot code: constrain-mapping
 
-Before we do anything else, let's first look at what is probably *the* single most important function in our autopilot: `constrainMap`. This function takes a value, relative to some interval `[a,b]`, and maps it to the corresponding value in a different interval `[c,d]`, such that `a` maps to `c`, `b` maps to `d`, and anything in between `a` and `b` is some new value between `c` and `d`. This is nothing special, that's just numerical mapping, but the critical part here is that in addition to the standard mapping, we also make sure that any value less than `a` _still maps to `c`_ and any value greater than `b` _still maps to `d`_:
+Before we do anything else, let's first look at what is probably _the_ single most important function in our autopilot: `constrainMap`. This function takes a value, relative to some interval `[a,b]`, and maps it to the corresponding value in a different interval `[c,d]`, such that `a` maps to `c`, `b` maps to `d`, and anything in between `a` and `b` is some new value between `c` and `d`. This is nothing special, that's just numerical mapping, but the critical part here is that in addition to the standard mapping, we also make sure that any value less than `a` _still maps to `c`_ and any value greater than `b` _still maps to `d`_:
 
 <figure style="width: 80%; margin: auto; margin-bottom: 1em;">
   <a href="constrain_map.png" target="_blank">
@@ -2959,7 +2959,7 @@ function constrainMap(v, a, b, c, d) {
 }
 ```
 
-We're going to rely on this function *a lot*, so now that we know what it does, and how it does it, let's move on to actual autopilot code.
+We're going to rely on this function _a lot_, so now that we know what it does, and how it does it, let's move on to actual autopilot code.
 
 ## Implementing cruise control
 
@@ -3196,11 +3196,11 @@ Let's go over this code, too.
   2. we want that happen when the **difference between our current altitude and our hold altitude** is zero. And,
   3. we want to get to a situation where our **vertical acceleration** is also zero.
 
-We can combine the first two by translating the difference between our current altitude and hold altitude into a target vertical speed: obviously when we're *at* our hold altitude, we want the vertical speed to be zero; if the difference is positive, then we need to fly up, and so we want a positive vertical speed, and if the difference is negative, the opposite is true and we want a negative speed.
+We can combine the first two by translating the difference between our current altitude and hold altitude into a target vertical speed: obviously when we're _at_ our hold altitude, we want the vertical speed to be zero; if the difference is positive, then we need to fly up, and so we want a positive vertical speed, and if the difference is negative, the opposite is true and we want a negative speed.
 
 As such, we use the "universally safe vertical speed" of 1000 feet per minute as our maximum allowed vertical speed, and then we constrain-map our target vertical speed based on the altitude difference, `targetVS = constrainMap(altDiff, -200, 200, -maxVS, maxVS);`.
 
-The only "cheating" is those `SMALL_TRIM` and `LARGE_TRIM` values, which aren't really based on the flight model: there just isn't really anything in the flight model that we can use to determine how big our trim step should be, so I just flew around MSFS for several days using different aeroplanes to find values that seemed reasonable in relation to the trim limits that we *do* have access to. That's not ideal, but it's good enough.
+The only "cheating" is those `SMALL_TRIM` and `LARGE_TRIM` values, which aren't really based on the flight model: there just isn't really anything in the flight model that we can use to determine how big our trim step should be, so I just flew around MSFS for several days using different aeroplanes to find values that seemed reasonable in relation to the trim limits that we _do_ have access to. That's not ideal, but it's good enough.
 
 ### Testing our code
 
@@ -3208,7 +3208,7 @@ So let's do some testing! Let's get a few planes up in the air, manually trim th
 
 - The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De_Havilland_Canada_DHC-2_Beaver), a fun little piston engine bush plane.
 - The [Cessna 310R](https://en.wikipedia.org/wiki/Cessna_310), a (very good looking) small twin turbo-prop plane.
-- The [Beechcraft Model 18](https://en.wikipedia.org/wiki/Beechcraft*Model*18), a large twin radial engine aeroplane.
+- The [Beechcraft Model 18](https://en.wikipedia.org/wiki/Beechcraft_Model_18), a large twin radial engine aeroplane.
 - The [Douglas DC-3](https://en.wikipedia.org/wiki/Douglas_DC-3), an almost four times bigger twin radial engine aeroplane.
 - The [Top Rudder Solo 103](https://www.toprudderaircraft.com/product-page/103solo-standard), an ultralight that no sane person would stick an autopilot in. So we will. Because we can.
 
@@ -3438,7 +3438,7 @@ This plane is a delight to fly, and has trim limits of +/- 30. It's slow to resp
 
 #### Douglas DC-3
 
-This lumbering beast has trim limits of +/- 12 and will overshoot if you let it. However, it does respond to trim instructions, and it *will* end up going where we tell it to go. It just takes it a while, and it'll be bouncy.
+This lumbering beast has trim limits of +/- 12 and will overshoot if you let it. However, it does respond to trim instructions, and it _will_ end up going where we tell it to go. It just takes it a while, and it'll be bouncy.
 
 ![image-20230527175705067](./alt-lvl-dc3.png)
 
@@ -3577,7 +3577,7 @@ And with that, there really isn't anything else to say. Except maybe for those m
 
 With heading mode implemented, let's also update our altitude hold code to become altitude "set-and-hold" instead. Meaning that instead of telling our autopilot to hold the altitude we were at when we turned on ALT mode, we're now going to simply give it new altitudes and then hope it knows how to get there all on its own.
 
-First, we'll... err... do nothing? We don't need any new constants or updates to our `autopilot.js` code, or in fact *any* new code: we already wrote all the code we needed by translating our altitude difference into a vertical speed.
+First, we'll... err... do nothing? We don't need any new constants or updates to our `autopilot.js` code, or in fact _any_ new code: we already wrote all the code we needed by translating our altitude difference into a vertical speed.
 
 Job done, how easy was that?!
 
@@ -3680,7 +3680,7 @@ And done, we should be good to go, let's start our tests with the probably-least
 
 #### Top Rudder Solo 103
 
-I say least likely, because while flying straight isn't too taxing, and flying a heading isn't too taxing, and flying up or down isn't super hard, doing everything at once *may* just be a bit too much for an ultralight, so let's see ho-
+I say least likely, because while flying straight isn't too taxing, and flying a heading isn't too taxing, and flying up or down isn't super hard, doing everything at once _may_ just be a bit too much for an ultralight, so let's see ho-
 
 <img src="./water-crash.png" alt="image-20230527182824118" style="zoom: 67%;" />
 
@@ -4522,13 +4522,13 @@ With a smattering of CSS to make our markers look reasonable:
 }
 ```
 
-We can now place a bunch of waypoints by clicking the map, which will send a waypoint creation message to the server, which creates the *actual* waypoint, which we're then told about because the waypoints are now part of our autopilot information that we send to the client every time the autopilot updates.
+We can now place a bunch of waypoints by clicking the map, which will send a waypoint creation message to the server, which creates the _actual_ waypoint, which we're then told about because the waypoints are now part of our autopilot information that we send to the client every time the autopilot updates.
 
 ![image-20230607105644939](./waypoints-with-alt.png)
 
 #### Flying and transitioning over waypoints
 
-Of course with all this setup we still need to actually make the plane *fly* using our waypoints, so let's update our server-side autopilot, specifically the `getTargetBankAndTurnRate` function that we use as part of `flyLevel`:
+Of course with all this setup we still need to actually make the plane _fly_ using our waypoints, so let's update our server-side autopilot, specifically the `getTargetBankAndTurnRate` function that we use as part of `flyLevel`:
 
 ```javascript
 function getTargetBankAndTurnRate(autopilot, state, maxBank) {
@@ -4637,11 +4637,11 @@ if dist(plane, p2) < radius ->
 if target exists -> plane.target(target)
 ```
 
-So what happens when we use *that*? Sure, we need to recompute that point every frame, but maths is cheap, so if it looks better, it's probably worth it:
+So what happens when we use _that_? Sure, we need to recompute that point every frame, but maths is cheap, so if it looks better, it's probably worth it:
 
 <img src="./better-five-point.png" alt="image-20230602183516630" style="zoom:80%;" />
 
-And it is: instead of never actually being on the flight path itself, we're now on the flight path *the majority of the time*. And a "switchback" style flight path is suddenly far less problematic:
+And it is: instead of never actually being on the flight path itself, we're now on the flight path _the majority of the time_. And a "switchback" style flight path is suddenly far less problematic:
 
 <img src="./tight-corners.png" alt="image-20230602183821099" style="zoom: 67%;" />
 
@@ -4789,7 +4789,7 @@ You bet it does.
 
 #### Saving and loading flight paths
 
-Before we move on to testing, let's make sure we can *repeat* flights, otherwise testing is going to be quite the challenge. Thankfully, this is going to be super simple. First, we add some web page UI:
+Before we move on to testing, let's make sure we can _repeat_ flights, otherwise testing is going to be quite the challenge. Thankfully, this is going to be super simple. First, we add some web page UI:
 
 ```html
 <div id="maps-selectors">
@@ -5028,13 +5028,13 @@ Normally, most planes don't come with a mode that lets them "hug the landscape",
 
 The problem is with point (2) in that list: there is nothing baked into MSFS that lets us "query landscape elevation". We'd instead need to create a dummy object, spawn it into the world, then move it across the landscape and ask MSFS what its x, y, and z coordinates are. That's pretty annoying, and quite a bit of work. However, since the whole selling point of MSFS is that you can fly anywhere on Earth, as an alternative we could also just query some out-of-game resource for elevation data based on GPS coordinates.
 
-Back in the day, Google offered that as a free web API, but they decided to charge quite a bit of money for that starting back in 2018, so that's out. There is also https://www.open-elevation.com, which *is* free, but because they're not Google they're also frequently down, making them an admirable but highly unreliable resource. Which leaves "writing our own elevation API", which is surprisingly doable. We just need a good source of elevation data. Covering the entire planet. At a high enough resolution.
+Back in the day, Google offered that as a free web API, but they decided to charge quite a bit of money for that starting back in 2018, so that's out. There is also https://www.open-elevation.com, which _is_ free, but because they're not Google they're also frequently down, making them an admirable but highly unreliable resource. Which leaves "writing our own elevation API", which is surprisingly doable. We just need a good source of elevation data. Covering the entire planet. At a high enough resolution.
 
-Enter the Japanese Aerospace eXploration Agency, or [JAXA](https://global.jaxa.jp/), and their freely available ALOS (Advanced Land Observing Satellite) [Digital Surface Model](https://en.wikipedia.org/wiki/Digital_elevation_model) datasets. Specifically, their [30 meter dataset](https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d30/aw3d30_e.htm), which has elevation data for the entire planet's land surface at a resolution finer than MSFS uses, and can be downloaded for free after signing up for an (again, free) account and agreeing to their [data license](https://earth.jaxa.jp/en/data/policy). One downside: it's 450GB of on-disk data hosted as a 150GB download spread out over hundreds of files. On the upside, we know how to program, so scripting the downloads isn't terribly hard, and a 1TB SSD is $50 these days, so that's unlikely to *really* be a problem.
+Enter the Japanese Aerospace eXploration Agency, or [JAXA](https://global.jaxa.jp/), and their freely available ALOS (Advanced Land Observing Satellite) [Digital Surface Model](https://en.wikipedia.org/wiki/Digital_elevation_model) datasets. Specifically, their [30 meter dataset](https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d30/aw3d30_e.htm), which has elevation data for the entire planet's land surface at a resolution finer than MSFS uses, and can be downloaded for free after signing up for an (again, free) account and agreeing to their [data license](https://earth.jaxa.jp/en/data/policy). One downside: it's 450GB of on-disk data hosted as a 150GB download spread out over hundreds of files. On the upside, we know how to program, so scripting the downloads isn't terribly hard, and a 1TB SSD is $50 these days, so that's unlikely to _really_ be a problem.
 
 ![image-20230616092430451](./ALOS-example.png)
 
-What *will* be a problem is that the ALOS data uses the GeoTIFF data format: TIFF images with metadata that describes what section of planet they map to, and which mapping you need to use to go from pixel-coordinate to geo-coordinate. The TIFF part is super easy, we can just use the [tiff](https://www.npmjs.com/package/tiff) package to load those in, and ALOS thankfully has its files organized in directories with filenames that indicate which whole-angle GPS bounding box they're for, so finding the file we need to look up any GPS coordinate is also pretty easy...  it's finding the pixel in the image that belongs to a *specific* GPS coordinate that's a little more work.
+What _will_ be a problem is that the ALOS data uses the GeoTIFF data format: TIFF images with metadata that describes what section of planet they map to, and which mapping you need to use to go from pixel-coordinate to geo-coordinate. The TIFF part is super easy, we can just use the [tiff](https://www.npmjs.com/package/tiff) package to load those in, and ALOS thankfully has its files organized in directories with filenames that indicate which whole-angle GPS bounding box they're for, so finding the file we need to look up any GPS coordinate is also pretty easy...  it's finding the pixel in the image that belongs to a _specific_ GPS coordinate that's a little more work.
 
 Of course, [I already did this work so you don't have to](https://stackoverflow.com/questions/47951513#75647596), so let's dive in: what do we need?
 
@@ -5865,7 +5865,7 @@ With those steps performed, we can start to throttle up and roll down the runway
 
 ### Runway roll
 
-Now, the *easy* part is slowly throttling the engines up to 100%. The *hard* part is keeping the plane on the runway: propeller torque as well as small differences in engine outputs on multi-engine aircrafts can *and will* roll us off the runway if we don't use the pedals to steer us in the right direction. For instance, let's see what happens if we just throttle up the engines without any kind of rudder action:
+Now, the _easy_ part is slowly throttling the engines up to 100%. The _hard_ part is keeping the plane on the runway: propeller torque as well as small differences in engine outputs on multi-engine aircrafts can *and will* roll us off the runway if we don't use the pedals to steer us in the right direction. For instance, let's see what happens if we just throttle up the engines without any kind of rudder action:
 
 <table>
 <tr><td>
@@ -5879,7 +5879,7 @@ Now, the *easy* part is slowly throttling the engines up to 100%. The *hard* par
 </table>
 
 
-It's not good, this is varying degrees of crashing into trees or buildings, so we're definitely going to need to implement an "auto-rudder" of sorts if we want to at least *pretend* we're sticking to the runway during takeoff.
+It's not good, this is varying degrees of crashing into trees or buildings, so we're definitely going to need to implement an "auto-rudder" of sorts if we want to at least _pretend_ we're sticking to the runway during takeoff.
 
 One thing we notice is the difference between the 310R and the three tail draggers. As you may have guessed, this corresponds to the moment when the tail wheel no longer makes contact with the ground: up until that point we have the benefit of actually being able to (slightly) steer using the rear wheel, with the actual rudder having to do very little, but once it's off the ground we need to briefly work the rudder a lot harder to stop the plane from suddenly veering off.
 
@@ -5898,7 +5898,7 @@ If we're lucky (or we accept "good enough") we can come up with code that can ha
 - the close to the center line we are, the less rudder we need to  apply,  and
 - every plane has rudder characteristics that we could use to finesse the code, but we don't have access to them.
 
-Now, the first two are relatively easy to implement (although we'll need a fair bit of code for step 2, even if it's simple code). It's that last point that's properly annoying. There's just no way to get the information we want, so if we want something that mostly kind of sort of works for mostly all planes, we're going to have run this code a million times for different planes and figure out what "magic constant" works for which plane. And then try to figure out what plane property that we *do* have access to we can tie that to. To save you that headache, I've done that work for us, but suffice it to say we shouldn't feel good about this solution and ideally, one day, we will come up with something better.
+Now, the first two are relatively easy to implement (although we'll need a fair bit of code for step 2, even if it's simple code). It's that last point that's properly annoying. There's just no way to get the information we want, so if we want something that mostly kind of sort of works for mostly all planes, we're going to have run this code a million times for different planes and figure out what "magic constant" works for which plane. And then try to figure out what plane property that we _do_ have access to we can tie that to. To save you that headache, I've done that work for us, but suffice it to say we shouldn't feel good about this solution and ideally, one day, we will come up with something better.
 
 So let's write some code:
 
@@ -6012,7 +6012,7 @@ There are two special speeds that determine when an aeroplane can take off (from
 - `Vr`, or the "rotation speed", which is the speed at which you want to start pulling back on the stick or yoke to get the plane to lift off,and
 - `V1`, which is the cutoff speed for aborting a takeoff. If you haven't taken off by the time the plane reaches `V1`, you are taking off, whether you like it or not, because the alternative is a crash. It's the speed at which your plane can no longer safely slow down to a stop simply by throttling and braking, so you're going to keep speeding up and you ***will*** take off, even if you then find a suitable place to perform an emergency landing.
 
-For the purpose of our auto-takeoff we're going to *prefer* to use `Vr`, but not every plane has a sensible value set for that (for... reasons? I have no idea, some planes have nonsense values like -1), so we'll use the rule "use `Vr` unless that's nonsense, then use `V1`".
+For the purpose of our auto-takeoff we're going to _prefer_ to use `Vr`, but not every plane has a sensible value set for that (for... reasons? I have no idea, some planes have nonsense values like -1), so we'll use the rule "use `Vr` unless that's nonsense, then use `V1`".
 
 ```javascript
   async checkRotation(onGround, currentSpeed, lift, dLift, vs, totalWeight) {
@@ -6168,7 +6168,7 @@ In fact, we already did! All the graphs for terrain follow that started on the r
 
 ## Auto-landing
 
-Of course, a flight consists of three parts: takeoff, "the flight" and landing, so... before we consider all of this "done", I'd say there's one thing left we should take a crack at. And because we can, let's implement this as a browser experiment (as a demonstration of how we *can* do things purely client side).
+Of course, a flight consists of three parts: takeoff, "the flight" and landing, so... before we consider all of this "done", I'd say there's one thing left we should take a crack at. And because we can, let's implement this as a browser experiment (as a demonstration of how we _can_ do things purely client side).
 
 ### Browser experiments
 
@@ -6320,7 +6320,7 @@ There's a couple of steps and phases that we need to implement, starting with th
 </tr>
 </table>
 
-Uhh, so... yeah: that can still be a *lot* of airports, and not every plane can land at every airport (ever tried landing a regular plane on a water runway? Not the best landing), so we'll need a few checks:
+Uhh, so... yeah: that can still be a _lot_ of airports, and not every plane can land at every airport (ever tried landing a regular plane on a water runway? Not the best landing), so we'll need a few checks:
 
 1. Find all nearby airports,
 2. Reduce that list to, say, 10 airports,
@@ -6337,7 +6337,7 @@ Once we have a flight plan towards a runway, and we've flown it to the approach,
 5. The roll-out, where we keep applying brakes and use the rudder to keep us straight on the runway as we slow down, and
 6. The end, where the plane has stopped, we can let go of the breaks, retract the flaps, and because we're in a sim, turn off the engine(s).
 
-Note that this is a pretty simplified landing that you'd never fly in real life, or even in-sim if you're flying yourself, but the subtleties of landing are lost on a computer, we need to be explicit about every step, and in order to get auto-landing to work *at all* we're taking some shortcuts. Refinements and finessing can always come later, if desired.
+Note that this is a pretty simplified landing that you'd never fly in real life, or even in-sim if you're flying yourself, but the subtleties of landing are lost on a computer, we need to be explicit about every step, and in order to get auto-landing to work _at all_ we're taking some shortcuts. Refinements and finessing can always come later, if desired.
 
 So, let's write some code
 
@@ -6519,7 +6519,7 @@ So this won't work. We can't land like this. Instead, we need some extra points 
 
 ![image-20230615100328536](./approach-map-double-good.png)
 
-But the airplanes near the runway still need some help because two of them may still work (provided we're not *too* close to the runway)
+But the airplanes near the runway still need some help because two of them may still work (provided we're not _too_ close to the runway)
 
 ![image-20230615100835345](./approach-map-double-good-2.png)
 
@@ -6535,7 +6535,7 @@ And now we have workable approaches: if we're further from the runway than the a
 
 Of course, the other part of getting lined up is "being at the right altitude", but that part is relatively easy: we're simply going to declare that we want to be at 1500 feet above the runway at the start of the approach, and 200 feet above the runway about halfway through the approach, and we'll just set the autopilot `ALT` value according to how close to the approach/runway we are.
 
-So let's add some "getting onto the approach" code. First up, a function that'll actually build the waypoints *as* autopilot waypoints for this approach:
+So let's add some "getting onto the approach" code. First up, a function that'll actually build the waypoints _as_ autopilot waypoints for this approach:
 
 ```javascript
 function setApproachPath(plane, { easingPoints, anchor, runwayStart, runwayEnd }) {
@@ -6760,7 +6760,7 @@ async function targetThrottle(engineCount = 4, target, step = 1) {
 
 There's two things we need to answer before we can run this code, though: what's a safe throttle position, and what's the right distance from the runway to start the actual landing? Because those depend on the plane we're flying. Unfortunately, as far as I know (although I'd love to be shown otherwise) there is no good way to abstract that information from SimConnect variables and/or current flight information, so.... we hard code them. For example, for the DeHavilland DHC-2 "Beaver", `SAFE_THROTTLE` is 65%, and `DROP_DISTANCE_KM` is 0.5, and for the Cessna 310R, the `SAFE_THROTTLE` is 35%, and the `DROP_DISTANCE` is 0.8... how do we know? I flew those planes, many many times, over a nice flat stretch of Australia where you can just go in a straight line forever while setting the throttle to something and then wait to see what speed that eventually slows you down to. And then cutting the throttle to see how long it takes to hit the ground. Science!
 
-But yeah, it means we're going to need some airplane-specific parameters, which means we might as well make some airplane profiles. We don't *want* those, but I haven't figured out a way to make auto-landing work without them, so...  let's go? We'll make a little `parameters.js` file, and I'm giving you two airplanes but you get to do the rest:
+But yeah, it means we're going to need some airplane-specific parameters, which means we might as well make some airplane profiles. We don't _want_ those, but I haven't figured out a way to make auto-landing work without them, so...  let's go? We'll make a little `parameters.js` file, and I'm giving you two airplanes but you get to do the rest:
 
 ```javascript
 export const BEAVER = {
