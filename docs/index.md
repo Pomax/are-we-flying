@@ -3206,10 +3206,10 @@ The only "cheating" is those `SMALL_TRIM` and `LARGE_TRIM` values, which aren't 
 
 So let's do some testing! Let's get a few planes up in the air, manually trim them so they fly mostly straight ahead, and then turn on our own bespoke artisanal LVL mode! For this test, and every test we'll be doing for all the other modes we'll be implementing, we'll be using a cross section of the various planes in MSFS:
 
-- The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De_Havilland_Canada_DHC-2_Beaver), a fun little piston engine bush plane.
-- The [Cessna 310R](https://en.wikipedia.org/wiki/Cessna_310), a (very good looking) small twin turbo-prop plane.
-- The [Beechcraft Model 18](https://en.wikipedia.org/wiki/Beechcraft_Model_18), a large twin radial engine aeroplane.
-- The [Douglas DC-3](https://en.wikipedia.org/wiki/Douglas_DC-3), an almost four times bigger twin radial engine aeroplane.
+- The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), a fun little piston engine bush plane.
+- The [Cessna 310R](https://en.wikipedia.org/wiki/Cessna%5F310), a (very good looking) small twin turbo-prop plane.
+- The [Beechcraft Model 18](https://en.wikipedia.org/wiki/Beechcraft%5FModel%5F18), a large twin radial engine aeroplane.
+- The [Douglas DC-3](https://en.wikipedia.org/wiki/Douglas%5FDC-3), an almost four times bigger twin radial engine aeroplane.
 - The [Top Rudder Solo 103](https://www.toprudderaircraft.com/product-page/103solo-standard), an ultralight that no sane person would stick an autopilot in. So we will. Because we can.
 
 #### Adding autopilot buttons to our web page
