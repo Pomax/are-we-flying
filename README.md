@@ -1,5 +1,9 @@
 # Are We Flying? (in Microsoft Flight Simulator 2020)
 
+### https://pomax.github.io/are-we-flying
+
+# What is this?
+
 this project is both the completed code for, and a tutorial on, writing an autopilot for MSFS that runs in Node and is controlled via a web page, by using MSFS's SimConnect SDK.
 
 If you just want to run the code and be up and flying, clone the repo, then install all the necessary dependencies using `npm install` in the root dir. (Note: Node 19 or higher is required. I recommend using [nvm-windows](https://github.com/coreybutler/nvm-windows) to make managing Node versions easier. Don't install Node using the nodejs.org installers).
@@ -28,6 +32,10 @@ Needless to say, you need to be on Windows for this, because MSFS doesn't run on
 ## Reading the tutorial
 
 Head on over the `docs` dir, there should be a rather substantial INDEX.md file for your perusal, conveniently mirrored over on https://pomax.github.io/are-we-flying.
+
+## Sponsorship / donation
+
+Writing a 150 page tutorial (book?) takes time and effort. If you can appreciate that, click the [sponsor button](https://github.com/sponsors/Pomax) to help fund this kind of work either as a one-time thing, or on an on-going basis. Anything you can spare is highly appreciated.
 
 ## Questions and comments
 
