@@ -35,7 +35,7 @@ Head on over the `docs` dir, there should be a rather substantial INDEX.md file 
 
 ## Sponsorship / donation
 
-Writing a 150 page tutorial (book?) takes time and effort. If you can appreciate that, click the [sponsor button](https://github.com/sponsors/Pomax) to help fund this kind of work either as a one-time thing, or on an on-going basis. Anything you can spare is highly appreciated.
+Writing a 150 page tutorial (book?) takes time and effort. If you can financially appreciate that, click the [sponsor button](https://github.com/sponsors/Pomax) to help fund this kind of work either as a one-time thing, or on an on-going basis. Anything you can spare is highly appreciated.
 
 ## Questions and comments
 
