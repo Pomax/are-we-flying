@@ -9,6 +9,7 @@ import { writePNG, readPNG } from "./write-png.js";
 import dotenv from "dotenv";
 dotenv.config({ path: "../../.env" });
 const { DATA_FOLDER } = process.env;
+const LOCAL_DATA_FOLDER = `data`;
 import { INDEX_FILE } from "./alos-constants.js";
 
 const index = JSON.parse(readFileSync(INDEX_FILE));
@@ -20,8 +21,8 @@ for (const location of index) {
   const filePath = path.join(DATA_FOLDER, location);
 
   const pngPath = filePath
-    .replace(DATA_FOLDER, path.join(`.`, `data`))
-    .replace(`.tif`, `.${3600 / DOWNSCALE}m.png`);
+    .replace(DATA_FOLDER, path.join(`.`, LOCAL_DATA_FOLDER))
+    .replace(`.tif`, `.${30 * DOWNSCALE}m.png`);
   if (existsSync(pngPath)) continue;
 
   const file = readFileSync(filePath);
