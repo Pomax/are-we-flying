@@ -2,6 +2,7 @@ node_modules
 src/**/cache
 src/**/data
 src/**/alos-index.json
+src/**/data
 .DS_Store
 **/*.svg
 .env

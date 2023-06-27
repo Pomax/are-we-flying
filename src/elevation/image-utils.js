@@ -1,19 +1,10 @@
-import fs from "fs/promises";
-import { execSync } from "child_process";
 import { createWriteStream } from "fs";
-import path from "path";
-import tiff from "tiff";
 import * as PImage from "pureimage";
-import {
-  lerp,
-  map,
-  constrain,
-  constrainMap,
-} from "../api/autopilot/utils/utils.js";
-import { CACHE_DIR } from "./alos-constants.js";
+import { map, constrain, constrainMap } from "../api/autopilot/utils/utils.js";
+import { writePNG } from "./write-png.js";
 
 // plain math
-const { abs, sin, cos, atan2, PI, log, sqrt } = Math;
+const { sqrt } = Math;
 
 // vector math
 const sub = (v1, v2) => ({ x: v1.x - v2.x, y: v1.y - v2.y, z: v1.z - v2.z });
@@ -28,11 +19,14 @@ const reflect = (ray, normal) => {
   );
 };
 
-const light = { x: -1, y: -1, z: 1 };
+const F = (v) => constrainMap(v, 0, 1, 0, 255) | 0;
+
+const light = { x: -100, y: -100, z: 1 };
+
 const flat = { x: 0, y: 0, z: 1 };
 const flatReflection = reflect(light, flat);
+const flatValue = F(flatReflection.z);
 console.log(flatReflection);
-const flatValue = constrainMap(flatReflection.z, 0, 1, 0, 255) | 0;
 console.log(`flatValue=${flatValue}`);
 
 const MERGE_HORIZONTALLY = Symbol();
@@ -161,27 +155,27 @@ export async function saveImage(imagePath, width, height, pixels) {
   // create the normal map
   for (let x = 0; x < width; x++) {
     for (let y = 0; y < height; y++) {
+      // get the surface normal at (x,y)
       const a = getElevation(x - 1, y);
       const b = getElevation(x + 1, y);
       const c = getElevation(x, y - 1);
       const d = getElevation(x, y + 1);
-
-      // get the surface normal at (x,y)
       const n = unit({ x: a - b, y: c - d, z: 2 });
-      const F = (v) => (255 * v) | 0;
+
+      // colour the normal map
       normals.setPixelRGBA(
         x,
         y,
         (F(n.x) << 24) + (F(n.y) << 16) + (F(n.z) << 8) + 0xff
       );
 
-      // and then hillshade the pixel
-      const reflection = reflect(light, n);
-      const i = constrainMap(reflection.z, 0, 1, 0, 255);
+      // and then hill-shade the pixel
+      const r = reflect(light, n);
+      const e = constrainMap(r.z, 0, 0.6, 0, 255) | 0;
 
-      // don't color flat surfaces:
-      const A = i === flatValue ? 0 : 255;
-      hillShade.setPixelRGBA(x, y, (i << 24) + (i << 16) + (i << 8) + A);
+      // don't colour flat surfaces:
+      const A = e === flatValue ? 0 : 255;
+      hillShade.setPixelRGBA(x, y, (e << 24) + (e << 16) + (e << 8) + A);
     }
   }
 
@@ -204,30 +198,5 @@ export async function saveImage(imagePath, width, height, pixels) {
     console.log(e);
   }
 
-  // try {
-  //   console.log(`scaling hill shade down to 256x256 pixels`);
-  //   execSync(`ffmpeg -i ${outpath} -vf scale="256:-1" ${imagePath}`, {
-  //     stdio: `ignore`,
-  //   });
-  //   await fs.unlink(outpath);
-  //   console.log(`done`);
-  // } catch (e) {
-  //   // literally irrelevant
-  // }
-
   return true;
-}
-
-function average(...numbers) {
-  const base = { x: 0, y: 0, z: 0 };
-  numbers.forEach((n) => {
-    base.x += (n & 0xff000000) >> 24;
-    base.y += (n & 0x00ff0000) >> 16;
-    base.z += (n & 0x0000ff00) >> 8;
-  });
-  const n = numbers.length;
-  base.x /= n;
-  base.y /= n;
-  base.z /= n;
-  return base;
 }
