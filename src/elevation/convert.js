@@ -5,6 +5,7 @@ import path from "path";
 import tiff from "tiff";
 import { readFileSync, existsSync } from "fs";
 import { writePNG, readPNG } from "./write-png.js";
+import { GeoTags } from "./geo-tags.js";
 
 import dotenv from "dotenv";
 dotenv.config({ path: "../../.env" });
@@ -30,10 +31,11 @@ for (const location of index) {
   const block = image[0];
   const { width, height, fields, data: pixels } = block;
 
-  const GeoTags = {};
+  const tags = {};
   fields.forEach((value, key) => {
-    if (parseFloat(key) >= 400) {
-      GeoTags[key] = value;
+    const name = GeoTags[key];
+    if (name) {
+      tags[name] = value;
     }
     // TODO: we should probably update the transform matrix?
     // SEE: https://gis.stackexchange.com/a/452575/219296
@@ -57,21 +59,22 @@ for (const location of index) {
     }
   }
 
-  writePNG(pngPath, pngPixels, w, h, GeoTags);
+  writePNG(pngPath, pngPixels, w, h, tags);
 }
 
-// const src = `c:\\Users\\Mike\\Documents\\git\\projects\\are-we-flying\\src\\elevation\\data\\N045W120_N050W115\\ALPSMLC30_N048W120_DSM.900m.png`;
-// const { width, height, pixels, geoTags } = readPNG(src);
+if (false) {
+  const src = `c:\\Users\\Mike\\Documents\\git\\projects\\are-we-flying\\src\\elevation\\data\\N045W120_N050W115\\ALPSMLC30_N048W120_DSM.120m.png`;
+  const { width, height, pixels, geoTags } = readPNG(src);
+  console.log(width, height, pixels, geoTags);
 
-// console.log(width, height, pixels, geoTags);
-
-// const src2 = src
-//   .replace(
-//     `c:\\Users\\Mike\\Documents\\git\\projects\\are-we-flying\\src\\elevation\\data`,
-//     DATA_FOLDER
-//   )
-//   .replace(`.900m.png`, `.tif`);
-// const tdata = readFileSync(src2);
-// const tff = tiff.decode(tdata);
-// const { width: w, height: h, data } = tff[0];
-// console.log(w, h, data);
+  const src2 = src
+    .replace(
+      `c:\\Users\\Mike\\Documents\\git\\projects\\are-we-flying\\src\\elevation\\data`,
+      DATA_FOLDER
+    )
+    .replace(`.120m.png`, `.tif`);
+  const tdata = readFileSync(src2);
+  const tff = tiff.decode(tdata);
+  const { width: w, height: h, data } = tff[0];
+  console.log(w, h, data);
+}
