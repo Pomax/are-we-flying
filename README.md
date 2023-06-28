@@ -29,9 +29,38 @@ Have MSFS running, and then run `run.bat` in the root folder to start two comman
 
 Needless to say, you need to be on Windows for this, because MSFS doesn't run on anything else (I mean, I guess XBox? But I doubt you have git and/or Node installed on that).
 
+## Using the autopilot
+
+There are two parts to the autopilot:
+
+1. the AP toggles, and
+2. the navigation map
+
+The AP toggles are:
+
+- `AP` toggle the autopilot on or off
+- `LVL` toggle the wing leveler on or off
+- `ALT` toggle altitude hold on or off, with the altitude in feet set using the input field to the left of it
+- `ATT` toggle auto-throttle on or off
+- `TER` toggle terrain-follow on or off (note: this currently only works if you've [downloaded and unpacked the ALOS 30m dataset](https://pomax.github.io/are-we-flying/#terrain-follow-mode))
+- `HDG` toggle heading mode on or off, with the heading in degrees set using the input field to the left of it
+- `take off` makes the plane take off!
+- `land` only exists (for now) when loading the page with `?experiment=auto-land`, and will find a nearby airport to land at, then tries to land there.
+
+The navigation map lets you control the flight plan Google Maps style:
+
+- click to place a waypoint
+- click an existing waypoint to set its altitude (note: altitudes are ignored when terrain follow mode is active)
+- click-drag a waypoint to move it around
+- double-click a waypoint to remove it
+
+Waypoint navigation is based on flying legs between waypoints, with the active leg indicated by its start and end waypoint being highlighted.
+
+Waypoint based flight plans can be saved and loaded, as well as reset (marking each waypoint as not having been visited yet) or cleared (removing all waypoints from the map)
+
 ## Reading the tutorial
 
-Head on over the `docs` dir, there should be a rather substantial INDEX.md file for your perusal, conveniently mirrored over on https://pomax.github.io/are-we-flying.
+Head on over to https://pomax.github.io/are-we-flying for the extensive tutorial
 
 ## Sponsorship / donation
 
@@ -41,4 +70,4 @@ Writing a 150 page tutorial (book?) takes time and effort. If you can financiall
 
 If you found bugs, or _fixed_ bugs, or even came up with completely new code that's cool to add (or replace existing code), file an issue!
 
-For less serious engagement, you can also hit me up over on https://twitter.com/TheRealPomax or https://mastodon.social/@therealpomax
+For less serious engagement, you can also hit me up over on https://mastodon.social/@TheRealPomax or https://twitter.com/TheRealPomax
