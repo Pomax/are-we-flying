@@ -58,6 +58,10 @@ Waypoint navigation is based on flying legs between waypoints, with the active l
 
 Waypoint based flight plans can be saved and loaded, as well as reset (marking each waypoint as not having been visited yet) or cleared (removing all waypoints from the map)
 
+## Testing the code without even running MSFS
+
+There is a convenient `mock.bat` that runs the api server in "mock mode" that can "talk SimConnect" just well enough to fake a flight for testing code without having to run MSFS. A bunch of the AP code is also [set up for hot-reloading](https://pomax.github.io/are-we-flying/#hot-reloading-to-make-our-dev-lives-easier) so that changes immediately kick in rather than having to restart the API server. 
+
 ## Reading the tutorial
 
 Head on over to https://pomax.github.io/are-we-flying for the extensive tutorial
