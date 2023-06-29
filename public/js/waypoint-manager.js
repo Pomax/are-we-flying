@@ -204,7 +204,6 @@ export class WaypointOverlay {
     };
 
     // Regular waypoint or landing point?
-    console.log(landing);
     known.landing = landing;
     if (landing) {
       classes.add(`landing`);
