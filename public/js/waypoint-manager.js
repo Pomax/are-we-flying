@@ -64,6 +64,19 @@ export class WaypointOverlay {
       });
   }
 
+  hasWaypointLeft() {
+    const { waypoints } = this;
+    return waypoints.length > 0 && waypoints.some((p) => !p.completed);
+  }
+
+  get first() {
+    return this.waypoints.at(0);
+  }
+
+  get last() {
+    return this.waypoints.at(-1);
+  }
+
   manage(waypoints) {
     // do we need to add/update any waypoints?
     waypoints.forEach((waypoint) => this.manageWaypoint(waypoint));
@@ -147,7 +160,10 @@ export class WaypointOverlay {
     return new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
   }
 
-  updateKnownWaypoint(known, { id, lat, long, alt, active, completed }) {
+  updateKnownWaypoint(
+    known,
+    { id, lat, long, alt, landing, active, completed }
+  ) {
     // are we currently dragging this point around?
     if (known.marker?.__drag__latlng) return;
 
@@ -186,6 +202,15 @@ export class WaypointOverlay {
       add: noop,
       remove: noop,
     };
+
+    // Regular waypoint or landing point?
+    console.log(landing);
+    known.landing = landing;
+    if (landing) {
+      classes.add(`landing`);
+    } else {
+      classes.remove(`landing`);
+    }
 
     // Are we in the transition radius?
     known.active = active;

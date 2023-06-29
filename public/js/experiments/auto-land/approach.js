@@ -28,6 +28,7 @@ export async function getNearestApproach(
   approachDistance
 ) {
   const candidates = [];
+  let lat, long;
 
   if (icao) {
     const simvar = `AIRPORT:${icao}`;
@@ -37,8 +38,19 @@ export async function getNearestApproach(
     // Get all nearby airports
     const { NEARBY_AIRPORTS: nearby } = await getAPI(`NEARBY_AIRPORTS`);
 
-    // Reduce that to the five nearest airports.
-    const { lat, long } = plane.lastUpdate;
+    // Reduce that to the five nearest airports, but if we're flying a flight plan,
+    // nearest to the end of our flight plan. If we're not, then nearest to the plane.
+    let hasWaypoints = plane.waypoints.hasWaypointLeft();
+    if (hasWaypoints) {
+      const { last } = plane.waypoints;
+      lat = last.lat;
+      long = last.long;
+    }
+    if (!lat && !long) {
+      lat = plane.lastUpdate.lat;
+      long = plane.lastUpdate.long;
+    }
+
     const reduced = nearby
       .map((e) => {
         e.d = getDistanceBetweenPoints(lat, long, e.latitude, e.longitude);
@@ -57,7 +69,8 @@ export async function getNearestApproach(
 
   candidates.forEach((airport) =>
     computeApproachCoordinates(
-      plane,
+      lat,
+      long,
       airport,
       approachDistance,
       MARGIN_DISTANCE
@@ -68,7 +81,7 @@ export async function getNearestApproach(
   let approaches = candidates
     .map((airport) => airport.runways.map((runway) => runway.approach))
     .flat(Infinity)
-    .sort((a, b) => a.distanceToPlane - b.distanceToPlane);
+    .sort((a, b) => a.distanceToMark - b.distanceToMark);
 
   // remove water landings for planes that can't swim
   const { FLOATS: isFloatPlane } = plane.flightModel.values;
@@ -78,6 +91,7 @@ export async function getNearestApproach(
       return !surface.includes(`water`);
     });
 
+  console.log(approaches);
   // approaches.forEach(drawApproach);
 
   const target = approaches[0];
@@ -116,8 +130,13 @@ export function drawApproach(map, { runway, coordinates }) {
  * @param {*} airport
  * @param {*} approachDistance
  */
-function computeApproachCoordinates(plane, airport, approachDistance) {
-  const { lat: planeLat, long: planeLong } = plane.lastUpdate;
+function computeApproachCoordinates(
+  markLat,
+  markLong,
+  airport,
+  approachDistance
+) {
+  console.log(markLat, markLong);
 
   airport.runways.forEach((runway) => {
     const { latitude: lat, longitude: long, length, width, heading } = runway;
@@ -162,7 +181,7 @@ function computeApproachCoordinates(plane, airport, approachDistance) {
 
       // Which side do we build our easing path on?
       const a1 = getHeadingFromTo(...anchor, ...other);
-      const a2 = getHeadingFromTo(...anchor, planeLat, planeLong);
+      const a2 = getHeadingFromTo(...anchor, markLat, markLong);
       const s = sign(getCompassDiff(a2, a1));
 
       args = [alat, along, MARGIN_DISTANCE, approach.heading + s * 90];
@@ -179,9 +198,9 @@ function computeApproachCoordinates(plane, airport, approachDistance) {
         runwayStart: pts,
         runwayEnd: other,
       };
-      approach.distanceToPlane = getDistanceBetweenPoints(
-        planeLat,
-        planeLong,
+      approach.distanceToMark = getDistanceBetweenPoints(
+        markLat,
+        markLong,
         alat,
         along
       );
@@ -209,6 +228,7 @@ export function setApproachPath(
     callAutopilot(`waypoint`, {
       lat: easingPoints[1][0],
       long: easingPoints[1][1],
+      landing: true,
     });
   }
 
@@ -216,8 +236,13 @@ export function setApproachPath(
   callAutopilot(`waypoint`, {
     lat: easingPoints[0][0],
     long: easingPoints[0][1],
+    landing: true,
   });
 
-  callAutopilot(`waypoint`, { lat: anchor[0], long: anchor[1] });
-  callAutopilot(`waypoint`, { lat: runwayEnd[0], long: runwayEnd[1] });
+  callAutopilot(`waypoint`, { lat: anchor[0], long: anchor[1], landing: true });
+  callAutopilot(`waypoint`, {
+    lat: runwayEnd[0],
+    long: runwayEnd[1],
+    landing: true,
+  });
 }

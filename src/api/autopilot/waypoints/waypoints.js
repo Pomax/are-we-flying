@@ -28,7 +28,7 @@ export class WayPoints {
     addReloadWatcher(__dirname, `waypoint.js`, (lib) => {
       Waypoint = lib.Waypoint;
       const { points } = this;
-      points.forEach((p, pos) => (points[pos] = new Waypoint(0, 0, 0, 0, p)));
+      points.forEach((p, pos) => (points[pos] = new Waypoint(0, 0, 0, 0, 0, p)));
     });
   }
 
@@ -43,9 +43,9 @@ export class WayPoints {
   }
 
   // add a waypoint for a specific GPS coordinate
-  add(lat, long, alt) {
+  add(lat, long, alt, landing) {
     const { points } = this;
-    const waypoint = new Waypoint(this, lat, long, alt);
+    const waypoint = new Waypoint(this, lat, long, alt, landing);
     points.push(waypoint);
     // if we don't have a "current" point, this is now it.
     this.currentWaypoint ??= waypoint;

@@ -5,20 +5,21 @@ const nextId = (() => {
 })();
 
 export class Waypoint {
-  constructor(owner, lat, long, alt = false, original) {
+  constructor(owner, lat, long, alt = false, landing, original) {
     if (original) Object.assign(this, original);
     else {
       this.id = nextId();
       this.owner = owner;
-      this.reset();
+      this.reset(landing);
       this.move(lat, long);
       this.elevate(alt);
     }
   }
 
-  reset() {
+  reset(landing = false) {
     this.completed = false;
     this.active = false;
+    this.landing = landing;
     this.next = undefined;
   }
 
@@ -59,7 +60,7 @@ export class Waypoint {
   // And since we need to send them to the client, make sure that when this gets turned into JSON,
   // we do *not* include the owner object. The toJSON() function is really useful for that.
   toJSON() {
-    const { id, lat, long, alt, active, completed, next } = this;
-    return { id, lat, long, alt, active, completed, next: next?.id };
+    const { id, lat, long, alt, landing, active, completed, next } = this;
+    return { id, lat, long, alt, landing, active, completed, next: next?.id };
   }
 }
