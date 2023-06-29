@@ -52,6 +52,10 @@
   filter: hue-rotate(145deg) brightness(2);
 }
 
+.waypoint-div.landing img.waypoint-marker {
+  filter: hue-rotate(256deg) brightness(1.3);
+}
+
 .waypoint-div.completed img.waypoint-marker {
   filter: hue-rotate(-45deg);
   opacity: 1;

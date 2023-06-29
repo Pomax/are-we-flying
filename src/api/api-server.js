@@ -182,7 +182,7 @@ app.ws("/", function (socket) {
       }
 
       if (action === `waypoint` && hasWriteAccess) {
-        const { lat, long, alt, move, elevate, id } = data.params;
+        const { lat, long, alt, move, elevate, id, landing } = data.params;
         const { remove, revalidate, reset, clear } = data.params;
         if (clear) {
           autopilot.clearWaypoints();
@@ -197,7 +197,7 @@ app.ws("/", function (socket) {
         } else if (remove) {
           autopilot.removeWaypoint(id);
         } else {
-          autopilot.addWaypoint(lat, long, alt);
+          autopilot.addWaypoint(lat, long, alt, landing);
         }
       }
 

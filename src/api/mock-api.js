@@ -1,5 +1,5 @@
 import { MockPlane } from "./mock-plane.js";
-import { airport, airports } from "./mock-cyyj.js";
+import { AIRPORTS } from "./mock-airports.js";
 
 export class MOCK_API {
   constructor() {
@@ -33,9 +33,9 @@ export class MOCK_API {
     // airports
     const first = props[0];
     if (props.length === 1 && first === `NEARBY_AIRPORTS`)
-      return { NEARBY_AIRPORTS: airports };
+      return { NEARBY_AIRPORTS: AIRPORTS };
     if (props.length === 1 && first.startsWith(`AIRPORT:`))
-      return { [first]: airport };
+      return { [first]: AIRPORTS.find(a => a.icao === first.replace(`AIRPORT:`, ``)) };
     // everything else
     return this.plane.get(props);
   }

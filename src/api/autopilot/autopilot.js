@@ -107,8 +107,8 @@ export class AutoPilot {
     return this.waypoints.getWaypoints();
   }
 
-  addWaypoint(lat, long, alt) {
-    this.waypoints.add(lat, long, alt);
+  addWaypoint(lat, long, alt, landing) {
+    this.waypoints.add(lat, long, alt, landing);
   }
 
   moveWaypoint(id, lat, long) {
