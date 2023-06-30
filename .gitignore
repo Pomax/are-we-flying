@@ -1,5 +1,6 @@
 node_modules
 src/**/cache
+src/**/data
 src/**/alos-index.json
 .DS_Store
 **/*.svg
