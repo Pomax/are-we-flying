@@ -57,7 +57,7 @@ export async function getNearestApproach(
         return e;
       })
       .sort((a, b) => a.d - b.d)
-      .slice(0, (airportCount = 10));
+      .slice(0, airportCount);
 
     for await (let airport of reduced) {
       const simvar = `AIRPORT:${airport.icao}`;
