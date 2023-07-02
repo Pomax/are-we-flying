@@ -1,6 +1,7 @@
 // - convert ALOS GeoTIFF to "GeoPNG"
 // - also down-scale from 3600x3600 to 360x360 (300m resolution)
 
+import fs from "fs";
 import path from "path";
 import tiff from "tiff";
 import { readFileSync, existsSync } from "fs";
@@ -9,22 +10,19 @@ import { GeoTags } from "./geo-tags.js";
 
 import dotenv from "dotenv";
 dotenv.config({ path: "../../.env" });
+
 const { DATA_FOLDER } = process.env;
 const LOCAL_DATA_FOLDER = `data`;
 import { INDEX_FILE } from "./alos-constants.js";
 
 const index = JSON.parse(readFileSync(INDEX_FILE));
-const DOWNSCALE = 4;
+const DOWNSCALE = 1;
 
-for (const location of index) {
-  console.log(DATA_FOLDER, location);
-
-  const filePath = path.join(DATA_FOLDER, location);
-
+function processFile(filePath) {
   const pngPath = filePath
     .replace(DATA_FOLDER, path.join(`.`, LOCAL_DATA_FOLDER))
     .replace(`.tif`, `.${30 * DOWNSCALE}m.png`);
-  if (existsSync(pngPath)) continue;
+  if (existsSync(pngPath)) return;
 
   const file = readFileSync(filePath);
   const image = tiff.decode(file.buffer);
@@ -62,19 +60,13 @@ for (const location of index) {
   writePNG(pngPath, pngPixels, w, h, tags);
 }
 
-if (false) {
-  const src = `c:\\Users\\Mike\\Documents\\git\\projects\\are-we-flying\\src\\elevation\\data\\N045W120_N050W115\\ALPSMLC30_N048W120_DSM.120m.png`;
-  const { width, height, pixels, geoTags } = readPNG(src);
-  console.log(width, height, pixels, geoTags);
-
-  const src2 = src
-    .replace(
-      `c:\\Users\\Mike\\Documents\\git\\projects\\are-we-flying\\src\\elevation\\data`,
-      DATA_FOLDER
-    )
-    .replace(`.120m.png`, `.tif`);
-  const tdata = readFileSync(src2);
-  const tff = tiff.decode(tdata);
-  const { width: w, height: h, data } = tff[0];
-  console.log(w, h, data);
+if (true) {
+  const src = `c:\\Users\\Mike\\Documents\\git\\projects\\are-we-flying\\temp\\ALPSMLC30_N048W124_DSM.tif`;
+  processFile(src);
+} else {
+  for (const location of index) {
+    console.log(DATA_FOLDER, location);
+    const filePath = path.join(DATA_FOLDER, location);
+    processFile(filePath);
+  }
 }
