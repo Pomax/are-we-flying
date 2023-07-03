@@ -18,11 +18,11 @@ import { INDEX_FILE } from "./alos-constants.js";
 const index = JSON.parse(readFileSync(INDEX_FILE));
 const DOWNSCALE = 1;
 
-function processFile(filePath) {
+export function processFile(filePath, scale = DOWNSCALE) {
   const pngPath = filePath
     .replace(DATA_FOLDER, path.join(`.`, LOCAL_DATA_FOLDER))
-    .replace(`.tif`, `.${30 * DOWNSCALE}m.png`);
-  if (existsSync(pngPath)) return;
+    .replace(`.tif`, `.${30 * scale}m.png`);
+  if (existsSync(pngPath)) return pngPath;
 
   const file = readFileSync(filePath);
   const image = tiff.decode(file.buffer);
@@ -40,27 +40,31 @@ function processFile(filePath) {
   });
 
   const getElevation = (x, y) => pixels[x + y * width];
-  const [w, h] = [width / DOWNSCALE, height / DOWNSCALE];
+  const [w, h] = [width / scale, height / scale];
   const pngPixels = new Int16Array(w * h);
 
-  for (let x = 0; x < width; x += DOWNSCALE) {
-    for (let y = 0; y < height; y += DOWNSCALE) {
+  for (let x = 0; x < width; x += scale) {
+    for (let y = 0; y < height; y += scale) {
       // collapse region into its highest elevation
       const region = [];
-      for (let i = 0; i < DOWNSCALE; i++) {
-        for (let j = 0; j < DOWNSCALE; j++) {
+      for (let i = 0; i < scale; i++) {
+        for (let j = 0; j < scale; j++) {
           region.push(getElevation(x + i, y + j));
         }
       }
-      const i = x / DOWNSCALE + (y / DOWNSCALE) * w;
+      const i = x / scale + (y / scale) * w;
       pngPixels[i] = Math.max(...region);
     }
   }
 
   writePNG(pngPath, pngPixels, w, h, tags);
+
+  return pngPath;
 }
 
-if (true) {
+/*
+const RUN_STAND_ALONE = false;
+if (RUN_STAND_ALONE) {
   const src = `c:\\Users\\Mike\\Documents\\git\\projects\\are-we-flying\\temp\\ALPSMLC30_N048W124_DSM.tif`;
   processFile(src);
 } else {
@@ -70,3 +74,4 @@ if (true) {
     processFile(filePath);
   }
 }
+*/

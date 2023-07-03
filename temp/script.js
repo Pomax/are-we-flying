@@ -1,6 +1,3 @@
-const SOURCE = `./ALPSMLC30_N048W124_DSM.120m.png`;
-const BGSOURCE = `./bgblue.png`;
-
 // =====================================================
 
 import { unit, reflect, lerp, constrain, constrainMap } from "./js/utils.js";
@@ -9,7 +6,34 @@ import { generateIsoMap } from "./js/iso-lines.js";
 import { getColor, getColorMapping, lerpColor } from "./js/color.js";
 import { blur } from "./js/blur.js";
 
+// =====================================================
+
 const IN_BROWSER = typeof document !== `undefined`;
+
+async function getBaseImage() {
+  const filename = `./ALPSMLC30_N048W124_DSM.120m.png`;
+  if (IN_BROWSER) return filename;
+  const { ALOSInterface } = await import("../src/elevation/alos-interface.js");
+  const dotenv = await import("dotenv");
+  dotenv.config({ path: "../.env" });
+  const { DATA_FOLDER } = process.env;
+  console.log(`data folder:`, DATA_FOLDER);
+  const alos = new ALOSInterface(DATA_FOLDER);
+  const lat = process.argv[2];
+  const long = process.argv[3];
+  console.log(`argv:`, lat, long, process.argv[4]);
+  const tile = alos.getTileFor(lat, long);
+  console.log(`tilepath:`, tile.tilePath);
+  const { processFile } = await import("../src/elevation/convert.js");
+  const pngPath = processFile(tile.tilePath, 4);
+  console.log(`file:`, pngPath);
+  return pngPath;
+}
+
+const SOURCE = await getBaseImage();
+const BGSOURCE = `./bgblue.png`;
+
+// =====================================================
 
 let createCanvas = (width, height) => {
   const cvs = document.createElement(`canvas`);
@@ -156,10 +180,14 @@ async function draw() {
   hillShade();
   drawIsoMap();
   if (!IN_BROWSER) {
+    const d = 800;
+    const c256 = createCanvas(d, d);
+    const ctx = c256.getContext(`2d`);
+    ctx.drawImage(cvs, 0, 0, d, d);
     console.log(`writing file...`);
     const opts = { compressionLevel: 9 };
-    const buffer = cvs.toBuffer(`image/png`, opts);
-    await fs.writeFile(`output.png`, buffer);
+    const buffer = c256.toBuffer(`image/png`, opts);
+    await fs.writeFile(process.argv[4] ?? `output.png`, buffer);
   }
 }
 
@@ -185,11 +213,11 @@ function drawColorGradient() {
 }
 
 function drawShoreLine() {
-  if (!SHOW_SHORE_LINE) return;
-
   const { width, height } = png;
   ctx.globalCompositeOperation = `source-out`;
   ctx.drawImage(bg, 0, 0);
+
+  if (!SHOW_SHORE_LINE) return;
 
   ctx.globalCompositeOperation = `source-over`;
 
@@ -250,22 +278,21 @@ function drawShoreLine() {
 
       // deep water?
       if (d === 0) {
-        data[i + 1] = 60;
-        data[i + 2] = 140;
-        data[i + 3] = 0;
+        data[i + 1] = 20;
+        data[i + 2] = 100;
+        data[i + 3] = 255;
       }
 
       // shoreline?
       else if (d === 1) {
-        data[i + 0] = 0;
-        data[i + 1] = 255;
-        data[i + 2] = 180;
+        data[i + 1] = 20;
+        data[i + 2] = 140;
       }
 
       // shore band?
       else if (d === 2) {
-        data[i + 1] = 140;
-        data[i + 2] = 180;
+        data[i + 1] = 20;
+        data[i + 2] = 120;
       }
     }
   }
@@ -273,7 +300,7 @@ function drawShoreLine() {
   const cvs = createCanvas(width, height);
   const pctx = cvs.getContext(`2d`);
   ctx.globalAlpha = 0.5;
-  const blurred = blur(shoreMap.data, width, height, 30);
+  const blurred = blur(shoreMap.data, width, height, 20);
   for (let i = 0, e = shoreMap.data.length; i < e; i++) {
     shoreMap.data[i] = blurred[i];
   }

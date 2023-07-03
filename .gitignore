@@ -6,3 +6,5 @@ src/**/data
 .DS_Store
 **/*.svg
 .env
+temp/data
+temp/*.png
