@@ -47,14 +47,17 @@ app.get(`/tiles/:z/:x/:y`, async (req, res) => {
   const { lat: lat1, long: long1 } = ltln(x, y, z);
   const { lat: lat2, long: long2 } = ltln(x + 1, y + 1, z);
 
-  // Get our crop
-  const imagePath = path.join(CACHE_DIR, `${z}-${x}-${y}.png`);
+  // Figure out the file location
+  const zoomDir = path.join(CACHE_DIR, `XYZ`, z);
+  fs.mkdirSync(zoomDir, { recursive: true });
+  const imagePath = path.join(zoomDir, `${x}-${y}.png`);
 
   if (!xyzCache[imagePath]) {
     if (!fs.existsSync(imagePath)) {
-      console.log(`building image promise for ${imagePath}`);
+      // Build the image using a promise so that we don't try to
+      // generate the same image multiple times simultaneously.
       xyzCache[imagePath] = new Promise(async (resolve) => {
-        const result = await ALOS.getCrop(
+        const result = await ALOS.getXYZImage(
           imagePath,
           lat1,
           long1,

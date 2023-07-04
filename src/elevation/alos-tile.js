@@ -60,6 +60,13 @@ export class ALOSTile {
     this.coarseReverse = [-gx / sxC, 1 / sxC, 0, -gy / syC, 0, 1 / syC];
   }
 
+  get bbox() {
+    return [
+      ...this.pixelToGeo(0, 0),
+      ...this.pixelToGeo(this.width - 1, this.height - 1),
+    ];
+  }
+
   pixelToGeo(x, y, coarse = false) {
     // returns [lat, long] (it does NOT return [long, lat]!)
     const F = coarse ? this.coarseForward : this.forward;

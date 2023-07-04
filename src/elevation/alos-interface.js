@@ -1,7 +1,10 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { mkdir } from "fs/promises";
 import { win32, sep, join } from "path";
-import { getDistanceBetweenPoints } from "../api/autopilot/utils/utils.js";
+import {
+  getDistanceBetweenPoints,
+  constrainMap,
+} from "../api/autopilot/utils/utils.js";
 import {
   SEA_LEVEL,
   ALOS_VOID_VALUE,
@@ -11,11 +14,10 @@ import {
 } from "./alos-constants.js";
 import { ALOSTile } from "./alos-tile.js";
 import { mergeCrops, saveImage } from "./image-utils.js";
-import fs from "fs";
-import path from "path";
+import { createCanvas } from "canvas";
 
 const COARSE_LEVEL = 10;
-const { floor, ceil, max } = Math;
+const { abs, floor, ceil, max } = Math;
 await mkdir(CACHE_DIR, { recursive: true });
 
 // JAXA ALOS World 3D (30m) dataset manager
@@ -79,69 +81,93 @@ export class ALOSInterface {
     });
   }
 
-  // For now, crops can cover at most 1x1 degree of arc
-  async getCrop(imagePath, lat1, long1, lat2, long2, x, y, z) {
+  async getXYZImage(imagePath, lat1, long1, lat2, long2, x, y, z) {
     console.log(
       `cropping for ${z}/${x}/${y} between: ${lat1},${long1} and ${lat2},${long2}`
     );
-    // we may need up to four tiles
-    const NW = this.getTileFor(lat1, long1);
-    if (!NW) {
-      return false;
+
+    // how many tiles do we need, given that each tile is 1x1 degrees?
+    const dlong = long2 - long1; // we run NW-SE, so long2 is the higher value
+    const xtiles = ceil(dlong);
+
+    const dlat = ceil(lat1) - floor(lat2); // we run NW-SE, so lat1 is the higher value
+    const ytiles = dlat;
+
+    if (xtiles > 6 || ytiles > 4) throw new Error(`too many tiles required (${xtiles}/${ytiles})`);
+
+    console.log(`${xtiles} x ${ytiles} tiles`);
+
+    // XYZ tiles are 256x256px, but in order to keep things looking good,
+    // we'll generate a large master, color it, and then crop/downscale.
+    let bounds;
+    const dim = 3600;
+    const mw = xtiles * dim;
+    const mh = ytiles * dim;
+    const master = new Int16Array(mw * mh);
+
+    console.log(mw, mh, master);
+
+    for (let x = 0; x < xtiles; x++) {
+      for (let y = 0; y < ytiles; y++) {
+        console.log(`get tile ${x + 1}/${y + 1}, for GPS position ${lat1 - y}},${long1+x}`);
+        const tile = this.getTileFor(lat1 - y, long1 + x);
+        if (!tile) continue;
+
+        console.log(`tile`, tile.filename);
+
+        const { pixels, tilePath, bbox } = tile;
+        console.log(`tile bbox:`, bbox);
+
+        // delete this.cache[tilePath];
+
+        // track bounding box in GPS coordinates
+        if (!bounds) {
+          bounds = bbox;
+        } else {
+          if (bbox[0] > bounds[0]) bounds[0] = bbox[0]; // nw:vertical
+          if (bbox[1] < bounds[1]) bounds[1] = bbox[1]; // nw:horizontal
+          if (bbox[2] < bounds[2]) bounds[2] = bbox[2]; // se:vertical
+          if (bbox[3] > bounds[3]) bounds[3] = bbox[3]; // se:horizontal
+        }
+        console.log(`updated bounds`, bounds);
+
+        // copy pixels in row by row
+        for (let i = 0; i < dim; i++) {
+          const row = pixels.slice(i * dim, (i + 1) * dim);
+          master.set(row, x * dim + y * dim * mw + i * mw);
+        }
+      }
     }
 
-    let NE = this.getTileFor(lat1, long2);
-    let SW = this.getTileFor(lat2, long1);
-    let SE = this.getTileFor(lat2, long2);
+    console.log(`bounds:`, bounds);
 
-    // is anything a NW dupe?
-    if (NE === NW) {
-      console.log(`ne was dupe`);
-      NE = undefined;
-    }
-    if (SW === NW) {
-      console.log(`sw was dupe`);
-      SW = undefined;
-    }
-    if (SE === NW) {
-      console.log(`se was dupe`);
-      SE = undefined;
-    }
+    const [y1, x1, y2, x2] = bounds;
+    const cropBox = [
+      constrainMap(lat1, y1, y2, 0, mh) | 0,
+      constrainMap(long1, x1, x2, 0, mw) | 0,
+      constrainMap(lat2, y1, y2, 0, mh) | 0,
+      constrainMap(long2, x1, x2, 0, mw) | 0,
+    ];
 
-    // If not, check duals
-    if (SE === NE) {
-      console.log(`se was dupe`);
-      SE = undefined;
-    }
+    console.log(`crop box:`, cropBox);
 
-    if (SE === SW) {
-      console.log(`se was dupe`);
-      SE = undefined;
-    }
+    const cy = cropBox[0];
+    const cx = cropBox[1];
+    const ch = cropBox[2] - cropBox[0];
+    const cw = cropBox[3] - cropBox[1];
 
-    // ask each tile for its crop
-    const cNW = NW.crop(lat1, long1, lat2, long2);
-    const cNE = NE?.crop(lat1, long1, lat2, long2);
-    const cSW = SW?.crop(lat1, long1, lat2, long2);
-    const cSE = SE?.crop(lat1, long1, lat2, long2);
+    console.log(`crop:`, cy, cx, ch, cw);
 
-    console.log(
-      [`paths:`, cNW.path, cNE?.path, cSW?.path, cSE?.path]
-        .filter(Boolean)
-        .join(`\n`)
-    );
-
-    // glue them together
-    let result = cNW;
-    if (cNE || cSW || cSE) {
-      console.log(`merging...`);
-      result = mergeCrops(cNW, cNE, cSW, cSE);
-      if (!result) return false;
+    const cropGrid = new Int16Array(cw * ch);
+    for (let i = 0; i < ch; i++) {
+      const pos = cx + cy * mw + i * mw;
+      const row = master.slice(pos, pos + cw);
+      cropGrid.set(row, i * cw);
     }
 
     // save as 256×256 PNG
-    const { width, height, data } = result;
-    await saveImage(imagePath, width, height, data);
+    console.log(`calling saveImage`);
+    await saveImage(imagePath, cw, ch, cropGrid);
     return imagePath;
   }
 
