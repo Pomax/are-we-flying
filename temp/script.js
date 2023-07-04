@@ -11,14 +11,25 @@ import { blur } from "./js/blur.js";
 const IN_BROWSER = typeof document !== `undefined`;
 
 async function getBaseImage() {
+  // client-side?
   const filename = `./ALPSMLC30_N048W124_DSM.120m.png`;
   if (IN_BROWSER) return filename;
+
+  // serer-side.
   const { ALOSInterface } = await import("../src/elevation/alos-interface.js");
   const dotenv = await import("dotenv");
   dotenv.config({ path: "../.env" });
   const { DATA_FOLDER } = process.env;
   console.log(`data folder:`, DATA_FOLDER);
   const alos = new ALOSInterface(DATA_FOLDER);
+
+  await alos.getXYZImage(
+    `whatever.png`,
+    51.1845783,-128.8418523,
+    48.2004625,-122.9284875
+  );
+  process.exit(1);
+
   const lat = process.argv[2];
   const long = process.argv[3];
   console.log(`argv:`, lat, long, process.argv[4]);
@@ -82,7 +93,7 @@ let hillShade = () => {};
 const bg = new Image();
 
 let SHOW_FALSE_COLOUR = true;
-let SHOW_SHORE_LINE = true;
+let SHOW_WATER = true;
 let SHOW_ISO_LINES = true;
 let ISO_BANDS = 100;
 let ISO_LINE_OPACITY = 0.2;
@@ -98,10 +109,10 @@ let DRAW_HILL_SHADE = true;
     draw();
   });
 
-  const shoreline = document.getElementById(`shoreline`);
-  SHOW_SHORE_LINE = shoreline.checked;
-  shoreline.addEventListener(`click`, (evt) => {
-    SHOW_SHORE_LINE = evt.target.checked;
+  const water = document.getElementById(`water`);
+  SHOW_WATER = water.checked;
+  water.addEventListener(`click`, (evt) => {
+    SHOW_WATER = evt.target.checked;
     draw();
   });
 
@@ -162,14 +173,13 @@ if (IN_BROWSER) {
 fetch(SOURCE)
   .then((r) => r.arrayBuffer())
   .then((data) => {
-    bg.src = BGSOURCE;
     bg.onload = () => {
-      // then parse it for pixels and do the computer science
       png = readPNG(SOURCE, data);
       hillShade = createHillShader();
       draw();
       drawColorGradient();
     };
+    bg.src = BGSOURCE;
   });
 
 async function draw() {
@@ -217,7 +227,7 @@ function drawShoreLine() {
   ctx.globalCompositeOperation = `source-out`;
   ctx.drawImage(bg, 0, 0);
 
-  if (!SHOW_SHORE_LINE) return;
+  if (!SHOW_WATER) return;
 
   ctx.globalCompositeOperation = `source-over`;
 
@@ -278,32 +288,33 @@ function drawShoreLine() {
 
       // deep water?
       if (d === 0) {
-        data[i + 1] = 20;
-        data[i + 2] = 100;
+        data[i + 0] = 10;
+        data[i + 1] = 25;
+        data[i + 2] = 30;
         data[i + 3] = 255;
       }
 
       // shoreline?
       else if (d === 1) {
-        data[i + 1] = 20;
-        data[i + 2] = 140;
+        data[i + 0] = 45;
+        data[i + 1] = 90;
+        data[i + 2] = 80;
       }
 
       // shore band?
       else if (d === 2) {
-        data[i + 1] = 20;
-        data[i + 2] = 120;
+        data[i + 0] = 25;
+        data[i + 1] = 60;
+        data[i + 2] = 65;
       }
     }
+
+    blur(shoreMap.data, width, height, 20);
   }
 
   const cvs = createCanvas(width, height);
   const pctx = cvs.getContext(`2d`);
   ctx.globalAlpha = 0.5;
-  const blurred = blur(shoreMap.data, width, height, 20);
-  for (let i = 0, e = shoreMap.data.length; i < e; i++) {
-    shoreMap.data[i] = blurred[i];
-  }
   pctx.putImageData(shoreMap, 0, 0);
   ctx.drawImage(cvs, 0, 0, w, h);
   ctx.globalAlpha = 1;
