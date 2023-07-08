@@ -172,8 +172,8 @@ export class ALOSInterface {
     );
 
     // how many tiles do we need, given that each tile is 1x1 degrees?
-    const dlong = long2 - long1; // we run NW-SE, so long2 is the higher value
-    const xtiles = ceil(dlong);
+    const dlong = ceil(long2) - floor(long1); // we run NW-SE, so long2 is the higher value
+    const xtiles = dlong;
 
     const dlat = ceil(lat1) - floor(lat2); // we run NW-SE, so lat1 is the higher value
     const ytiles = dlat;
@@ -181,7 +181,7 @@ export class ALOSInterface {
     if (xtiles > 8 || ytiles > 8)
       throw new Error(`too many tiles required (${xtiles}/${ytiles})`);
 
-    console.log(`${xtiles} x ${ytiles} tiles`);
+    console.log(`dlong=${dlong}, dlat=${dlat}: ${xtiles} x ${ytiles} tiles`);
 
     // XYZ tiles are 256x256px, but in order to keep things looking good,
     // we'll generate a large master, color it, and then crop/downscale.
@@ -198,15 +198,24 @@ export class ALOSInterface {
             long1 + x
           }`
         );
+
+        const latDir = lat1 - y >= 0 ? "N" : "S";
+        const longDir = long1 + x >= 0 ? "E" : "W";
+        let blat = latDir == "N" ? ceil(lat1 - y) : ceil(lat1 - y);
+        let blong = longDir == "E" ? floor(long1 + x) : floor(long1 + x);
+
+        console.log(
+          `boing ${x}/${y} => ${lat1 - y},${long1 + x}`,
+          latDir,
+          blat,
+          longDir,
+          blong
+        );
+
         const tile = this.getTileFor(lat1 - y, long1 + x);
-        if (!tile) continue;
+        let bbox = [blat, blong, blat - 1 + 1 / 3600, blong + 1 + 1 / 3600];
 
-        console.log(`tile`, tile.filename);
-
-        const { pixels, tilePath, bbox } = tile;
-        console.log(`tile bbox:`, bbox);
-
-        // delete this.cache[tilePath];
+        console.log(`bbox:`, bbox);
 
         // track bounding box in GPS coordinates
         if (!bounds) {
@@ -217,7 +226,20 @@ export class ALOSInterface {
           if (bbox[2] < bounds[2]) bounds[2] = bbox[2]; // se:vertical
           if (bbox[3] > bounds[3]) bounds[3] = bbox[3]; // se:horizontal
         }
+
         console.log(`updated bounds`, bounds);
+
+        if (!tile) {
+          console.log(`- no tile (ocean tile?)`);
+          continue;
+        }
+
+        const { pixels, tilePath } = tile;
+        // console.log(
+        //   `tile bbox: ${bbox[0]},${bbox[1]} to ${bbox[2]},${bbox[3]}`
+        // );
+
+        console.log(`- ${tile.filename}`);
 
         // copy pixels in row by row
         for (let i = 0; i < dim; i++) {
@@ -229,7 +251,9 @@ export class ALOSInterface {
 
     if (!bounds) return;
 
-    console.log(`bounds:`, bounds);
+    console.log(
+      `bounds: ${bounds[0]},${bounds[1]} to ${bounds[2]},${bounds[3]}`
+    );
 
     const [y1, x1, y2, x2] = bounds;
     const cropBox = [
@@ -239,14 +263,16 @@ export class ALOSInterface {
       constrainMap(long2, x1, x2, 0, mw) | 0,
     ];
 
-    console.log(`crop box:`, cropBox);
+    console.log(
+      `crop box: ${cropBox[0]},${cropBox[1]} to ${cropBox[2]},${cropBox[3]}`
+    );
 
     const cy = cropBox[0];
     const cx = cropBox[1];
     let ch = cropBox[2] - cropBox[0];
     let cw = cropBox[3] - cropBox[1];
 
-    console.log(`crop:`, cy, cx, ch, cw);
+    console.log(`crop: y=${cy}, x=${cx}, h=${ch}, w=${cw}`);
 
     let cropGrid = new Int16Array(cw * ch);
     for (let i = 0; i < ch; i++) {

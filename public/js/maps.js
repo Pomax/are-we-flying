@@ -16,49 +16,49 @@ const map = L.map("map").setView(Duncan, 15);
     .addTo(map);
 })();
 
-const openStreetMap = L.tileLayer(
+const openStreetMap = [
   `https://tile.openstreetmap.org/{z}/{x}/{y}.png`,
   {
     maxZoom: 19,
     attribution: `© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>`,
-  }
-);
+  },
+];
 
-const googleStreets = L.tileLayer(
+const googleStreets = [
   `http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}`,
   {
     maxZoom: 20,
     subdomains: ["mt0", "mt1", "mt2", "mt3"],
     attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>`,
-  }
-);
+  },
+];
 
-const googleHybrid = L.tileLayer(
+const googleHybrid = [
   `http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}`,
   {
     maxZoom: 20,
     subdomains: ["mt0", "mt1", "mt2", "mt3"],
     attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>`,
-  }
-);
+  },
+];
 
-const googleSat = L.tileLayer(
+const googleSat = [
   `http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}`,
   {
     maxZoom: 20,
     subdomains: ["mt0", "mt1", "mt2", "mt3"],
     attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>`,
-  }
-);
+  },
+];
 
-const googleTerrain = L.tileLayer(
+const googleTerrain = [
   `http://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}`,
   {
     maxZoom: 20,
     subdomains: ["mt0", "mt1", "mt2", "mt3"],
     attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>`,
-  }
-);
+  },
+];
 
 const mapLayers = {
   openStreetMap,
@@ -66,19 +66,28 @@ const mapLayers = {
   googleHybrid,
   googleSat,
   googleTerrain,
-  ALOSTerrain: L.tileLayer(`/tiles/{z}/{x}/{y}`)
+  ALOSTerrain: [`/tiles/{z}/{x}/{y}`],
 };
 
-const activeLayers = [openStreetMap, googleTerrain];
+const selectedLayers = [openStreetMap, googleTerrain];
+const currentLayers = [];
 
 // update the applied layers
 function update() {
-  Object.values(mapLayers).forEach((layer) => layer.removeFrom(map));
-  const [base, overlay] = activeLayers;
+  currentLayers.forEach((layer) => layer.removeFrom(map));
+  let [base, overlay] = selectedLayers;
+
+  base = L.tileLayer(...base);
   base.setOpacity(1);
   base.addTo(map);
-  overlay?.setOpacity(0.5);
-  overlay?.addTo(map);
+  currentLayers.push(base);
+
+  if (overlay) {
+    overlay = L.tileLayer(...overlay);
+    overlay.setOpacity(0.5);
+    overlay.addTo(map);
+    currentLayers.push(overlay);
+  }
 }
 
 // if we drag the map itself, turn off "center"
@@ -93,6 +102,10 @@ centerBtn.checked = true;
 // Hook our layer options into our HTML <select> elements
 [1, 2].forEach((layer) => {
   const select = document.querySelector(`.map-layer-${layer}`);
+  const none = document.createElement(`option`);
+  none.textContent = `None`;
+  none.value = `None`;
+  select.appendChild(none);
 
   Object.entries(mapLayers).forEach(([name, map]) => {
     const opt = document.createElement(`option`);
@@ -104,7 +117,12 @@ centerBtn.checked = true;
   });
 
   select.addEventListener(`change`, (evt) => {
-    activeLayers[layer - 1] = mapLayers[evt.target.value];
+    const layerName = evt.target.value;
+    if (layerName === `None`) {
+      selectedLayers[layer - 1] = undefined;
+    } else {
+      selectedLayers[layer - 1] = mapLayers[layerName];
+    }
     update();
   });
 });
