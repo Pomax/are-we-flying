@@ -48,7 +48,7 @@ app.get(`/tiles/:z/:x/:y`, async (req, res) => {
   const { lat: lat2, long: long2 } = ltln(x + 1, y + 1, z);
 
   // Figure out the file location
-  const zoomDir = path.join(CACHE_DIR, `XYZ`, z);
+  const zoomDir = path.join(CACHE_DIR, `XYZ`, `${z}`);
   fs.mkdirSync(zoomDir, { recursive: true });
   const imagePath = path.join(zoomDir, `${x}-${y}.png`);
 

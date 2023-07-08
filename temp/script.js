@@ -9,6 +9,7 @@ import { blur } from "./js/blur.js";
 // =====================================================
 
 const IN_BROWSER = typeof document !== `undefined`;
+let png;
 
 async function getBaseImage() {
   // client-side?
@@ -16,29 +17,35 @@ async function getBaseImage() {
   if (IN_BROWSER) return filename;
 
   // serer-side.
-  const { ALOSInterface } = await import("../src/elevation/alos-interface.js");
+  const { ALOSInterface } = await import("../alos-interface.js");
   const dotenv = await import("dotenv");
   dotenv.config({ path: "../.env" });
   const { DATA_FOLDER } = process.env;
   console.log(`data folder:`, DATA_FOLDER);
   const alos = new ALOSInterface(DATA_FOLDER);
 
-  await alos.getXYZImage(
+  const { pixels, width, height } = await alos.getXYZImage(
     `whatever.png`,
-    51.1845783,-128.8418523,
-    48.2004625,-122.9284875
+    // 51.1845783,
+    // -128.8418523,
+    // 48.2004625,
+    // -122.5284875
+    54.0123091,
+    3.4343307,
+    50.2952514,
+    7.5033677
   );
-  process.exit(1);
 
-  const lat = process.argv[2];
-  const long = process.argv[3];
-  console.log(`argv:`, lat, long, process.argv[4]);
-  const tile = alos.getTileFor(lat, long);
-  console.log(`tilepath:`, tile.tilePath);
-  const { processFile } = await import("../src/elevation/convert.js");
-  const pngPath = processFile(tile.tilePath, 4);
-  console.log(`file:`, pngPath);
-  return pngPath;
+  // const lat = process.argv[2];
+  // const long = process.argv[3];
+  // console.log(`argv:`, lat, long, process.argv[4]);
+  // const tile = alos.getTileFor(lat, long);
+  // console.log(`tilepath:`, tile.tilePath);
+  // const { processFile } = await import("../src/elevation/convert.js");
+  // const pngPath = processFile(tile.tilePath, 4);
+  // console.log(`file:`, pngPath);
+
+  png = { pixels, width, height, geoTags: {} };
 }
 
 const SOURCE = await getBaseImage();
@@ -82,7 +89,6 @@ if (!IN_BROWSER) {
   });
 }
 
-let png;
 let shoreMap;
 let colorMap;
 let colorMask;
@@ -170,33 +176,41 @@ if (IN_BROWSER) {
 }
 
 // get our image data
-fetch(SOURCE)
-  .then((r) => r.arrayBuffer())
-  .then((data) => {
-    bg.onload = () => {
-      png = readPNG(SOURCE, data);
-      hillShade = createHillShader();
-      draw();
-      drawColorGradient();
-    };
-    bg.src = BGSOURCE;
-  });
+if (!png) {
+  fetch(SOURCE)
+    .then((r) => r.arrayBuffer())
+    .then((data) => {
+      bg.onload = () => {
+        png = readPNG(SOURCE, data);
+        hillShade = createHillShader();
+        draw();
+        drawColorGradient();
+      };
+      bg.src = BGSOURCE;
+    });
+} else {
+  bg.onload = () => {
+    hillShade = createHillShader();
+    draw();
+    drawColorGradient();
+  };
+  bg.src = BGSOURCE;
+}
 
 async function draw() {
   if (!png) return;
-  ctx.clearRect(0, 0, w, h);
+  const { width: w, height: h } = png;
+  cvs.width = w;
+  cvs.height = h;
+  ctx = cvs.getContext(`2d`);
   drawShoreLine();
   drawColorMap();
   hillShade();
   drawIsoMap();
   if (!IN_BROWSER) {
-    const d = 800;
-    const c256 = createCanvas(d, d);
-    const ctx = c256.getContext(`2d`);
-    ctx.drawImage(cvs, 0, 0, d, d);
     console.log(`writing file...`);
     const opts = { compressionLevel: 9 };
-    const buffer = c256.toBuffer(`image/png`, opts);
+    const buffer = cvs.toBuffer(`image/png`, opts);
     await fs.writeFile(process.argv[4] ?? `output.png`, buffer);
   }
 }
@@ -225,7 +239,7 @@ function drawColorGradient() {
 function drawShoreLine() {
   const { width, height } = png;
   ctx.globalCompositeOperation = `source-out`;
-  ctx.drawImage(bg, 0, 0);
+  ctx.drawImage(bg, 0, 0, width, height);
 
   if (!SHOW_WATER) return;
 
@@ -316,7 +330,7 @@ function drawShoreLine() {
   const pctx = cvs.getContext(`2d`);
   ctx.globalAlpha = 0.5;
   pctx.putImageData(shoreMap, 0, 0);
-  ctx.drawImage(cvs, 0, 0, w, h);
+  ctx.drawImage(cvs, 0, 0, width, height);
   ctx.globalAlpha = 1;
 }
 
@@ -331,7 +345,6 @@ function createHillShader() {
 
   // Build normals
   normals = [];
-  const elevation = { min: 0, max: 0 };
   for (let x = 0; x < width; x++) {
     for (let y = 0; y < height; y++) {
       const a = getElevation(x - 1, y);
@@ -426,7 +439,7 @@ function runHillShade(width, height, pixels, normals, geoTags) {
   // First as a general shading layer, using the "color burn" overlay mode
   ctx.globalCompositeOperation = `color-burn`;
   ctx.globalAlpha = 0.2;
-  ctx.drawImage(cvs2, 0, 0, w, h);
+  ctx.drawImage(cvs2, 0, 0, width, height);
   ctx.globalAlpha = 1;
 
   // And then as "the real layer" using "source-over", which is a fancy
@@ -434,7 +447,7 @@ function runHillShade(width, height, pixels, normals, geoTags) {
   ctx2.putImageData(shaded, 0, 0);
   ctx.globalCompositeOperation = `source-over`;
   ctx.globalAlpha = 0.3;
-  ctx.drawImage(cvs2, 0, 0, w, h);
+  ctx.drawImage(cvs2, 0, 0, width, height);
   ctx.globalAlpha = 1;
 }
 
@@ -458,7 +471,7 @@ function drawIsoMap() {
   // draw the iso lines
   ctx.globalCompositeOperation = `source-over`;
   ctx.globalAlpha = ISO_LINE_OPACITY;
-  ctx.drawImage(cvs, 0, 0, w, h);
+  ctx.drawImage(cvs, 0, 0, png.width, png.height);
   ctx.globalAlpha = 1;
 }
 
@@ -499,6 +512,6 @@ function drawColorMap() {
     pctx.putImageData(colorMap, 0, 0);
   }
 
-  ctx.drawImage(cvs, 0, 0, w, h);
+  ctx.drawImage(cvs, 0, 0, width, height);
   ctx.filter = `brightness(1)`;
 }
