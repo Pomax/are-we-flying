@@ -10,10 +10,11 @@
   },
   "scripts": {
     "start": "run-p api web",
-    "mock": "run-p web api:mock",
+    "mock": "run-p web api:mock alos",
     "api": "cd src/api && node api-server",
     "api:mock": "npm run api -- --mock",
-    "web": "cd src && node web-server.js --browser"
+    "web": "cd src && node web-server.js --browser",
+    "alos": "cd src && cd elevation && node alos-server.js"
   },
   "repository": {
     "type": "git",

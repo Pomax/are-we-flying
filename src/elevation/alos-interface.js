@@ -275,44 +275,63 @@ export class ALOSInterface {
 
     console.log(`crop: y=${cy}, x=${cx}, h=${ch}, w=${cw}`);
 
-    let cropGrid = new Int16Array(cw * ch);
-    for (let i = 0; i < ch; i++) {
-      const pos = cx + cy * mw + i * mw;
-      const row = master.slice(pos, pos + cw);
-      cropGrid.set(row, i * cw);
-    }
+    // start by assuming the crop is smaller than our master
+    let cropGrid = master;
+    let cutw = mw;
+    let cuth = mh;
 
-    // collapse the array to something manageable
-    const md = min(mw, mh);
-    const f = floor(md / 1000);
-    if (f > 1) {
-      console.log(`collapsing to 1000 on the short side`);
-      const p = cropGrid;
-      const w = (cw / f) | 0;
-      const h = (ch / f) | 0;
-      console.log(f, cw, w, ch, h);
-      const collapsed = new Int16Array(w * h);
-      for (let x = 0; x < w; x++) {
-        for (let y = 0; y < h; y++) {
-          const i = x + y * w;
-          const j = x * f + y * f * cw;
-          collapsed[i] = p[j];
-        }
+    // if the area of interest is actually quite large,
+    // cut out the crop and pare it down.
+    if (cw > 1000 || ch > 1000) {
+      cropGrid = new Int16Array(cw * ch);
+      for (let i = 0; i < ch; i++) {
+        const pos = cx + cy * mw + i * mw;
+        const row = master.slice(pos, pos + cw);
+        cropGrid.set(row, i * cw);
       }
-      cropGrid = collapsed;
-      cw = w;
-      ch = h;
-      console.log(`finished collapse`);
+
+      // collapse the array to something manageable
+      const md = min(mw, mh);
+      const f = floor(md / 1000);
+      if (f > 1) {
+        console.log(`collapsing to 1000 on the short side`);
+        const p = cropGrid;
+        const w = (cw / f) | 0;
+        const h = (ch / f) | 0;
+        console.log(f, cw, w, ch, h);
+        const collapsed = new Int16Array(w * h);
+        for (let x = 0; x < w; x++) {
+          for (let y = 0; y < h; y++) {
+            const i = x + y * w;
+            const j = x * f + y * f * cw;
+            collapsed[i] = p[j];
+          }
+        }
+        cropGrid = collapsed;
+        cutw = w;
+        cuth = h;
+        console.log(`finished collapse`);
+      }
     }
 
     // color, hillshade, etc.
     console.log(`running colorize operation`);
+    const { pixels, palette } = await colorize(cropGrid, cutw, cuth, z >= 12);
 
-    // const buffer = await colorize(cropGrid, cw, ch);
-    // console.log(`writing data to ${imagePath}`);
-    // writeFileSync(imagePath, buffer);
+    // if our crop is tiny, cut it out after colorizing.
+    if (cw < 1000 && ch < 1000) {
+      console.log(`cutting out crop`);
+      cropGrid = new Int16Array(cw * ch);
+      for (let i = 0; i < ch; i++) {
+        const pos = cx + cy * cutw + i * cutw;
+        const row = master.slice(pos, pos + cw);
+        cropGrid.set(row, i * cw);
+      }
+      cutw = cw;
+      cuth = ch;
+    }
 
-    const { pixels, palette } = await colorize(cropGrid, cw, ch, z>=12);
+    // then save.
     writePNG(imagePath, pixels, cw, ch);
 
     return imagePath;
