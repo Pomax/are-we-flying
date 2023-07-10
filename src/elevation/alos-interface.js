@@ -14,6 +14,7 @@ import {
 } from "./alos-constants.js";
 import { ALOSTile } from "./alos-tile.js";
 import { colorize } from "./image-js/create-map.js";
+import { writePNG } from "./image-js/write-png.js";
 
 const COARSE_LEVEL = 10;
 const { abs, floor, ceil, min, max } = Math;
@@ -306,11 +307,14 @@ export class ALOSInterface {
 
     // color, hillshade, etc.
     console.log(`running colorize operation`);
-    const buffer = await colorize(cropGrid, cw, ch);
 
-    // save buffer to cache file
-    console.log(`writing data to ${imagePath}`);
-    writeFileSync(imagePath, buffer);
+    // const buffer = await colorize(cropGrid, cw, ch);
+    // console.log(`writing data to ${imagePath}`);
+    // writeFileSync(imagePath, buffer);
+
+    const { pixels, palette } = await colorize(cropGrid, cw, ch, z>=12);
+    writePNG(imagePath, pixels, cw, ch);
+
     return imagePath;
   }
 }

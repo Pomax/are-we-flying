@@ -7,14 +7,14 @@ import {
   constrainMap,
 } from "../../api/autopilot/utils/utils.js";
 import { generateIsoMap } from "./iso-lines.js";
-import { getColor } from "./color.js";
+import { getColor, getPalette } from "./color.js";
 import { blur } from "./blur.js";
 import { createCanvas, loadImage, ImageData } from "canvas";
 import url from "url";
 import path from "path";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
-const ISO_BANDS = 100;
+const ISO_BANDS = 200;
 const ISO_LINE_OPACITY = 0.2;
 const bg = await loadImage(path.join(__dirname, `bgblue.png`));
 
@@ -47,12 +47,12 @@ function buildNormals(png) {
 
 // =====================================================
 
-export async function colorize(pixels, width, height) {
+export async function colorize(pixels, width, height, withIsolines=true) {
   const png = { width, height, pixels, geoTags: undefined };
-  return await draw(png);
+  return await draw(png, withIsolines);
 }
 
-async function draw(png) {
+async function draw(png, withIsolines=true) {
   // generate a canvas to work with
   const { width: w, height: h } = png;
   const normals = buildNormals(png);
@@ -65,15 +65,21 @@ async function draw(png) {
   drawShoreLine(...args);
   drawFalseColor(...args);
   drawHillShading(...args);
-  drawIsoMap(...args);
+  if (withIsolines) drawIsoMap(...args);
   // form PNG buffer
-  return cvs.toBuffer(`image/png`, { compressionLevel: 9 });
+  // return cvs.toBuffer(`image/png`, { compressionLevel: 9 });
+  return {
+    pixels: ctx.getImageData(0, 0, w, h).data,
+    width: w,
+    height: h,
+    palette: getPalette(),
+  };
 }
 
 function drawShoreLine(png, normals, ctx) {
   const { width, height } = png;
   ctx.globalCompositeOperation = `source-out`;
-  ctx.drawImage(bg, 0, 0, width, height);
+  // ctx.drawImage(bg, 0, 0, width, height);
   ctx.globalCompositeOperation = `source-over`;
 
   const shoreMap = ctx.createImageData(width, height);
@@ -131,24 +137,24 @@ function drawShoreLine(png, normals, ctx) {
 
     // deep water?
     if (d === 0) {
-      data[i + 0] = 10;
-      data[i + 1] = 25;
-      data[i + 2] = 30;
+      data[i + 0] = 160;
+      data[i + 1] = 200;
+      data[i + 2] = 230;
       data[i + 3] = 255;
     }
 
     // shoreline?
     else if (d === 1) {
-      data[i + 0] = 45;
-      data[i + 1] = 90;
-      data[i + 2] = 80;
+      data[i + 0] = 160;
+      data[i + 1] = 200;
+      data[i + 2] = 230;
     }
 
     // shore band?
     else if (d === 2) {
-      data[i + 0] = 25;
-      data[i + 1] = 60;
-      data[i + 2] = 65;
+      data[i + 0] = 160;
+      data[i + 1] = 200;
+      data[i + 2] = 230;
     }
   }
 
