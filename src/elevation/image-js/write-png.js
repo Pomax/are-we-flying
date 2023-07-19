@@ -59,10 +59,8 @@ export function writePNG(pngPath, pngPixels, w, h, geoTags, palette) {
   // how many bytes per pixel?
   const bytes = (bits / 8) * rgba ? 4 : 1;
 
-  console.log(pngPixels.length, w, h, bits, rgba, bytes);
-
-  // if it's more than 8, do we need to reverse the byte ordering?
-  if (endian === LITTLE_ENDIAN && bits > 8) reverseEndian(pngPixels8);
+  // do we need to reverse the byte ordering?
+  if (endian === LITTLE_ENDIAN && bits === 16) reverseEndian(pngPixels8);
 
   // PNG preamble
   const magic = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -73,8 +71,8 @@ export function writePNG(pngPath, pngPixels, w, h, geoTags, palette) {
     ...fourByte(w), // width
     ...fourByte(h), // height
     -1, // bit depth, as number
-    -1, // color: 0=greyscale, 3=palette, 6=RGBA
-    0, //  compression method, must be set to 0
+    -1, // color: 0=grayscale, 3=palette, 6=RGBA
+    0, //  compression method must be set to 0.
     0, //  filter method, must be set to 0
     0, //  interlace method (0, because we don't want interlacing)
   ];
@@ -92,9 +90,7 @@ export function writePNG(pngPath, pngPixels, w, h, geoTags, palette) {
   }
 
   // we should not be able to trigger this, but always good to have
-  else {
-    throw new Error(`writePNG() can only work with 8 or 16 bit data`);
-  }
+  else throw new Error(`writePNG() can only work with 8 or 16 bit data`);
 
   // convert the pixel raster to scanlines that start with
   // a zero byte,to indicate they use filter type "none":
@@ -119,7 +115,9 @@ export function writePNG(pngPath, pngPixels, w, h, geoTags, palette) {
   // add the geotags as a text chunk, if there are geotags.
   if (geoTags) {
     chunks.push(
-      makeChunk(`tEXt`, [
+      // note the last letter if capitalised, because any resizing
+      // will invalidate this block, and so it is not safe to copy.
+      makeChunk(`tEXT`, [
         ...toBytes(`GeoTags`), // keyword
         0, // keyword null terminator
         ...toBytes(JSON.stringify(geoTags)), // actual text
