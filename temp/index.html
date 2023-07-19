@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="https://glitch.com/favicon.ico" />
+    <title>Hello (Hill-Shaded) World!</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <script src="/script.js" type="module" async></script>
+  </head>
+  <body>
+    <h1>Let's test some hill shading</h1>
+
+    <p>
+      Ever seen a map that changes shading? Move your cursor or tap anywhere in
+      the map below to change the sun's position!
+    </p>
+
+    <form>
+      <fieldset>
+        <label for="color">false color</label
+        ><input type="checkbox" id="color" checked="checked" />
+      </fieldset>
+
+      <fieldset>
+        <label for="water">water</label
+        ><input type="checkbox" id="water" checked="checked" />
+      </fieldset>
+
+      <fieldset>
+        <label for="isolines">show isolines</label
+        ><input type="checkbox" id="isolines" checked="checked" />
+        <span class="inert"> opacity:</span>
+        <select id="isostrength">
+          <option>0.1</option>
+          <option selected="selected">0.2</option>
+          <option>0.3</option>
+          <option>0.4</option>
+          <option>0.5</option>
+          <option>0.6</option>
+          <option>0.7</option>
+          <option>0.8</option>
+          <option>0.9</option>
+          <option>1</option>
+        </select>
+        <span class="inert"> spacing:</span>
+        <select id="isobands">
+          <option>50</option>
+          <option selected="selected">100</option>
+          <option>150</option>
+          <option>200</option>
+          <option>250</option>
+          <option>300</option>
+        </select>
+      </fieldset>
+
+      <fieldset>
+        <label for="hillshade">hillshade</label
+        ><input type="checkbox" id="hillshade" checked="checked" />
+      </fieldset>
+    </form>
+
+    <canvas id="cvs"></canvas>
+
+    <h2>How does this work?</h2>
+
+    <p>We have a 16 bit grayscale DEM height map:</p>
+
+    <figure>
+      <img
+        style="max-height: 40vh"
+        src="https://cdn.glitch.global/6f093c76-7f96-4f52-94dd-2b1647bfb115/ALPSMLC30_N048W124_DSM.900m.png?v=1687792965948"
+      />
+    </figure>
+
+    <p>
+      ...uhh, okay yeah that's super exciting, let's level that a little so you
+      can actually see what it looks like:
+    </p>
+
+    <figure>
+      <img
+        style="max-height: 40vh"
+        src="https://cdn.glitch.global/6f093c76-7f96-4f52-94dd-2b1647bfb115/ALPSMLC30_N048W124_DSM.900m.png?v=1687807910178"
+      />
+    </figure>
+
+    <p>
+      Every pixel in this image isn't a "color" so much as a height value,
+      where white pixels are "pretty high up!" and black pixels are effectively
+      sea level (or, technically maybe even a little lower than that!)
+    </p>
+
+    <p>
+      In order to turn this (frankly) not very useful information into a good
+      looking 2D map, we can convert the height map into something that (to a
+      computer at least) looks like a 3D surface, so thast we can then shine
+      some light on it and get something that looks... you know... like actual
+      terrain.
+    </p>
+
+    <p></p>
+
+    <p>
+      The standard way to do this is to compute the
+      <a href="https://en.wikipedia.org/wiki/Normal_(geometry)"
+        >surface normal</a
+      >
+      for each pixel, i.e. the vector that tells us the 3D angle of the surface
+      at that pixel, by looking at each pixel's four direct neighbours. This is
+      surprisingly simple: we just create a vector
+      <code>{x: a-b, y: c-d, z: 2}</code> where "a" and "b" are the heights for
+      the pixels at (x-1,y) and (x+1,y) respectively, and "c" and "d" are the
+      heights for the pixels at (x,y-1) and (x,y+1), respectively.
+    </p>
+    <p>
+      If we then normalize that vector (i.e. scale it such that it has a total
+      length of 1) and render it as an RGB vector (so, pretending that "x"
+      represents the pixel's red value, "y" the green value, and "z" the blue
+      value) we get this:
+    </p>
+
+    <figure>
+      <img
+        src="https://cdn.glitch.global/6f093c76-7f96-4f52-94dd-2b1647bfb115/ca49a69d-9691-4aa3-82fa-2f9d7cc13977.image.png?v=1687808057302"
+      />
+    </figure>
+
+    <p>
+      We can then compute how much light would get reflected "up" into the
+      screen, given the sun at some specific position: we can use the standard
+      <a href="https://en.wikipedia.org/wiki/Reflection_(mathematics)"
+        >vector reflection</a
+      >
+      approach to have a "ray of sunlight" bounce off of our pixel's surface,
+      giving us a neatly illuminated terrain view:
+    </p>
+
+    <figure>
+      <img
+        src="https://cdn.glitch.global/6f093c76-7f96-4f52-94dd-2b1647bfb115/4ebb214e-ce20-4ced-a695-d5c55d79e79b.image.png?v=1687808402386"
+      />
+    </figure>
+
+    <p>
+      So that covers the general shading, but there's not a lot of color here
+      yet. Which makes for a pretty bad map.
+    </p>
+
+    <p>
+      We want a <em>nice</em> map, so let's make a coloring book: we can take
+      our height map and, using the
+      <a href="https://en.wikipedia.org/wiki/Marching_squares"
+        >Marching Squares</a
+      >
+      algorithm, find all regions that have the same general elevation so that
+      we get lines that separate different altitudes. For example, if we picked
+      a 100 foot spacing, we can get one line that separates "everything between
+      100 feet and 200 feet", another for "everything between 200 feet and 300
+      feet", and so on.
+    </p>
+
+    <p>
+      We can run this with as many "bands" as we like, to get something that
+      looks like this:
+    </p>
+
+    <figure>
+      <img
+        src="https://cdn.glitch.global/6f093c76-7f96-4f52-94dd-2b1647bfb115/1ae33f7f-1734-4858-8389-c431a1371c9e.image.png?v=1688153884945"
+      />
+    </figure>
+
+    <p>
+      And we can can then fill in the areas between these
+      <a href="https://en.wikipedia.org/wiki/Contour_line">"isolines"</a> using
+      some false color designed to look appropriate to the elevation we're
+      coloring in:
+    </p>
+
+    <ul>
+      <li>light green for low altitudes,</li>
+      <li>darker green for slightly higher altitudes,</li>
+      <li>brown for high altitudes with less/no vegetation, and</li>
+      <li>blue/white for really high altitudes, to fake some snow.</li>
+    </ul>
+
+    <p>Which gives us something that looks like this:</p>
+
+    <figure>
+      <img
+        src="https://cdn.glitch.global/6f093c76-7f96-4f52-94dd-2b1647bfb115/6a6ce669-97d4-46ed-9e44-4be3dea6899f.image.png?v=1688153947136"
+      />
+    </figure>
+
+    <p>
+      And to be honest, this already kinda looks like a pretty nice 2D map. But,
+      we can do even better by mixing in our terrain shading...
+    </p>
+
+    <p>
+      If we make the iso lines themslves less pronounced (say, 80% transparent)
+      and we overlay our "shaded" black and white image using the
+      <a href="https://en.wikipedia.org/wiki/Blend_modes#Dodge_and_burn"
+        >color-burn</a
+      >
+      method, (after blurring it a little) to generate the general, subtle
+      shading, we get this:
+    </p>
+
+    <figure>
+      <img
+        src="https://cdn.glitch.global/6f093c76-7f96-4f52-94dd-2b1647bfb115/5f62ae82-a8e5-442d-8b17-cd8c5ef1baf0.image.png?v=1688154522358"
+      />
+    </figure>
+
+    <p>That might look a little fuzzy, but we're not quite done yet.</p>
+
+    <p>
+      If we add the shaded height map as a 70% transparent overlay to the
+      previous view (without blurring this time), we end up highlighting and
+      "crisping up" all the landscape features, and end up with a kick-ass
+      looking 2D map!
+    </p>
+
+    <p>
+      Although we do need to make sure that we don't shade anything that's
+      perfectly flat, so we do a quick calculation of what value corresponds
+      with "the sun, reflected on a perfectly flat surface" and then we filter
+      out anything with that exact value, to get:
+    </p>
+
+    <figure>
+      <img
+        src="https://cdn.glitch.global/6f093c76-7f96-4f52-94dd-2b1647bfb115/6c53bf48-e957-49fb-942f-6018c14d3ce1.image.png?v=1688155820711"
+      />
+    </figure>
+
+    <p>
+      And done! That's how you turn a height map image into a pretty sweet 2D
+      map!
+    </p>
+
+    <p>
+      ... but as a final touch, of course, we can bring it back to the animated
+      graphics all the way at the top: we can tie the sun's vector to the
+      position of the cursor on the image, so that we can change the way the
+      terrain gets lit simply by moving the cursor around!
+    </p>
+
+    <p>— <a href="https://mastodon.social/@TheRealPomax">Pomax</a></p>
+
+    <hr style="margin: 3em 0" />
+
+    <p style="text-align: center">
+      <a
+        href="https://support.glitch.com/t/turning-height-map-images-into-sweet-2d-maps/63039/2"
+        >Discuss this page on the Glitch forum!</a
+      >
+    </p>
+  </body>
+</html>

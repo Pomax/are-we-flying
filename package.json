@@ -33,7 +33,9 @@
   },
   "homepage": "https://github.com/Pomax/are-we-flying#readme",
   "dependencies": {
+    "canvas": "^2.11.2",
     "cors": "^2.8.5",
+    "crc": "^4.3.2",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "express-http-proxy": "^1.6.3",

@@ -1,11 +1,13 @@
 import express from "express";
 import expressWs from "express-ws";
+import httpProxy from "express-http-proxy";
 import WebSocket from "ws";
 import open from "open";
+import url from "url";
 
 import dotenv from "dotenv";
 dotenv.config({ path: `../.env` });
-const { API_PORT } = process.env;
+const { API_PORT, ALOS_PORT } = process.env;
 const PORT = process.env.WEB_PORT;
 
 const API_SERVER_URL = `http://localhost:${API_PORT}`;
@@ -13,19 +15,12 @@ const app = express();
 expressWs(app);
 
 app.use(express.static(`../public`));
-// app.get(`/geotiff/*`, (req, res) => {
-//   const filepath = `${DATA_FOLDER}/${req.url.replace(
-//     `/geotiff/`,
-//     ``
-//   )}`.replaceAll(`\\`, ``);
-//   res.sendFile(filepath);
-// });
-// app.get(`/alos/:ne_lat/:ne_long/:sw_lat/:sw_long/:lat/:long`, (req, res) => {
-//   const { ne_lat, ne_long, sw_lat, sw_long, lat, long } = req.params;
-//   console.log(ne_lat, ne_long, sw_lat, sw_long, `--`, lat, long);
-//   const tile = alos.getTileFor(lat, long);
-//   res.sendFile(tile.toPNG());
-// });
+app.use(
+  "/tiles/*",
+  httpProxy(`http://localhost:${ALOS_PORT}/tile`, {
+    proxyReqPathResolver: (req) => url.parse(req.originalUrl).path,
+  })
+);
 app.get(`/fok`, (_, res) => res.send(process.env.FLIGHT_OWNER_KEY));
 app.get(`/`, (_, res) => res.redirect(`/index.html`));
 
