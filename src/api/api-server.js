@@ -162,7 +162,13 @@ app.ws("/", function (socket) {
         `Setting ${entries.length} simvars:`,
         entries.map(([key]) => key).join(`,`)
       );
-      entries.forEach(([key, value]) => api.set(key, value));
+      entries.forEach(([key, value]) => {
+        try {
+          api.set(key, value);
+        } catch (e) {
+          /* irrelevant */
+        }
+      });
     }
 
     if (action === `trigger` && hasWriteAccess) {
