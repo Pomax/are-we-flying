@@ -17,6 +17,7 @@ import {
 } from "./utils/utils.js";
 import { changeThrottle } from "./utils/controls.js";
 
+const { abs } = Math;
 
 /**
  * Naive magic lies here
@@ -37,6 +38,10 @@ export class AutoTakeoff {
     this.autopilot = autopilot;
     this.api = autopilot.api;
     if (original) Object.assign(this, original);
+
+    // EXPERIMENTAL FOR AUTO RUDDER
+    this.lastDrift = 0;
+    this.staticDriftCorrection = 1;
   }
 
   /**
@@ -58,7 +63,6 @@ export class AutoTakeoff {
     const {
       TOTAL_WEIGHT: totalWeight,
       DESIGN_SPEED_VS1: vs1,
-      DESIGN_SPEED_MIN_ROTATION: minRotate,
       NUMBER_OF_ENGINES: engineCount,
       TITLE: title,
     } = await api.get(
@@ -69,6 +73,16 @@ export class AutoTakeoff {
       `TITLE`
     );
 
+    let {
+      DESIGN_SPEED_MIN_ROTATION: minRotate,
+      DESIGN_TAKEOFF_SPEED: takeoffSpeed,
+    } = await api.get(`DESIGN_SPEED_MIN_ROTATION`, `DESIGN_TAKEOFF_SPEED`);
+
+    // turn feet per second into knots
+    minRotate *= FPS_IN_KNOTS;
+    takeoffSpeed *= FPS_IN_KNOTS;
+    if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
+
     const {
       onGround,
       speed: currentSpeed,
@@ -76,6 +90,7 @@ export class AutoTakeoff {
       dLift,
       verticalSpeed: vs,
       dVS,
+      bankAngle,
       latitude: lat,
       longitude: long,
       isTailDragger,
@@ -116,13 +131,15 @@ export class AutoTakeoff {
       currentSpeed,
       lat,
       long,
-      heading
+      heading,
+      bankAngle
     );
 
     // Is it time to actually take off?
     await this.checkRotation(
       onGround,
       currentSpeed,
+      minRotate,
       lift,
       dLift,
       vs,
@@ -237,14 +254,22 @@ export class AutoTakeoff {
     currentSpeed,
     lat,
     long,
-    heading
+    heading,
+    bankAngle
   ) {
     const { api, takeoffCoord: p1, futureCoord: p2 } = this;
 
     // If we're actually in the air, we want to ease the rudder back to neutral.
     if (!onGround) {
       const { RUDDER_POSITION: rudder } = await api.get(`RUDDER_POSITION`);
-      api.set(`RUDDER_POSITION`, rudder / 2);
+      // // opposite rudder if we're veering.
+      // if (abs(bankAngle) > 0.02) {
+      //   api.set(`RUDDER_POSITION`, rudder + bankAngle);
+      // }
+      // // otherwise, ease off the rudder
+      // else {
+      api.set(`RUDDER_POSITION`, rudder * 0.96);
+      // }
       return;
     }
 
@@ -263,9 +288,19 @@ export class AutoTakeoff {
     const distInMeters = 100000 * FEET_PER_METER;
     const drift = (left ? 1 : -1) * dist(long, lat, dx, dy) * distInMeters;
 
+    // are we still drifting in the wrong direction?
+    const trackingDiff = abs(this.lastDrift) - abs(drift);
+    if (currentSpeed > 1 && trackingDiff > 0) {
+      this.staticDriftCorrection += constrainMap(trackingDiff, 0, 10, 0, 1);
+    } else {
+      if (this.staticDriftCorrection > 1.1) this.staticDriftCorrection -= 0.1;
+    }
+
     // Then turn that into an error term that we add to "how far off from heading we are":
-    const limit = constrainMap(currentSpeed, 0, minRotate, 12, 4);
-    const driftCorrection = constrainMap(drift, -130, 130, -limit, limit);
+    const limit = constrainMap(currentSpeed, 0, minRotate, 120, 4);
+    const driftCorrection =
+      constrainMap(drift, -130, 130, -limit, limit) *
+      this.staticDriftCorrection;
 
     // Get our heading diff, with a drift correction worked in.
     const diff = getCompassDiff(heading, this.takeoffHeading + driftCorrection);
@@ -278,7 +313,23 @@ export class AutoTakeoff {
     const tailFactor = isTailDragger ? 1 : 0.5;
     const rudder = diff * stallFactor * speedFactor * tailFactor;
 
-    // FIXME: this goes "wrong" for the Kodiak 100
+    // FIXME: this goes "wrong" for the Kodiak 100, which immediately banks left on take-off
+    // FIXME: this does "nothing" for the Cessna 172, unless we add the static drift correction.
+
+    console.log({
+      STAGE: `auto-rudder`,
+      drift,
+      limit,
+      driftCorrection,
+      staticDriftCorrection: this.staticDriftCorrection,
+      diff,
+      stallFactor,
+      speedFactor,
+      tailFactor,
+      rudder,
+    });
+
+    this.lastDrift = drift;
 
     api.set(`RUDDER_POSITION`, rudder);
   }
@@ -290,18 +341,16 @@ export class AutoTakeoff {
    * @param {*} onGround
    * @param {*} currentSpeed
    */
-  async checkRotation(onGround, currentSpeed, lift, dLift, vs, totalWeight) {
+  async checkRotation(
+    onGround,
+    currentSpeed,
+    minRotate,
+    lift,
+    dLift,
+    vs,
+    totalWeight
+  ) {
     const { api, autopilot } = this;
-
-    let {
-      DESIGN_SPEED_MIN_ROTATION: minRotate,
-      DESIGN_TAKEOFF_SPEED: takeoffSpeed,
-    } = await api.get(`DESIGN_SPEED_MIN_ROTATION`, `DESIGN_TAKEOFF_SPEED`);
-
-    // turn feet per second into knots
-    minRotate *= FPS_IN_KNOTS;
-    takeoffSpeed *= FPS_IN_KNOTS;
-    if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
     const rotateSpeed = minRotate + 5;
 
     // Are we in a rotation situation?
@@ -344,8 +393,9 @@ export class AutoTakeoff {
           api.set(`ELEVATOR_POSITION`, elevator + touch);
         }
 
-        if (!autopilot.modes[LEVEL_FLIGHT])
+        if (!autopilot.modes[LEVEL_FLIGHT]) {
           autopilot.setTarget(LEVEL_FLIGHT, true);
+        }
       }
     }
   }

@@ -136,7 +136,6 @@ export class Plane {
     });
 
     this.pause = async () => {
-      console.log(`pausing`);
       this.paused = true;
       this.planeIcon?.classList.add(`paused`);
     };
@@ -144,7 +143,6 @@ export class Plane {
     addEventListenerAPI(`PAUSED`, this.pause);
 
     this.unpause = async () => {
-      console.log(`unpausing`);
       this.paused = false;
       this.planeIcon?.classList.remove(`paused`);
       if (!this.sequencer.state) {

@@ -45,11 +45,14 @@ export async function altitudeHold(autopilot, state) {
   if (abs(diff) < 100) update /= 2;
   if (abs(diff) < 20) update /= 2;
 
-  if (!isNaN(update)) trim.y += update;
+  if (!isNaN(update)) {
+    const proximityFactor = constrainMap(abs(diff), 0, 100, 0.1, 1); // EXPERIMENTAL
+    trim.y += update * proximityFactor;
+  }
 
   // We can't trim past +/- 100% of the trim range.
-  if (trim.y * 10/Math.PI < -100) trim.y = -Math.PI/20;
-  if (trim.y * 10/Math.PI > 100) trim.y = Math.PI/20;
+  if ((trim.y * 10) / Math.PI < -100) trim.y = -Math.PI / 20;
+  if ((trim.y * 10) / Math.PI > 100) trim.y = Math.PI / 20;
   console.log(trim.y);
 
   autopilot.set("ELEVATOR_TRIM_POSITION", trim.y);

@@ -34,10 +34,10 @@ export async function flyLevel(autopilot, state) {
   const bank = degrees(state.bankAngle);
   const maxBank = constrainMap(state.speed, 50, 200, 10, 30);
   const dBank = state.dBank;
-  const maxdBank = radians(1);
+  const maxdBank = 0.01;
 
   // How big our corrections are going to be:
-  const step = constrainMap(state.speed, 50, 150, radians(1), radians(2));
+  const step = constrainMap(state.speed, 50, 150, radians(1), radians(5)); // kodiak wants 5 instead of 2???!?!?
   const s1 = step;
   const s2 = step / 2;
   const s5 = step / 5;
@@ -57,8 +57,22 @@ export async function flyLevel(autopilot, state) {
     update -= constrainMap(overshoot, -maxTurnRate, maxTurnRate, -s5, s5);
   }
 
-  if (!isNaN(update)) trim.x += update;
-  autopilot.set("AILERON_TRIM_PCT", trim.x);
+  if (!isNaN(update)) {
+    trim.x += update;
+
+    console.log({
+      STAGE: `fly level`,
+      bank,
+      maxBank,
+      targetBank,
+      diff,
+      dBank,
+      overshoot,
+      trim: trim.x,
+    });
+
+    autopilot.set("AILERON_TRIM_PCT", trim.x);
+  }
 }
 
 /**
