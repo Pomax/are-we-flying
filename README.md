@@ -60,7 +60,7 @@ Waypoint based flight plans can be saved and loaded, as well as reset (marking e
 
 ## Testing the code without even running MSFS
 
-There is a convenient `mock.bat` that runs the api server in "mock mode" where it has a SimConnect shim that's just barely complete enough to fake a plane, with a shim that lets it correctly respond to get/set/autopilot instructions so you can test code without having to run MSFS. You're still going to have to test the code with MSFS running eventually, but it can save a bunch of time by not having to constantly restart flights in-game just to see if some function no longer errors out because you had a typo somewhere. A bunch of the AP code is also [set up for server-side hot-reloading](https://pomax.github.io/are-we-flying/#hot-reloading-to-make-our-dev-lives-easier) so that changes immediately kick in rather than having to restart the API server. 
+There is a convenient `mock.bat` that runs the api server in "mock mode" where it has a SimConnect shim that's just barely complete enough to fake a plane, with a shim that lets it correctly respond to get/set/autopilot instructions so you can test code without having to run MSFS. You're still going to have to test the code with MSFS running eventually, but it can save a bunch of time by not having to constantly restart flights in-game just to see if some function no longer errors out because you had a typo somewhere. A bunch of the AP code is also [set up for server-side hot-reloading](https://pomax.github.io/are-we-flying/#hot-reloading-to-make-our-dev-lives-easier) so that changes immediately kick in rather than having to restart the API server.
 
 ## Reading the tutorial
 
@@ -74,4 +74,4 @@ Writing a 150 page tutorial (book?) takes time and effort. If you can financiall
 
 If you found bugs, or _fixed_ bugs, or even came up with completely new code that's cool to add (or replace existing code), file an issue!
 
-For less serious engagement, you can also hit me up over on https://mastodon.social/@TheRealPomax or https://twitter.com/TheRealPomax
+For less serious engagement, you can also hit me up over on https://mastodon.social/@TheRealPomax

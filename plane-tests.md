@@ -1,6 +1,7 @@
 - F117: doesn't realise it's taken off
 - Aermacchi mb-339: weirdly, sort of works
 - L-39: takes off, then nose dives
+- Fouga CM-170: works
 - Pitts Special S1: "works" but is very wibbly
 - Bede BD-5J: works
 - Beechcraft Model 18: works
