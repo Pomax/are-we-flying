@@ -16,7 +16,7 @@ export class ALOSTile {
       try {
         copyFileSync(tilePath, filename);
       } catch (e) {
-        execSync(`cp ${tilePath} ${filename}`);
+        execSync(`cp "\\${tilePath}" "${CACHE_DIR}"`);
       }
     }
     this.init(filename);

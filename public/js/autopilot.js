@@ -1,8 +1,8 @@
-import { getAutoPilotParameters, callAutopilot } from "./api.js";
-
 const content = await fetch("autopilot.html").then((res) => res.text());
 const autopilot = document.getElementById(`autopilot`);
 autopilot.innerHTML = content;
+
+// TODO: make this reactive
 
 export const AP_DEFAULT = {
   MASTER: false,
@@ -18,6 +18,7 @@ export class Autopilot {
   constructor(owner) {
     console.log(`building autopilot`);
     this.owner = owner;
+    const server = (this.server = owner.server);
     this.elevation = {};
 
     Object.keys(AP_DEFAULT).forEach((key) => {
@@ -35,7 +36,7 @@ export class Autopilot {
           }
         }
         console.log(`click`, key, value);
-        callAutopilot(`update`, { [key]: value });
+        server.autopilot.update({ [key]: value });
       });
     });
 
@@ -43,7 +44,7 @@ export class Autopilot {
       .querySelector(`#autopilot .altitude`)
       .addEventListener(`change`, (evt) => {
         const { value } = evt.target;
-        callAutopilot(`update`, { ALT: value });
+        server.autopilot.update({ ALT: value });
         evt.target.blur();
       });
 
@@ -51,14 +52,11 @@ export class Autopilot {
       .querySelector(`#autopilot .heading`)
       .addEventListener(`change`, (evt) => {
         const { value } = evt.target;
-        callAutopilot(`update`, { HDG: value });
+        server.autopilot.update({ HDG: value });
         evt.target.blur();
       });
 
-    setInterval(
-      async () => this.bootstrap(await getAutoPilotParameters()),
-      1000
-    );
+    (async () => this.bootstrap(await this.server.autopilot.getParameters()))();
   }
 
   bootstrap(params) {
@@ -95,5 +93,9 @@ export class Autopilot {
     if (!ALT) {
       document.querySelector(`#autopilot .altitude`).value = altitude;
     }
+  }
+
+  update(params) {
+    console.log(`ap parameters:`, params);
   }
 }

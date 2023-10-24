@@ -14,6 +14,7 @@ import {
   getCompassDiff,
   getPointAtDistance,
   dist,
+  radians,
 } from "./utils/utils.js";
 import { changeThrottle } from "./utils/controls.js";
 
@@ -29,6 +30,7 @@ export class AutoTakeoff {
   liftoff = false;
   levelOut = false;
   easeElevator = false;
+  trimStep = undefined;
 
   /**
    *
@@ -56,10 +58,16 @@ export class AutoTakeoff {
    * @param {*} state
    */
   async run(state) {
-    console.log(`[${Date.now()}]`);
 
+    // EXPERIMENTAL FOR ROTATION
+    if (!this.trimStep) {
+      let trimLimit = state.pitchTrimLimit[0];
+      trimLimit = trimLimit === 0 ? 10 : trimLimit;
+      this.trimStep = constrainMap(trimLimit, 5, 20, 0.001, 0.01);
+    }
+
+    // constants
     const { api } = this;
-
     const {
       TOTAL_WEIGHT: totalWeight,
       DESIGN_SPEED_VS1: vs1,
@@ -73,16 +81,16 @@ export class AutoTakeoff {
       `TITLE`
     );
 
+    // variables: these have the wrong unit, so we need to fix them
     let {
       DESIGN_SPEED_MIN_ROTATION: minRotate,
       DESIGN_TAKEOFF_SPEED: takeoffSpeed,
     } = await api.get(`DESIGN_SPEED_MIN_ROTATION`, `DESIGN_TAKEOFF_SPEED`);
-
-    // turn feet per second into knots
     minRotate *= FPS_IN_KNOTS;
     takeoffSpeed *= FPS_IN_KNOTS;
     if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
 
+    // current airplane state values:
     const {
       onGround,
       speed: currentSpeed,
@@ -91,13 +99,18 @@ export class AutoTakeoff {
       verticalSpeed: vs,
       dVS,
       bankAngle,
+      altitude: alt,
       latitude: lat,
       longitude: long,
       isTailDragger,
       altitude,
+      pitchTrim,
     } = state;
+
     const heading = degrees(state.heading);
     const trueHeading = degrees(state.trueHeading);
+
+    // Mystery value: this shouldn't really be used =(
     const vs12 = vs1 ** 2;
 
     if (!this.takeoffAltitude) {
@@ -135,28 +148,19 @@ export class AutoTakeoff {
       bankAngle
     );
 
-    // Is it time to actually take off?
+    // Check whether to start (or end) the rotate phase
     await this.checkRotation(
       onGround,
       currentSpeed,
       minRotate,
+      altitude,
       lift,
       dLift,
       vs,
       dVS,
-      totalWeight
-    );
-
-    // Is it time to hand off flight to the regular auto pilot?
-    const altitudeGained = altitude - this.takeoffAltitude;
-    await this.checkHandoff(
-      title,
-      isTailDragger,
       totalWeight,
-      vs,
-      dVS,
-      altitude,
-      altitudeGained
+      pitchTrim,
+      isTailDragger
     );
   }
 
@@ -345,119 +349,71 @@ export class AutoTakeoff {
     onGround,
     currentSpeed,
     minRotate,
+    altitude,
     lift,
     dLift,
     vs,
-    totalWeight
+    dVs,
+    totalWeight,
+    pitchTrim,
+    isTailDragger
   ) {
-    const { api, autopilot } = this;
+    const { api, autopilot, trimStep} = this;
     const rotateSpeed = minRotate + 5;
 
     // Are we in a rotation situation?
     if (!onGround || currentSpeed > rotateSpeed) {
-      const { ELEVATOR_POSITION: elevator } = await api.get(
-        `ELEVATOR_POSITION`
-      );
-
-      console.log(`Rotate, elevator: ${elevator}`, onGround, this.liftoff);
-
-      // We're still on the ground: pull back on the stick
-      if (this.liftoff === false) {
-        console.log(`wheels off the ground, prepare for kick...`);
-        this.liftoff = Date.now();
-        const pullBack = constrainMap(totalWeight, 3500, 14000, 0.05, 2);
-        console.log(`\nKICK: ${pullBack}\n`);
-        api.set(`ELEVATOR_POSITION`, pullBack);
+      // if we're still on the ground, trim up
+      if (onGround) {
+        console.log(`on ground, trim up by ${trimStep}`);
+        autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep);
       }
 
-      // We're in the air
+      // if we're in the air:
       else {
-        // Do we have a high positive rate?
-        if (vs > 1000 && elevator > 0) {
-          console.log(`Ease back elevator to level off initial climb`);
-          const backoff = constrainMap(
-            vs,
-            100,
-            3000,
-            this.easeElevator / 100,
-            this.easeElevator / 10
-          );
-          api.set(`ELEVATOR_POSITION`, elevator - backoff);
+        // Are we climbing fast enough?
+        if (vs > 1000) {
+          console.log(`VS too high, trim down`);
+          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim - trimStep/10);
         }
 
-        // Or do we not have a positive enough rate yet?
+        // Are we high enough up? Switch to autopilot
+        if (lift > 300) {
+          this.switchToAutopilot(altitude, isTailDragger);
+        }
+
+        // Do we not have a positive enough rate yet? Trim more
         else if (dLift <= 0.2 && lift <= 300 && vs < 200) {
-          console.log(`\ndLift=${dLift}, keep going...\n`);
-          let touch = constrainMap(totalWeight, 3500, 14000, 0.02, 0.2);
-          touch = constrainMap(dLift, 0, 0.1, touch, 0);
-          api.set(`ELEVATOR_POSITION`, elevator + touch);
+          console.log(`need more positive rate (dlift: ${dLift}), trim up`);
+          this.trimStep += 0.01;
+
+          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep/10);
         }
 
+        // Ensure that the wing leveler is turned on
         if (!autopilot.modes[LEVEL_FLIGHT]) {
           autopilot.setTarget(LEVEL_FLIGHT, true);
+          console.log(`turn on wing leveler`);
         }
       }
     }
   }
 
-  /**
-   * Hand off control to the `regular` autopilot once we have a safe enough positive rate.
-   *
-   * @param {*} totalWeight
-   * @param {*} vs
-   */
-  async checkHandoff(
-    title,
-    isTailDragger,
-    totalWeight,
-    vs,
-    dVS,
-    altitude,
-    altitudeGained
-  ) {
+  async switchToAutopilot(targetAltitude, isTailDragger) {
     const { api, autopilot } = this;
 
-    if (this.levelOut && dVS < 0) {
-      console.log(`\n\n\SWITCH FROM AUTO-TAKEOFF TO AUTOPILOT`);
-
-      // set elevator trim, scaled for the plane's trim limit, so that the
-      // autopilot doesn't start in neutral and we don't suddenly pitch down.
-      const { ELEVATOR_TRIM_UP_LIMIT: trimLimit } = await api.get(
-        `ELEVATOR_TRIM_UP_LIMIT`
-      );
-      let trim =
-        trimLimit * constrainMap(totalWeight, 3000, 6500, 0.0003, 0.003);
-
-      // Special affordances:
-      if (title.toLowerCase().includes(`orbx p-750`)) {
-        // the amount of trim this plane needs is just absolutely insane
-        trim *= 4;
-      }
-
-      console.log(`setting AP trim takeover to`, trim);
-      await api.set("ELEVATOR_TRIM_POSITION", trim);
-
-      // reset elevator and turn on terrain follow.
-      await api.set("ELEVATOR_POSITION", 0);
-      autopilot.setTarget(ALTITUDE_HOLD, altitude + 100);
-      autopilot.setTarget(TERRAIN_FOLLOW, true);
-      autopilot.setTarget(AUTO_TAKEOFF, false);
+    console.log(`reset rudder, gear up, unlock tailwheel.`);
+    api.set(`RUDDER_POSITION`, 0);
+    api.trigger(`GEAR_UP`);
+    if (isTailDragger) {
+      const { TAILWHEEL_LOCK_ON } = await api.get(`TAILWHEEL_LOCK_ON`);
+      if (TAILWHEEL_LOCK_ON === 1) api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
     }
 
-    const limit = constrainMap(totalWeight, 3000, 6500, 300, 1000);
-
-    if (!this.levelOut && (vs > limit || altitudeGained > 100)) {
-      this.levelOut = true;
-      console.log(`level out`);
-      const { ELEVATOR_POSITION } = await api.get(`ELEVATOR_POSITION`);
-      this.easeElevator = ELEVATOR_POSITION;
-
-      api.set(`RUDDER_POSITION`, 0);
-      api.trigger(`GEAR_UP`);
-      if (isTailDragger) {
-        const { TAILWHEEL_LOCK_ON } = await api.get(`TAILWHEEL_LOCK_ON`);
-        if (TAILWHEEL_LOCK_ON === 1) api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
-      }
-    }
+    console.log(`switch to autopilot.`);
+    autopilot.setParameters({
+      [AUTO_TAKEOFF]: false,
+      [ALTITUDE_HOLD]: targetAltitude,
+    });
   }
 }

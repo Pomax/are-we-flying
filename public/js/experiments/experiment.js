@@ -1,6 +1,5 @@
 export class Runner {
-  constructor(map, plane, interval = 1000) {
-    this.map = map;
+  constructor(plane, interval = 1000) {
     this.plane = plane;
     this.interval = interval;
     this.reset();

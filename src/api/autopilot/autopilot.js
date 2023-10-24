@@ -1,3 +1,6 @@
+import url from "url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+
 import {
   ACROBATIC,
   ALTITUDE_HOLD,
@@ -12,9 +15,6 @@ import { degrees } from "./utils/utils.js";
 import { followTerrain } from "./terrain-follow.js";
 import { ALOSInterface } from "../../elevation/alos-interface.js";
 
-import url from "url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-
 // allow hot-reloading of flyLevel and altitudeHold code
 import { addReloadWatcher } from "./reload-watcher.js";
 import { flyLevel as fl } from "./fly-level.js";
@@ -22,6 +22,7 @@ import { altitudeHold as ah } from "./altitude-hold.js";
 import { AutoTakeoff as ato } from "./auto-takeoff.js";
 import { State as st } from "./utils/state.js";
 import { WayPoints as wp } from "./waypoints/waypoints.js";
+
 let flyLevel = fl;
 let altitudeHold = ah;
 let AutoTakeoff = ato;
@@ -56,7 +57,7 @@ export class AutoPilot {
       [ACROBATIC]: false, // use the special acrobatic code instead?
       [INVERTED_FLIGHT]: false, // fly upside down?
     };
-    this.onChange(this.getAutoPilotParameters);
+    this.onChange(this.getParameters);
   }
 
   bootstrap() {
@@ -159,7 +160,7 @@ export class AutoPilot {
     this.api.trigger(name);
   }
 
-  getAutoPilotParameters() {
+  getParameters() {
     const state = {
       MASTER: this.autoPilotEnabled,
       waypoints: this.waypoints.getWaypoints(),
@@ -238,7 +239,7 @@ export class AutoPilot {
       }
     }
 
-    this.onChange(this.getAutoPilotParameters());
+    this.onChange(this.getParameters());
   }
 
   async runAutopilot() {
