@@ -69,8 +69,8 @@ export class ServerClass {
     });
   }
 
-  // When a client connects and MSFS is already connect, tell the
-  // client to start a new flight
+  // When a client connects and MSFS is already connected,
+  // tell the client to start a new flight
   async onConnect(client) {
     if (MSFS) {
       client.onMSFS(true);
@@ -106,7 +106,8 @@ export class ServerClass {
     }
   }
 
-  // authenticate as owner
+  // Authentication handle for when a client was started with --owner
+  // and it had access to a FLIGHT_OWNER_KEY environment variable.
   async authenticate(client, flightOwnerKey) {
     if (flightOwnerKey !== FLIGHT_OWNER_KEY) return false;
     console.log(`authenticating client`);
