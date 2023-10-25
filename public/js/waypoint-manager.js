@@ -1,10 +1,9 @@
-import { callAutopilot } from "./api.js";
 import { Trail } from "./trail.js";
 const noop = () => {};
 
 export class WaypointOverlay {
-  constructor(autopilot, map) {
-    this.autopilot = autopilot;
+  constructor(owner, map) {
+    this.owner = owner;
     this.map = map;
     this.waypoints = [];
     this.setupMapHandling();
@@ -16,13 +15,13 @@ export class WaypointOverlay {
     document
       .querySelector(`button[name="clear"]`)
       .addEventListener(`click`, () => {
-        callAutopilot(`waypoint`, { clear: true });
+        this.owner.server.autopilot.clearWaypoints();
       });
 
     document
       .querySelector(`button[name="reset"]`)
       .addEventListener(`click`, () => {
-        callAutopilot(`waypoint`, { reset: true });
+        this.owner.server.autopilot.resetWaypoints();
       });
 
     document
@@ -52,9 +51,9 @@ export class WaypointOverlay {
           try {
             const data = JSON.parse(text);
             data.forEach(({ lat, long, alt }) =>
-              callAutopilot(`waypoint`, { lat, long, alt })
+              this.owner.server.autopilot.addWaypoint(lat, long, alt)
             );
-            callAutopilot(`waypoint`, { revalidate: true });
+            this.owner.server.autopilot.revalidateWaypoints();
             console.log(`Loaded flight path from file.`);
           } catch (e) {
             console.error(`Could not parse flight path.`);
@@ -230,19 +229,17 @@ export class WaypointOverlay {
 
   add({ latlng }) {
     const { lat, lng: long } = latlng;
-    callAutopilot(`waypoint`, { lat, long });
-    // This will trigger an AP update notification, in
-    // response-to-which we'll add the marker to the map.
+    this.owner.server.autopilot.addWaypoint(lat, long);
   }
 
   move({ id, marker }) {
     const { lat, lng: long } = marker.__drag__latlng;
     marker.__drag__latlng = undefined;
-    callAutopilot(`waypoint`, { move: true, id, lat, long });
+    this.owner.server.autopilot.moveWaypoint(id, lat, long);
   }
 
   elevate({ id }, alt) {
-    callAutopilot(`waypoint`, { elevate: true, id, alt });
+    this.owner.server.autopilot.setWaypointElevation(id, alt);
   }
 
   remove(waypoint, noAPIcall = false) {
@@ -256,7 +253,9 @@ export class WaypointOverlay {
     if (id < 0) return;
 
     // send a remove call to the autopilot if this was a client-initiated removal
-    if (!noAPIcall) callAutopilot(`waypoint`, { id, remove: true });
+    if (!noAPIcall) {
+      this.owner.server.autopilot.removeWaypoint(id);
+    }
 
     // remove waypoint from our map trail
     waypoint.marker.remove();

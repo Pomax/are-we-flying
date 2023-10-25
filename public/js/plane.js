@@ -19,6 +19,7 @@ export class Plane {
     console.log(`building plane`);
     this.server = server;
     this.autopilot = new Autopilot(this);
+    // TODO: waypoint placement runs into JSON serialization problems due to waypoints' .next
     this.waypoints = new WaypointOverlay(this, map);
     // initial bootstrap
     const [lat, long] = (this.lastPos = Duncan);
@@ -55,16 +56,23 @@ export class Plane {
    * @returns
    */
   async updateState(state) {
+    const now = Date.now();
     console.log(`state:`, state);
+
     // update questions
     Questions.update(state);
-    // update plane vizualisation
+
+    // update plane visualisation
     const { flightData } = state;
-    if (!flightData) return;
-    this.updateMap(flightData);
-    // update the autopilot bar
+    if (flightData) this.updateMap(flightData, now);
+
+    // update the autopilot
     console.log(`passing ap paramts into autopilot...`);
-    this.autopilot.update(state.autopilot);
+    const { waypoints, elevation, ...params } = state.autopilot;
+    this.autopilot.update(params);
+    this.manageWaypoints(waypoints);
+    this.setElevationProbe(elevation);
+
     // cache and wait for the next state
     this.lastUpdate = { time: now, ...this.state };
   }
@@ -74,7 +82,7 @@ export class Plane {
    * @param {*} flightData
    * @returns
    */
-  updateMap(flightData) {
+  updateMap(flightData, now) {
     const {
       PLANE_LATITUDE: lat,
       PLANE_LONGITUDE: long,
@@ -133,6 +141,7 @@ export class Plane {
     // and all the flight aspects
     const st = planeIcon.style;
     const palt = paag - cg;
+    this.autopilot.setCurrentAltitude(palt);
     st.setProperty(`--altitude`, max(palt, 0));
     st.setProperty(`--sqrt-alt`, sqrt(max(palt, 0)));
     st.setProperty(`--speed`, speed | 0);
@@ -146,7 +155,6 @@ export class Plane {
     Attitude.setPitchBank(pitch, bank);
 
     // finally, update our chart
-    const now = Date.now();
     this.charts.update({
       ground: galt,
       altitude: alt,
@@ -163,16 +171,29 @@ export class Plane {
     });
   }
 
+  /**
+   * ...docs go here...
+   * @param {*} location
+   */
   startNewTrail(location) {
     this.trail = new Trail(this.map, location);
   }
 
-  // =============================================================================
+  /**
+   * ...docs go here...
+   * @param {*} data
+   */
+  async manageWaypoints(waypoints) {
+    console.log(waypoints);
+    this.waypoints.manage(waypoints);
+  }
 
+  /**
+   * ...docs go here...
+   * @param {*} value
+   * @returns
+   */
   async setElevationProbe(value) {
-    // FIXME: make sure this works again.
-    return;
-
     // remove the old probe line
     if (this.elevationProbe) this.elevationProbe.remove();
 
@@ -186,9 +207,5 @@ export class Plane {
       { weight: 30, lineCap: `butt` }
     );
     this.elevationProbe.add(value.lat2, value.long2);
-  }
-
-  async manageWaypoints(data) {
-    this.waypoints.manage(data);
   }
 }
