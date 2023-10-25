@@ -1,3 +1,6 @@
+import { AutoPilot } from "../../api/autopilot/autopilot.js";
+import { ClientClass } from "../client/client.js";
+
 /**
  * "route" handler for autopilot API calls from clients
  */
@@ -5,15 +8,30 @@ export class AutopilotRouter {
   #autopilot;
   #broadcastUpdate;
 
+  /**
+   * ...docs go here...
+   * @param {AutoPilot}} autopilot
+   * @param {Function} broadcastUpdate
+   */
   constructor(autopilot, broadcastUpdate) {
     this.#autopilot = autopilot;
     this.#broadcastUpdate = broadcastUpdate;
   }
 
+  /**
+   * ...docs go here...
+   * @param {ClientClass} client
+   * @returns
+   */
   async getParameters(client) {
     return this.#autopilot.getParameters();
   }
 
+  /**
+   * ...docs go here...
+   * @param {ClientClass} client
+   * @param {*} params
+   */
   async update(client, params) {
     if (!client.authenticated) {
       return false;
@@ -22,6 +40,10 @@ export class AutopilotRouter {
     this.#broadcastUpdate(this.#autopilot.getParameters());
   }
 
+  /**
+   * ...docs go here...
+   * @param {ClientClass} client
+   */
   async clearWaypoints(client) {
     if (!client.authenticated) {
       return false;
@@ -30,11 +52,19 @@ export class AutopilotRouter {
     this.#broadcastUpdate(this.#autopilot.getParameters());
   }
 
+  /**
+   * ...docs go here...
+   * @param {ClientClass} client
+   */
   async revalidateWaypoints(client) {
     this.#autopilot.revalidateFlight();
     this.#broadcastUpdate(this.#autopilot.getParameters());
   }
 
+  /**
+   * ...docs go here...
+   * @param {ClientClass} client
+   */
   async resetWaypoints(client) {
     if (!client.authenticated) {
       return false;
@@ -43,6 +73,13 @@ export class AutopilotRouter {
     this.#broadcastUpdate(this.#autopilot.getParameters());
   }
 
+  /**
+   * ...docs go here...
+   * @param {ClientClass} client
+   * @param {Number} id
+   * @param {Number} lat
+   * @param {Number} long
+   */
   async moveWaypoint(client, id, lat, long) {
     if (!client.authenticated) {
       return false;
@@ -51,6 +88,12 @@ export class AutopilotRouter {
     this.#broadcastUpdate(this.#autopilot.getParameters());
   }
 
+  /**
+   * ...docs go here...
+   * @param {ClientClass} client
+   * @param {Number} id
+   * @param {Number} alt
+   */
   async setWaypointElevation(client, id, alt) {
     if (!client.authenticated) {
       return false;
@@ -59,6 +102,11 @@ export class AutopilotRouter {
     this.#broadcastUpdate(this.#autopilot.getParameters());
   }
 
+  /**
+   * ...docs go here...
+   * @param {ClientClass} client
+   * @param {Number} id
+   */
   async removeWaypoint(client, id) {
     if (!client.authenticated) {
       return false;
@@ -67,6 +115,14 @@ export class AutopilotRouter {
     this.#broadcastUpdate(this.#autopilot.getParameters());
   }
 
+  /**
+   * ...docs go here...
+   * @param {ClientClass} client
+   * @param {Number} lat
+   * @param {Number} long
+   * @param {Number} alt
+   * @param {Number} landing
+   */
   async addWaypoint(client, lat, long, alt, landing) {
     if (!client.authenticated) {
       return false;

@@ -1,21 +1,18 @@
+import { Attitude } from "./attitude.js";
+import { Autopilot } from "./autopilot.js";
 import { dist, waitFor } from "./utils.js";
 import { Duncan } from "./locations.js";
-import { Autopilot } from "./autopilot.js";
-import { Attitude } from "./attitude.js";
-import { Trail } from "./trail.js";
-import { Questions } from "./questions.js";
 import { getAirplaneSrc } from "./airplane-src.js";
+import { initCharts } from "./dashboard/charts.js";
 import { map as defaultMap, centerBtn } from "./maps.js";
 import { MapMarker } from "./map-marker.js";
-import { initCharts } from "./dashboard/charts.js";
+import { Questions } from "./questions.js";
+import { Trail } from "./trail.js";
 import { WaypointOverlay } from "./waypoint-manager.js";
 
 const L = await waitFor(async () => window.L);
 const { abs, max, PI: π, sqrt } = Math;
-
 const setText = (qs, text) => (document.querySelector(qs).textContent = text);
-
-// TODO: add autopilot reset when we stop flying.
 
 export class Plane {
   constructor(server, map = defaultMap, location = Duncan, heading = 135) {
@@ -30,6 +27,12 @@ export class Plane {
     this.charts = initCharts();
   }
 
+  /**
+   * ...docs go here...
+   * @param {*} map
+   * @param {*} location
+   * @param {*} heading
+   */
   async addPlaneIconToMap(map, location = Duncan, heading = 0) {
     const props = {
       icon: L.divIcon({
@@ -46,16 +49,32 @@ export class Plane {
     this.planeIcon.offsetParent.offsetParent.style.zIndex = 99999;
   }
 
+  /**
+   * ...docs go here...
+   * @param {*} state
+   * @returns
+   */
   async updateState(state) {
     console.log(`state:`, state);
-
     // update questions
     Questions.update(state);
-
     // update plane vizualisation
     const { flightData } = state;
     if (!flightData) return;
+    this.updateMap(flightData);
+    // update the autopilot bar
+    console.log(`passing ap paramts into autopilot...`);
+    this.autopilot.update(state.autopilot);
+    // cache and wait for the next state
+    this.lastUpdate = { time: now, ...this.state };
+  }
 
+  /**
+   * ...docs go here...
+   * @param {*} flightData
+   * @returns
+   */
+  updateMap(flightData) {
     const {
       PLANE_LATITUDE: lat,
       PLANE_LONGITUDE: long,
@@ -126,10 +145,6 @@ export class Plane {
     planeIcon.querySelector(`.speed`).textContent = `${speed | 0}kts`;
     Attitude.setPitchBank(pitch, bank);
 
-    // update the autopilot bar
-    console.log(`passing ap paramts into autopilot...`);
-    this.autopilot.update(state.autopilot);
-
     // finally, update our chart
     const now = Date.now();
     this.charts.update({
@@ -146,8 +161,6 @@ export class Plane {
       "turn rate": turnRate,
       "aileron trim": aTrim,
     });
-
-    this.lastUpdate = { time: now, ...this.state };
   }
 
   startNewTrail(location) {

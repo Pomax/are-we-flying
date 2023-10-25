@@ -19,11 +19,14 @@ let MSFS = false;
 export class ServerClass {
   #autopilot;
 
+  /**
+   * ...docs go here...
+   */
   constructor() {
-    // set up call handling for API calls
+    // Set up call handling for API calls
     this.api = new APIWrapper(api, () => MSFS);
 
-    // set up call handling for autopilot functionality
+    // Set up call handling for autopilot functionality
     const autopilot = (this.#autopilot = new AutoPilot(api, async (params) =>
       this.clients?.forEach((client) => client.onAutoPilot(params))
     ));
@@ -31,46 +34,57 @@ export class ServerClass {
       this.clients?.forEach((c) => c.onAutoPilot(params))
     );
 
-    // Wait for MSFS to come online
+    // Then wait for MSFS to come online
     const server = this;
     api.connect({
       retries: Infinity,
       retryInterval: 5,
       onConnect: () => {
-        console.log(`Connected to MSFS, binding.`);
-
-        console.log(`Registering API server to the general sim events.`);
-        api.on(SystemEvents.PAUSED, async () => {
-          autopilot.setPaused(true);
-          server.clients.forEach((client) => client.pause());
-        });
-        api.on(SystemEvents.UNPAUSED, async () => {
-          autopilot.setPaused(false);
-          server.clients.forEach((client) => client.unpause());
-        });
-        api.on(SystemEvents.CRASHED, async () => {
-          server.clients.forEach((client) => client.crashed());
-        });
-        api.on(SystemEvents.CRASH_RESET, async () => {
-          server.clients.forEach((client) => client.crashReset());
-        });
-
-        // whenever the sim or view values change, check the camera
-        // to determine whether we're actually in-game or not.
-        api.on(SystemEvents.SIM, () => server.#checkCamera());
-        api.on(SystemEvents.VIEW, () => server.#checkCamera());
-
-        // finally, signal any already connect client that we're good to go now.
         MSFS = true;
-        server.clients.forEach((client) => client.onMSFS(true));
+        console.log(`Connected to MSFS, binding.`);
+        this.#registerWithAPI(api, autopilot);
+        server.clients.forEach((client) => client.onMSFS(MSFS));
       },
       onRetry: (_, s) =>
         console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
     });
   }
 
-  // When a client connects and MSFS is already connected,
-  // tell the client to start a new flight
+  /**
+   * ...docs go here...
+   * @param {AutoPilot} api
+   */
+  #registerWithAPI(api, autopilot) {
+    console.log(`Registering API server to the general sim events.`);
+
+    api.on(SystemEvents.PAUSED, async () => {
+      autopilot.setPaused(true);
+      this.clients.forEach((client) => client.pause());
+    });
+
+    api.on(SystemEvents.UNPAUSED, async () => {
+      autopilot.setPaused(false);
+      this.clients.forEach((client) => client.unpause());
+    });
+
+    api.on(SystemEvents.CRASHED, async () => {
+      this.clients.forEach((client) => client.crashed());
+    });
+
+    api.on(SystemEvents.CRASH_RESET, async () => {
+      this.clients.forEach((client) => client.crashReset());
+    });
+
+    // whenever the sim or view values change, check the camera
+    // to determine whether we're actually in-game or not.
+    api.on(SystemEvents.SIM, () => this.#checkCamera());
+    api.on(SystemEvents.VIEW, () => this.#checkCamera());
+  }
+
+  /**
+   * When a client connects and MSFS is already connected,
+   * tell the client to start a new flight
+   */
   async onConnect(client) {
     if (MSFS) {
       client.onMSFS(true);
@@ -79,10 +93,12 @@ export class ServerClass {
     }
   }
 
-  // If the camera enum is 10 or higher, we are not actually in-game,
-  // even if the SIM variable is 1, so we use this to determine whether
-  // we're in-flight (because there is no true "are we flyin?" var that
-  // can be checked on connect)
+  /**
+   * If the camera enum is 10 or higher, we are not actually in-game,
+   * even if the SIM variable is 1, so we use this to determine whether
+   * we're in-flight (because there is no true "are we flyin?" var that
+   * can be checked on connect)
+   */
   async #checkCamera(client) {
     const data = await this.api.get(client, `CAMERA_STATE`, `CAMERA_SUBSTATE`);
     if (!data) {
@@ -106,8 +122,10 @@ export class ServerClass {
     }
   }
 
-  // Authentication handle for when a client was started with --owner
-  // and it had access to a FLIGHT_OWNER_KEY environment variable.
+  /**
+   * Authentication handle for when a client was started with --owner
+   * and it had access to a FLIGHT_OWNER_KEY environment variable.
+   */
   async authenticate(client, flightOwnerKey) {
     if (flightOwnerKey !== FLIGHT_OWNER_KEY) return false;
     console.log(`authenticating client`);

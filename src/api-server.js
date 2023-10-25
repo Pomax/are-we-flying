@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../.env` });
 const { API_PORT } = process.env;
 
-import { ClientClass, ServerClass } from "../classes/index.js";
+import { ClientClass, ServerClass } from "./classes/index.js";
 import { linkClasses } from "socketless";
 const factory = linkClasses(ClientClass, ServerClass);
 const { webserver } = factory.createServer();

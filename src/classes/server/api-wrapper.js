@@ -1,19 +1,26 @@
 import { createHash } from "crypto";
 import { SystemEvents } from "msfs-simconnect-api-wrapper";
+import { AutoPilot } from "../../api/autopilot/autopilot.js";
 
 const resultCache = {};
 const eventTracker = {};
-const authenticated = [];
 
 export class APIWrapper {
   #getMSFS;
 
+  /**
+   *
+   * @param {AutoPilot} api
+   * @param {Function} getMSFS
+   */
   constructor(api, getMSFS) {
     this.api = api;
     this.#getMSFS = getMSFS;
   }
 
-  // register for MSFS events
+  /**
+   * register for MSFS events
+   */
   async register(client, ...eventNames) {
     // but not if we're not connected to MSFS yet
     if (!this.#getMSFS()) return;
@@ -22,10 +29,10 @@ export class APIWrapper {
     );
   }
 
-  // private function (cannot be called remotely)
+  /**
+   * private function (cannot be called remotely)
+   */
   #registerSingleEvent(client, eventName) {
-    // console.log(`running register for ${eventName} on the server`);
-
     const tracker = (eventTracker[eventName] ??= {
       listeners: [],
       value: undefined,
@@ -65,7 +72,9 @@ export class APIWrapper {
     }
   }
 
-  // unregister from an MSFS event
+  /**
+   * unregister from an MSFS event
+   */
   async forget(client, eventName) {
     const pos = eventTracker[eventName].listeners.findIndex(
       (c) => c === client
@@ -77,7 +86,9 @@ export class APIWrapper {
     }
   }
 
-  // get simvar values
+  /**
+   * get simvar values
+   */
   async get(client, ...simVarNames) {
     const now = Date.now();
     const key = createHash("sha1").update(simVarNames.join(`,`)).digest("hex");
@@ -98,12 +109,16 @@ export class APIWrapper {
     return await resultCache[key].data;
   }
 
-  // get a special simvar (i.e. one known to the API, but not to MSFS)
+  /**
+   * get a special simvar (i.e. one known to the API, but not to MSFS)
+   */
   async getSpecial(client, specialVarName) {
     return await this.api.getSpecial(specialVarName);
   }
 
-  // set simvars
+  /**
+   * set simvars
+   */
   async set(client, simVars) {
     if (!client.authenticated) {
       return false;
@@ -125,7 +140,9 @@ export class APIWrapper {
     return errors.length ? errors : true;
   }
 
-  // trigger an MSFS event
+  /**
+   * trigger an MSFS event
+   */
   async trigger(client, eventName) {
     if (!client.authenticated) {
       return false;

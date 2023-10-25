@@ -1,16 +1,27 @@
+import { MSFS_API } from "msfs-simconnect-api-wrapper";
 import { FLIGHT_MODEL, FLIGHT_DATA } from "./flight-values.js";
 
 export class FlightInformation {
+  /**
+   * ...docs go here...
+   * @param {MSFS_API} api
+   */
   constructor(api) {
     this.api = api;
     this.reset();
   }
 
+  /**
+   * ...docs go here...
+   */
   reset() {
     this.model = false;
     this.data = false;
   }
 
+  /**
+   * ...docs go here...
+   */
   async update() {
     const [flightModel, flightData] = await Promise.all([
       this.updateModel(),
@@ -19,6 +30,9 @@ export class FlightInformation {
     return { flightModel, flightData };
   }
 
+  /**
+   * ...docs go here...
+   */
   async updateModel() {
     const modelData = await this.api.get(...FLIGHT_MODEL);
     if (!modelData) {
@@ -27,6 +41,9 @@ export class FlightInformation {
     return (this.model = modelData);
   }
 
+  /**
+   * ...docs go here...
+   */
   async updateFlight() {
     const flightData = await this.api.get(...FLIGHT_DATA);
 
