@@ -143,7 +143,7 @@ export class APIWrapper {
   /**
    * trigger an MSFS event
    */
-  async trigger(client, eventName) {
+  async trigger(client, eventName, value) {
     if (!client.authenticated) {
       return false;
     }
