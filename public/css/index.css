@@ -64,3 +64,6 @@ body > svg {
   display: block;
   max-width: 100%;
 }
+input[type="file"] {
+  width: 15em;
+}

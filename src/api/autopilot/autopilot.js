@@ -149,14 +149,23 @@ export class AutoPilot {
   }
 
   async get(...names) {
+    if (!this.api.connected) {
+      return {};
+    }
     return this.api.get(...names);
   }
 
   async set(name, value) {
+    if (!this.api.connected) {
+      return;
+    }
     this.api.set(name, value);
   }
 
   async trigger(name) {
+    if (!this.api.connected) {
+      return;
+    }
     this.api.trigger(name);
   }
 
@@ -247,6 +256,7 @@ export class AutoPilot {
     // grabbing the current state from MSFS, and
     // forwarding it to the relevant AP handlers.
     if (this.crashed) return;
+    if (!this.api.connected) return;
     if (!this.autoPilotEnabled) return;
 
     // If the autopilot is enabled, even if there

@@ -26,6 +26,7 @@ export class Plane {
     this.lastUpdate = { lat, long, crashed: false };
     this.addPlaneIconToMap(map, location, heading);
     this.charts = initCharts();
+    this.trail = this.startNewTrail();
   }
 
   /**
@@ -64,14 +65,15 @@ export class Plane {
 
     // update plane visualisation
     const { flightData } = state;
-    if (flightData) this.updateMap(flightData, now);
+    if (flightData) this.updateMap(state, flightData, now);
 
     // update the autopilot
-    console.log(`passing ap paramts into autopilot...`);
-    const { waypoints, elevation, ...params } = state.autopilot;
-    this.autopilot.update(params);
-    this.manageWaypoints(waypoints);
-    this.setElevationProbe(elevation);
+    if (state.autopilot) {
+      const { waypoints, elevation, ...params } = state.autopilot;
+      this.autopilot.update(params);
+      this.manageWaypoints(waypoints);
+      this.setElevationProbe(elevation);
+    }
 
     // cache and wait for the next state
     this.lastUpdate = { time: now, ...this.state };
@@ -82,7 +84,7 @@ export class Plane {
    * @param {*} flightData
    * @returns
    */
-  updateMap(flightData, now) {
+  updateMap(state, flightData, now) {
     const {
       PLANE_LATITUDE: lat,
       PLANE_LONGITUDE: long,

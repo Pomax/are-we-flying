@@ -86,11 +86,9 @@ export class ServerClass {
    * tell the client to start a new flight
    */
   async onConnect(client) {
-    if (MSFS) {
-      client.onMSFS(true);
-      await this.#checkCamera(client);
-      client.setFlying(flying);
-    }
+    if (MSFS) client.onMSFS(true);
+    await this.#checkCamera(client);
+    client.setFlying(flying);
   }
 
   /**

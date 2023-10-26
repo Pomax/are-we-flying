@@ -1,6 +1,16 @@
 import { Trail } from "./trail.js";
 const noop = () => {};
 
+// This is a wrapper class that lets us work with waypoints in a way that we can modify,
+// without actually touching the waypoint data in the synchronized state object.
+class Waypoint {
+  constructor(waypoint) {
+    Object.entries(waypoint).forEach(([key, value]) => {
+      this[key] = value;
+    });
+  }
+}
+
 export class WaypointOverlay {
   constructor(owner, map) {
     this.owner = owner;
@@ -46,15 +56,25 @@ export class WaypointOverlay {
       .addEventListener(`change`, (evt) => {
         const file = evt.target.files[0];
         var reader = new FileReader();
-        reader.onload = function () {
+        reader.onload = () => {
           var text = reader.result;
           try {
             const data = JSON.parse(text);
-            data.forEach(({ lat, long, alt }) =>
-              this.owner.server.autopilot.addWaypoint(lat, long, alt)
-            );
-            this.owner.server.autopilot.revalidateWaypoints();
-            console.log(`Loaded flight path from file.`);
+            console.log(`data parsed`);
+            try {
+              data.forEach(({ lat, long, alt }) =>
+                this.owner.server.autopilot.addWaypoint(lat, long, alt)
+              );
+              console.log(`waypoints added`);
+              try {
+                this.owner.server.autopilot.revalidateWaypoints();
+                console.log(`Loaded flight path from file.`);
+              } catch (e) {
+                console.error(`Problem revalidating`);
+              }
+            } catch (e) {
+              console.error(`Errors adding waypoints`);
+            }
           } catch (e) {
             console.error(`Could not parse flight path.`);
           }
@@ -95,11 +115,16 @@ export class WaypointOverlay {
     const { id } = waypoint;
     // That means that they're either new points, or updates to points we already know about.
     const known = waypoints.find((e) => e.id === id);
-    if (!known) return this.addNewWaypoint(waypoint);
-    this.updateKnownWaypoint(known, waypoint);
+    if (!known) return this.addNewWaypointToMap(waypoint);
+    this.updateKnownWaypointOnMap(known, waypoint);
   }
 
-  addNewWaypoint(waypoint) {
+  /**
+   *
+   * @param {*} waypoint
+   */
+  addNewWaypointToMap(waypoint) {
+    waypoint = new Waypoint(waypoint);
     const { lat, long, completed } = waypoint;
 
     const icon = L.divIcon({
@@ -159,7 +184,13 @@ export class WaypointOverlay {
     return new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
   }
 
-  updateKnownWaypoint(
+  /**
+   *
+   * @param {*} known
+   * @param {*} param1
+   * @returns
+   */
+  updateKnownWaypointOnMap(
     known,
     { id, lat, long, alt, landing, active, completed }
   ) {
@@ -227,21 +258,40 @@ export class WaypointOverlay {
     }
   }
 
+  /**
+   *
+   * @param {*} param0
+   */
   add({ latlng }) {
     const { lat, lng: long } = latlng;
     this.owner.server.autopilot.addWaypoint(lat, long);
   }
 
+  /**
+   *
+   * @param {*} param0
+   */
   move({ id, marker }) {
     const { lat, lng: long } = marker.__drag__latlng;
     marker.__drag__latlng = undefined;
     this.owner.server.autopilot.moveWaypoint(id, lat, long);
   }
 
+  /**
+   *
+   * @param {*} param0
+   * @param {*} alt
+   */
   elevate({ id }, alt) {
     this.owner.server.autopilot.setWaypointElevation(id, alt);
   }
 
+  /**
+   *
+   * @param {*} waypoint
+   * @param {*} noAPIcall
+   * @returns
+   */
   remove(waypoint, noAPIcall = false) {
     if (!waypoint.id) {
       waypoint = this.waypoints.find((e) => e.id === waypoint);
