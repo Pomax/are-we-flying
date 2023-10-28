@@ -1,6 +1,6 @@
 import { Attitude } from "./attitude.js";
 import { Autopilot } from "./autopilot.js";
-import { dist, waitFor } from "./utils.js";
+import { getDistanceBetweenPoints, waitFor } from "./utils.js";
 import { Duncan } from "./locations.js";
 import { getAirplaneSrc } from "./airplane-src.js";
 import { initCharts } from "./dashboard/charts.js";
@@ -19,14 +19,62 @@ export class Plane {
     console.log(`building plane`);
     this.server = server;
     this.autopilot = new Autopilot(this);
-    // TODO: waypoint placement runs into JSON serialization problems due to waypoints' .next
     this.waypoints = new WaypointOverlay(this, map);
+
     // initial bootstrap
     const [lat, long] = (this.lastPos = Duncan);
-    this.lastUpdate = { lat, long, crashed: false };
+    this.lastUpdate = {
+      lat,
+      long,
+      flying: false,
+      crashed: false,
+      flightData: {
+        PLANE_LATITUDE: lat,
+        PLANE_LONGITUDE: long,
+      },
+    };
     this.addPlaneIconToMap(map, location, heading);
     this.charts = initCharts();
-    this.trail = this.startNewTrail();
+  }
+
+  /**
+   * ...docs go here...
+   * @param {*} location
+   */
+  startNewTrail(location) {
+    this.trail = new Trail(this.map, location);
+  }
+
+  /**
+   * ...docs go here...
+   * @param {*} data
+   */
+  async manageWaypoints(waypoints) {
+    this.waypoints.manage(waypoints);
+  }
+
+  /**
+   * ...docs go here...
+   * @param {*} value
+   * @returns
+   */
+  async setElevationProbe(value) {
+    // remove the old probe line
+    if (this.elevationProbe) this.elevationProbe.remove();
+
+    // then draw a new one, but only if there is a value to visualize
+    if (!value) return;
+    this.elevationProbe = new Trail(
+      this.map,
+      [
+        this.state.flightData.PLANE_LATITUDE,
+        this.state.flightData.PLANE_LONGITUDE,
+      ],
+      `#4F87`, // lime
+      undefined,
+      { weight: 30, lineCap: `butt` }
+    );
+    this.elevationProbe.add(value.lat2, value.long2);
   }
 
   /**
@@ -57,15 +105,15 @@ export class Plane {
    * @returns
    */
   async updateState(state) {
+    this.state = state;
     const now = Date.now();
-    console.log(`state:`, state);
 
     // update questions
     Questions.update(state);
 
     // update plane visualisation
     const { flightData } = state;
-    if (flightData) this.updateMap(state, flightData, now);
+    if (flightData) this.updateMap(flightData, now);
 
     // update the autopilot
     if (state.autopilot) {
@@ -76,7 +124,7 @@ export class Plane {
     }
 
     // cache and wait for the next state
-    this.lastUpdate = { time: now, ...this.state };
+    this.lastUpdate = { time: now, ...state };
   }
 
   /**
@@ -84,7 +132,7 @@ export class Plane {
    * @param {*} flightData
    * @returns
    */
-  updateMap(state, flightData, now) {
+  async updateMap(flightData, now) {
     const {
       PLANE_LATITUDE: lat,
       PLANE_LONGITUDE: long,
@@ -111,16 +159,26 @@ export class Plane {
     setText(`#lat`, lat.toFixed(5));
     setText(`#long`, long.toFixed(5));
 
-    // location change (or slew mode)
-    // 1 knot is 1.852 km/h, or 0.0005 km/s, which is 0.000005 degrees of arc
-    // per second. The "speed" is in (true) knots, so if we move more than speed
-    // * 0.000005 degrees, we know we teleported. Or the game's glitching. So to
-    // humour glitches, we'll double that to speed * 0.00001 and use that as
-    // cutoff value:
-    const moved = dist(this.lastUpdate.lat, this.lastUpdate.long, lat, long);
+    // Did we start a new flight?
     const latLong = [lat, long];
-    if (moved > speed * 0.0001) this.startNewTrail(latLong);
+    const startedFlying = !this.lastUpdate.flying && this.state.flying;
+    const d = getDistanceBetweenPoints(
+      this.lastUpdate.flightData.PLANE_LATITUDE,
+      this.lastUpdate.flightData.PLANE_LONGITUDE,
+      this.state.flightData.PLANE_LATITUDE,
+      this.state.flightData.PLANE_LONGITUDE
+    );
 
+    // Determine teleport distance based on the current airspeed
+    const kmps = (this.state.flightData.AIRSPEED_INDICATED ?? 0) / 0.00195;
+    const teleported = this.lastUpdate.flightData && d > 2 * kmps;
+    if (startedFlying || teleported) {
+      this.startNewTrail(latLong);
+      this.autopilot.update(await this.server.autopilot.getParameters());
+    }
+
+    // for some reason this can fail? O_o
+    // TODO: do we still need this try/catch?
     try {
       this.trail.add(lat, long);
     } catch (e) {
@@ -133,12 +191,12 @@ export class Plane {
     marker.setLatLng(latLong);
 
     // update our plane "icon"
-    this.planeIcon?.classList.toggle(`paused`, state.paused);
-    const pic = getAirplaneSrc(state.flightModel.TITLE);
+    this.planeIcon?.classList.toggle(`paused`, this.state.paused);
+    const pic = getAirplaneSrc(this.state.flightModel.TITLE);
     [...planeIcon.querySelectorAll(`img`)].forEach(
       (img) => (img.src = `planes/${pic}`)
     );
-    this.planeIcon.classList.toggle(`crashed`, state.crashed);
+    this.planeIcon.classList.toggle(`crashed`, this.state.crashed);
 
     // and all the flight aspects
     const st = planeIcon.style;
@@ -171,43 +229,5 @@ export class Plane {
       "turn rate": turnRate,
       "aileron trim": aTrim,
     });
-  }
-
-  /**
-   * ...docs go here...
-   * @param {*} location
-   */
-  startNewTrail(location) {
-    this.trail = new Trail(this.map, location);
-  }
-
-  /**
-   * ...docs go here...
-   * @param {*} data
-   */
-  async manageWaypoints(waypoints) {
-    console.log(waypoints);
-    this.waypoints.manage(waypoints);
-  }
-
-  /**
-   * ...docs go here...
-   * @param {*} value
-   * @returns
-   */
-  async setElevationProbe(value) {
-    // remove the old probe line
-    if (this.elevationProbe) this.elevationProbe.remove();
-
-    // then draw a new one, but only if there is one.
-    if (!value) return;
-    this.elevationProbe = new Trail(
-      this.map,
-      [this.state.lat, this.state.long],
-      `#4F87`, // lime
-      undefined,
-      { weight: 30, lineCap: `butt` }
-    );
-    this.elevationProbe.add(value.lat2, value.long2);
   }
 }

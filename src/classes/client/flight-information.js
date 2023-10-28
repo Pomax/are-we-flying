@@ -1,6 +1,14 @@
 import { MSFS_API } from "msfs-simconnect-api-wrapper";
 import { FLIGHT_MODEL, FLIGHT_DATA } from "./flight-values.js";
 
+/**
+ *
+ *  Adds two custom flight data properties:
+ *
+ *   - ENGINES_RUNNING: bool
+ *   - POWERED_UP: bool
+ *
+ */
 export class FlightInformation {
   /**
    * ...docs go here...
@@ -90,6 +98,8 @@ export class FlightInformation {
       `ENG_COMBUSTION:3`,
       `ENG_COMBUSTION:4`,
     ].reduce((t, p) => t || flightData[p], false);
+
+    flightData[`POWERED_UP`] = flightData.ELECTRICAL_TOTAL_LOAD_AMPS !== 0;
 
     return (this.data = flightData);
   }

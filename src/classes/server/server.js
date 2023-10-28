@@ -44,6 +44,7 @@ export class ServerClass {
         console.log(`Connected to MSFS, binding.`);
         this.#registerWithAPI(api, autopilot);
         server.clients.forEach((client) => client.onMSFS(MSFS));
+        this.#poll();
       },
       onRetry: (_, s) =>
         console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
@@ -77,8 +78,8 @@ export class ServerClass {
 
     // whenever the sim or view values change, check the camera
     // to determine whether we're actually in-game or not.
-    api.on(SystemEvents.SIM, () => this.#checkCamera());
-    api.on(SystemEvents.VIEW, () => this.#checkCamera());
+    api.on(SystemEvents.SIM, () => this.#checkFlying());
+    api.on(SystemEvents.VIEW, () => this.#checkFlying());
   }
 
   /**
@@ -87,36 +88,61 @@ export class ServerClass {
    */
   async onConnect(client) {
     if (MSFS) client.onMSFS(true);
-    await this.#checkCamera(client);
+    await this.#checkFlying(client);
     client.setFlying(flying);
   }
 
   /**
-   * If the camera enum is 10 or higher, we are not actually in-game,
+   * Run an "are we flying?" check every few seconds
+   */
+  async #poll() {
+    this.#checkFlying();
+    setTimeout(() => this.#poll(), 5000);
+  }
+
+  /**
+   * If the camera enum is 9 or higher, we are not actually in-game,
    * even if the SIM variable is 1, so we use this to determine whether
    * we're in-flight (because there is no true "are we flyin?" var that
    * can be checked on connect)
    */
-  async #checkCamera(client) {
-    const data = await this.api.get(client, `CAMERA_STATE`, `CAMERA_SUBSTATE`);
+  async #checkFlying(client) {
+    const data = await this.api.get(
+      client,
+      `CAMERA_STATE`,
+      `SIM_ON_GROUND`,
+      `ELECTRICAL_TOTAL_LOAD_AMPS`
+    );
+
     if (!data) {
       return console.warn(`there was no camera information? O_o`);
     }
-    const { CAMERA_STATE: state, CAMERA_SUBSTATE: subState } = data;
+
+    const {
+      CAMERA_STATE: camera,
+      CAMERA_SUBSTATE: camerasub,
+      SIM_ON_GROUND: onGround,
+      ELECTRICAL_TOTAL_LOAD_AMPS: load,
+    } = data;
+
     if (client) {
-      client.setCamera(state, subState);
+      client.setCamera(camera, camerasub);
     } else {
-      this.clients.forEach((client) => client.setCamera(state, subState));
+      this.clients.forEach((client) => client.setCamera(camera, camerasub));
     }
+
     const wasFlying = flying;
-    flying = state <= 10;
+    flying = 2 <= camera && camera < 9 && (onGround === 0 || load !== 0);
+    // console.log({ camera, onGround, load, flying });
+
     if (flying !== wasFlying) {
       if (flying) this.#autopilot.reset();
-      if (client) {
-        client.setFlying(flying);
-      } else {
-        this.clients.forEach((client) => client.setFlying(flying));
-      }
+    }
+
+    if (client) {
+      client.setFlying(flying);
+    } else {
+      this.clients.forEach((client) => client.setFlying(flying));
     }
   }
 

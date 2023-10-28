@@ -4,18 +4,19 @@ questions.innerHTML = content;
 
 export const Questions = {
   update(state) {
-    console.log(`updating questions`);
     document.querySelector(`.msfs-running`).checked = state.MSFS;
-    document.querySelector(`.in-game`).checked = !!state.flightData;
-    if (state.flightModel?.TITLE) {
-      this.modelLoaded(state.flightModel.TITLE);
-    }
+    document.querySelector(`.in-game`).checked = state.camera.main < 9;
+    document.querySelector(`.powered-up`).checked = state.flightData.POWERED_UP;
     document.querySelector(`.engines-running`).checked =
-      !!state.flightData.ENGINES_RUNNING;
+      state.flightData.ENGINES_RUNNING;
     document.querySelector(`.in-the-air`).checked =
-      state.flying && !state.SIM_ON_GROUND;
-    document.querySelector(`.using-ap`).checked = state.AUTOPILOT_MASTER;
+      !state.flightData.SIM_ON_GROUND;
+    document.querySelector(`.using-ap`).checked =
+      state.flightData.AUTOPILOT_MASTER;
     document.querySelector(`.plane-crashed`).checked = state.crashed;
+
+    // A little more work than a checkbox:
+    if (state.flightModel?.TITLE) this.modelLoaded(state.flightModel.TITLE);
   },
 
   modelLoaded(modelName) {

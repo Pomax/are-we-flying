@@ -54,7 +54,6 @@ export class ClientClass {
    * @param {Boolean} value
    */
   async onMSFS(value) {
-    console.log(`onMSFS`, value);
     this.setState({ MSFS: value });
   }
 
@@ -129,11 +128,9 @@ export class ClientClass {
    * @param {Boolean} flying
    */
   async setFlying(flying) {
-    console.log(`flying:`, flying);
     const wasFlying = this.state.flying;
     this.setState({ flying });
     if (flying && !wasFlying) {
-      console.log(`new flight`);
       this.setState({ crashed: false, MSFS: true });
       this.setState(await this.#flightInfo.update());
       this.#poll();
@@ -145,17 +142,12 @@ export class ClientClass {
    */
   async #poll() {
     if (!this.state.flying) return;
-    // Check to see if there's updated flight data
     const flightData = await this.#flightInfo.updateFlight();
-    // If this is false, we're no longer flying.
-    if (!flightData) {
-      return this.setState({
-        flying: false,
-        flightData: false,
-      });
+    if (flightData) {
+      this.setState({ flightData });
+    } else {
+      console.log(`flight data was empty?`);
     }
-    // If it's not, update our state and repoll 1.0 seconds from now.
-    this.setState({ flightData });
     setTimeout(() => this.#poll(), 1000);
   }
 }

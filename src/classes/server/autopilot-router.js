@@ -5,7 +5,11 @@ import { ClientClass } from "../client/client.js";
  * "route" handler for autopilot API calls from clients
  */
 export class AutopilotRouter {
+  /**
+   * @type {AutoPilot}
+   */
   #autopilot;
+
   #broadcastUpdate;
 
   /**
