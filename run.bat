@@ -1,3 +1,3 @@
 @echo off
-start "API Server" cmd /k "title API-Server && node api-server.js"
-start "Web Server" cmd /k "title Web-Server && node web-server.js --owner --browser"
+start "API Server" cmd /k "node api-server.js %1"
+start "Web Server" cmd /k "node web-server.js --owner --browser"

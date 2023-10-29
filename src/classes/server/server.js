@@ -116,6 +116,7 @@ export class ServerClass {
    * can be checked on connect)
    */
   async #checkFlying(client) {
+    if (!MSFS) return;
     console.log(`are we flying?`);
     const data = await this.api.get(
       client,
@@ -128,8 +129,6 @@ export class ServerClass {
     if (!data) {
       return console.warn(`there was no camera information? O_o`);
     }
-
-    console.log(data);
 
     const {
       CAMERA_STATE: camera,
@@ -146,16 +145,12 @@ export class ServerClass {
 
     const wasFlying = flying;
     flying = 2 <= camera && camera < 9 && (onGround === 0 || load !== 0);
-    console.log({ camera, onGround, load, flying });
 
     if (flying !== wasFlying) {
       if (flying) this.#autopilot.reset();
-    }
-
-    if (client) {
-      client.setFlying(flying);
-    } else {
       this.clients.forEach((client) => client.setFlying(flying));
+    } else if (client) {
+      client.setFlying(flying);
     }
   }
 

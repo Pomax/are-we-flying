@@ -24,52 +24,7 @@ export class APIWrapper {
   async register(client, ...eventNames) {
     // but not if we're not connected to MSFS yet
     if (!this.#getMSFS()) return;
-    eventNames.forEach((eventName) =>
-      this.#registerSingleEvent(client, eventName)
-    );
-  }
-
-  /**
-   * private function (cannot be called remotely)
-   */
-  #registerSingleEvent(client, eventName) {
-    const tracker = (eventTracker[eventName] ??= {
-      listeners: [],
-      value: undefined,
-      off: undefined,
-    });
-
-    // custom "api server only" event
-    if (eventName === `MSFS`) {
-      return client.onMSFS(this.#getMSFS());
-    }
-
-    // is this client already registered for this event?
-    if (tracker.listeners.includes(client)) {
-      console.log(
-        `Ignoring ${eventName} registration: client already registered. Current value: ${tracker.value}`
-      );
-      return false;
-    }
-
-    // turn SIM into onSim, and FLIGHT_LOADED into onFlightLoaded
-    const eventHandlerName =
-      `on` +
-      eventName
-        .split(`_`)
-        .map((v) => v[0].toUpperCase() + v.substring(1).toLowerCase())
-        .join(``);
-
-    tracker.listeners.push(client);
-
-    if (!tracker.off) {
-      tracker.off = this.api.on(SystemEvents[eventName], (...result) => {
-        tracker.value = result;
-        tracker.listeners.forEach((client) =>
-          client[eventHandlerName](tracker.value)
-        );
-      });
-    }
+    eventNames.forEach((eventName) => this.#registerEvent(client, eventName));
   }
 
   /**
@@ -79,10 +34,10 @@ export class APIWrapper {
     const pos = eventTracker[eventName].listeners.findIndex(
       (c) => c === client
     );
-    if (pos !== -1) {
-      eventTracker[eventName].listeners.splice(pos, 1);
-      if (eventTracker[eventName].listeners.length === 0)
-        eventTracker[eventName].off();
+    if (pos === -1) return;
+    eventTracker[eventName].listeners.splice(pos, 1);
+    if (eventTracker[eventName].listeners.length === 0) {
+      eventTracker[eventName].off();
     }
   }
 
@@ -148,5 +103,44 @@ export class APIWrapper {
       return false;
     }
     this.api.trigger(eventName, value);
+  }
+
+  /**
+   * private function (cannot be called remotely)
+   */
+  #registerEvent(client, eventName) {
+    const tracker = (eventTracker[eventName] ??= { listeners: [] });
+
+    // custom "api server only" event
+    if (eventName === `MSFS`) {
+      return client.onMSFS(this.#getMSFS());
+    }
+
+    // is this client already registered for this event?
+    if (tracker.listeners.includes(client)) {
+      console.log(
+        `Ignoring ${eventName} registration: client already registered. Current value: ${tracker.value}`
+      );
+      return false;
+    }
+
+    // turn SIM into onSim, and FLIGHT_LOADED into onFlightLoaded
+    const eventHandlerName =
+      `on` +
+      eventName
+        .split(`_`)
+        .map((v) => v[0].toUpperCase() + v.substring(1).toLowerCase())
+        .join(``);
+
+    tracker.listeners.push(client);
+
+    if (!tracker.off) {
+      tracker.off = this.api.on(SystemEvents[eventName], (...result) => {
+        tracker.value = result;
+        tracker.listeners.forEach((client) =>
+          client[eventHandlerName](tracker.value)
+        );
+      });
+    }
   }
 }

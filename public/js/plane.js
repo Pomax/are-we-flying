@@ -14,6 +14,37 @@ const L = await waitFor(async () => window.L);
 const { abs, max, PI: π, sqrt } = Math;
 const setText = (qs, text) => (document.querySelector(qs).textContent = text);
 
+// Helper function: change sim var naming into something more manageable.
+function getVarData(flightData) {
+  const {
+    AILERON_TRIM_PCT: aTrim,
+    AIRSPEED_INDICATED: speed,
+    AUTOPILOT_HEADING_LOCK_DIR: bug,
+    ELEVATOR_TRIM_POSITION: trim,
+    GROUND_ALTITUDE: galt,
+    INDICATED_ALTITUDE: alt,
+    PLANE_ALT_ABOVE_GROUND: paag,
+    PLANE_BANK_DEGREES: bank,
+    PLANE_HEADING_DEGREES_MAGNETIC: heading,
+    PLANE_HEADING_DEGREES_TRUE: trueHeading,
+    PLANE_LATITUDE: lat,
+    PLANE_LONGITUDE: long,
+    PLANE_PITCH_DEGREES: pitch,
+    STATIC_CG_TO_GROUND: cg,
+    TURN_INDICATOR_RATE: turnRate,
+    VERTICAL_SPEED: vspeed,
+  } = flightData;
+  return {
+    ...{ lat, long },
+    ...{ alt, bank, bug, cg, galt, paag },
+    ...{ heading, pitch, speed, trueHeading },
+    ...{ vspeed, trim, aTrim, turnRate },
+  };
+}
+
+/**
+ * ...docs go here...
+ */
 export class Plane {
   constructor(server, map = defaultMap, location = Duncan, heading = 135) {
     console.log(`building plane`);
@@ -65,12 +96,11 @@ export class Plane {
 
     // then draw a new one, but only if there is a value to visualize
     if (!value) return;
+    const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } =
+      this.state.flightData;
     this.elevationProbe = new Trail(
       this.map,
-      [
-        this.state.flightData.PLANE_LATITUDE,
-        this.state.flightData.PLANE_LONGITUDE,
-      ],
+      [lat, long],
       `#4F87`, // lime
       undefined,
       { weight: 30, lineCap: `butt` }
@@ -145,24 +175,9 @@ export class Plane {
    * @returns
    */
   async updateMap(flightData, now) {
-    const {
-      PLANE_LATITUDE: lat,
-      PLANE_LONGITUDE: long,
-      INDICATED_ALTITUDE: alt,
-      AIRSPEED_INDICATED: speed,
-      GROUND_ALTITUDE: galt,
-      STATIC_CG_TO_GROUND: cg,
-      PLANE_ALT_ABOVE_GROUND: paag,
-      PLANE_HEADING_DEGREES_TRUE: trueHeading,
-      PLANE_HEADING_DEGREES_MAGNETIC: heading,
-      AUTOPILOT_HEADING_LOCK_DIR: bug,
-      VERTICAL_SPEED: vspeed,
-      PLANE_PITCH_DEGREES: pitch,
-      ELEVATOR_TRIM_POSITION: trim,
-      PLANE_BANK_DEGREES: bank,
-      TURN_INDICATOR_RATE: turnRate,
-      AILERON_TRIM_PCT: aTrim,
-    } = flightData;
+    const { paused, crashed, flightModel } = this.state;
+    const varData = getVarData(flightData);
+    const { lat, long, speed } = varData;
 
     // Do we have a GPS coordinate? (And not the 0/0 you get
     // while you're not in game?)
@@ -173,13 +188,10 @@ export class Plane {
 
     // Did we teleport?
     const latLong = [lat, long];
-    const d = getDistanceBetweenPoints(
-      this.lastUpdate.flightData.PLANE_LATITUDE,
-      this.lastUpdate.flightData.PLANE_LONGITUDE,
-      this.state.flightData.PLANE_LATITUDE,
-      this.state.flightData.PLANE_LONGITUDE
-    );
-    const kmps = (this.state.flightData.AIRSPEED_INDICATED ?? 0) / 1944;
+    const { PLANE_LATITUDE: lat2, PLANE_LONGITUDE: long2 } =
+      this.lastUpdate.flightData;
+    const d = getDistanceBetweenPoints(lat2, long2, lat, long);
+    const kmps = (speed ?? 0) / 1944;
     const teleported = this.lastUpdate.flightData && d > 5 * kmps;
     if (teleported) {
       this.startNewTrail(latLong);
@@ -197,30 +209,51 @@ export class Plane {
     marker.setLatLng(latLong);
 
     // update our plane "icon"
-    this.planeIcon?.classList.toggle(`paused`, this.state.paused);
-    const pic = getAirplaneSrc(this.state.flightModel.TITLE);
+    this.planeIcon?.classList.toggle(`paused`, paused);
+    const pic = getAirplaneSrc(flightModel.TITLE);
     [...planeIcon.querySelectorAll(`img`)].forEach(
       (img) => (img.src = `planes/${pic}`)
     );
-    this.planeIcon.classList.toggle(`crashed`, this.state.crashed);
+    this.planeIcon.classList.toggle(`crashed`, crashed);
+    this.setCSSVariables(planeIcon, varData);
 
-    // and all the flight aspects
-    const st = planeIcon.style;
+    // And update the graphs
+    this.updateChart(varData, now);
+  }
+
+  /**
+   *
+   * @param {*} css
+   * @param {*} varData
+   */
+  setCSSVariables(planeIcon, varData) {
+    const css = planeIcon.style;
+    const { alt, bank, bug, cg, galt, paag } = varData;
+    const { heading, pitch, speed, trueHeading } = varData;
     const palt = paag - cg;
+
     this.autopilot.setCurrentAltitude(palt);
-    st.setProperty(`--altitude`, max(palt, 0));
-    st.setProperty(`--sqrt-alt`, sqrt(max(palt, 0)));
-    st.setProperty(`--speed`, speed | 0);
-    st.setProperty(`--north`, trueHeading - heading);
-    st.setProperty(`--heading`, heading);
-    st.setProperty(`--heading-bug`, bug);
+    css.setProperty(`--altitude`, max(palt, 0));
+    css.setProperty(`--sqrt-alt`, sqrt(max(palt, 0)));
+    css.setProperty(`--speed`, speed | 0);
+    css.setProperty(`--north`, trueHeading - heading);
+    css.setProperty(`--heading`, heading);
+    css.setProperty(`--heading-bug`, bug);
+
     const altitudeText =
       (galt | 0) === 0 ? `${alt | 0}'` : `${palt | 0}' (${alt | 0}')`;
     planeIcon.querySelector(`.alt`).textContent = altitudeText;
     planeIcon.querySelector(`.speed`).textContent = `${speed | 0}kts`;
     Attitude.setPitchBank(pitch, bank);
+  }
 
-    // finally, update our chart
+  /**
+   * ...docs go here...
+   */
+  updateChart(varData, now) {
+    const { alt, bank, galt, pitch, speed, heading } = varData;
+    const { vspeed, trim, aTrim, turnRate } = varData;
+
     this.charts.update({
       ground: galt,
       altitude: alt,

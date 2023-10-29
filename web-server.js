@@ -27,3 +27,9 @@ clientWebServer.listen(WEB_PORT, () => {
     open(`http://localhost:${WEB_PORT}`);
   }
 });
+
+// *SOMETHING* is interfering with the title getting set correctly.
+setTimeout(() => {
+  process.title = `Web Server`;
+  process.stdout.write(`\x1b]2;${process.title}\x1b\x5c`);
+}, 50);

@@ -6,14 +6,12 @@ import {
   radians,
 } from "../autopilot/utils/utils.js";
 import { FEET_PER_METER } from "../autopilot/utils/constants.js";
-import { ALOSInterface, NO_ALOS_DATA_VALUE } from "../../elevation/alos-interface.js";
+import {
+  ALOSInterface,
+  NO_ALOS_DATA_VALUE,
+  DATA_FOLDER,
+} from "../../elevation/alos-interface.js";
 import { constrainMap } from "../autopilot/utils/utils.js";
-
-// env related things
-import dotenv from "dotenv";
-dotenv.config({ path: `../../.env` });
-const DATA_FOLDER = process.env.DATA_FOLDER;
-console.log(DATA_FOLDER);
 
 const { abs, sign } = Math;
 

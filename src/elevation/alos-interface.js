@@ -1,6 +1,13 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { mkdir } from "fs/promises";
 import { win32, sep, join } from "path";
+
+import url from "url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+import dotenv from "dotenv";
+dotenv.config({ path: `${__dirname}/../../.env` });
+const DATA_FOLDER = process.env.DATA_FOLDER;
+
 import { getDistanceBetweenPoints } from "../api/autopilot/utils/utils.js";
 import {
   SEA_LEVEL,
@@ -11,7 +18,7 @@ import {
 } from "./alos-constants.js";
 import { ALOSTile } from "./alos-tile.js";
 
-export { NO_ALOS_DATA_VALUE };
+export { DATA_FOLDER, NO_ALOS_DATA_VALUE };
 
 const COARSE_LEVEL = 10;
 const { floor, ceil, max } = Math;
