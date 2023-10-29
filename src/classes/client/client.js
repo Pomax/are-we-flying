@@ -17,6 +17,22 @@ export class ClientClass {
     await this.server.api.register(`MSFS`, `SIM`, `VIEW`);
   }
 
+  async onDisconnect() {
+    console.log(`disconnected`);
+    this.setState({ flying: false });
+    this.#tryReconnect();
+  }
+
+  async #tryReconnect() {
+    if (this.server) {
+      return console.log(`reconnected`);
+    }
+    console.log(`trying reconnect`);
+    this.reconnect();
+    console.log(`setting timeout`);
+    setTimeout(() => this.#tryReconnect(), 5000);
+  }
+
   /**
    * ...docs go here...
    */

@@ -45,7 +45,7 @@
     "open": "^8.4.0",
     "prettier": "^3.0.3",
     "pureimage": "^0.3.17",
-    "socketless": "^2.0.1",
+    "socketless": "^2.1.3",
     "tiff": "^5.0.3",
     "ws": "^8.12.1"
   }

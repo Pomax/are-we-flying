@@ -11,6 +11,8 @@ import {
 } from "./alos-constants.js";
 import { ALOSTile } from "./alos-tile.js";
 
+export { NO_ALOS_DATA_VALUE };
+
 const COARSE_LEVEL = 10;
 const { floor, ceil, max } = Math;
 await mkdir(CACHE_DIR, { recursive: true });

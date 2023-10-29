@@ -4,10 +4,10 @@ import {
   degrees,
   getPointAtDistance,
   radians,
-} from "./autopilot/utils/utils.js";
-import { FEET_PER_METER } from "./autopilot/utils/constants.js";
-import { ALOSInterface } from "../elevation/alos-interface.js";
-import { constrainMap } from "./autopilot/utils/utils.js";
+} from "../autopilot/utils/utils.js";
+import { FEET_PER_METER } from "../autopilot/utils/constants.js";
+import { ALOSInterface, NO_ALOS_DATA_VALUE } from "../../elevation/alos-interface.js";
+import { constrainMap } from "../autopilot/utils/utils.js";
 
 // env related things
 import dotenv from "dotenv";
@@ -37,6 +37,7 @@ export class MockPlane {
     this.GEAR_HANDLE_POSITION = 100;
     this.ENG_COMBUSTION = 1;
     this.GENERAL_ENG_THROTTLE_LEVER_POSITION = 95;
+    this.ELECTRICAL_TOTAL_LOAD_AMPS = -148.123;
 
     // flight data
     this.GPS_GROUND_TRUE_TRACK = radians(150);
@@ -48,6 +49,7 @@ export class MockPlane {
     this.ELEVATOR_POSITION = 0;
     this.AILERON_TRIM_PCT = 0;
     this.ELEVATOR_TRIM_POSITION = 0;
+    this.RUDDER_TRIM_PCT = 0;
 
     // autopilot values
     this.AUTOPILOT_MASTER = 0;
@@ -65,6 +67,8 @@ export class MockPlane {
     this.CRASH_FLAG = 0;
     this.CRASH_SEQUENCE = 0;
     this.OVERSPEED_WARNING = 0;
+    this.CAMERA_STATE = 2; // cockpit
+    this.CAMERA_SUBSTATE = 2; // unlocked view
 
     // non-simconnect values
     this.ALT = 1500;
@@ -118,7 +122,10 @@ export class MockPlane {
     long = long2;
 
     // update the altitude and magnetic deviation given this position
-    const altMeters = this.alos.lookup(lat, long);
+    let altMeters = this.alos.lookup(lat, long);
+    if (altMeters === NO_ALOS_DATA_VALUE) {
+      altMeters = 5;
+    }
     altitude = altMeters * FEET_PER_METER;
     deviation = geomag.field(lat, long, altMeters / 1000).declination;
 
@@ -173,6 +180,10 @@ export class MockPlane {
       0.8 *
       this.DESIGN_SPEED_VNE
     );
+  }
+
+  get AIRSPEED_INDICATED() {
+    return this.AIRSPEED_TRUE * 0.95;
   }
 
   get PLANE_LATITUDE() {

@@ -19,7 +19,7 @@ export class MOCK_API {
       autopilot.setParameters({
         MASTER: true,
         LVL: true,
-        ALT: true,
+        ALT: 1500,
         TER: true,
       });
     }, 10000);
@@ -35,8 +35,10 @@ export class MOCK_API {
     if (props.length === 1 && first === `NEARBY_AIRPORTS`)
       return { NEARBY_AIRPORTS: AIRPORTS };
     if (props.length === 1 && first.startsWith(`AIRPORT:`))
-      return { [first]: AIRPORTS.find(a => a.icao === first.replace(`AIRPORT:`, ``)) };
-    // everything else
+      return {
+        [first]: AIRPORTS.find((a) => a.icao === first.replace(`AIRPORT:`, ``)),
+      };
+    // everything else gets handled by the "plane".
     return this.plane.get(props);
   }
 

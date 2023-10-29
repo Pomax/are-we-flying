@@ -9,7 +9,10 @@ import { AutoPilot } from "../../api/autopilot/autopilot.js";
 import { AutopilotRouter } from "./autopilot-router.js";
 
 const { FLIGHT_OWNER_KEY } = process.env;
-const api = new MSFS_API();
+
+import { MOCK_API } from "../../api/mocks/mock-api.js";
+const MOCKED = process.argv.includes(`--mock`);
+const api = MOCKED ? new MOCK_API() : new MSFS_API();
 let flying = false;
 let MSFS = false;
 
@@ -18,6 +21,7 @@ let MSFS = false;
  */
 export class ServerClass {
   #autopilot;
+  clients = [];
 
   /**
    * ...docs go here...
@@ -30,6 +34,11 @@ export class ServerClass {
     const autopilot = (this.#autopilot = new AutoPilot(api, async (params) =>
       this.clients?.forEach((client) => client.onAutoPilot(params))
     ));
+
+    if (MOCKED) {
+      api.setAutopilot(autopilot);
+    }
+
     this.autopilot = new AutopilotRouter(this.#autopilot, (params) =>
       this.clients?.forEach((c) => c.onAutoPilot(params))
     );
@@ -107,9 +116,11 @@ export class ServerClass {
    * can be checked on connect)
    */
   async #checkFlying(client) {
+    console.log(`are we flying?`);
     const data = await this.api.get(
       client,
       `CAMERA_STATE`,
+      `CAMERA_SUBSTATE`,
       `SIM_ON_GROUND`,
       `ELECTRICAL_TOTAL_LOAD_AMPS`
     );
@@ -117,6 +128,8 @@ export class ServerClass {
     if (!data) {
       return console.warn(`there was no camera information? O_o`);
     }
+
+    console.log(data);
 
     const {
       CAMERA_STATE: camera,
@@ -133,7 +146,7 @@ export class ServerClass {
 
     const wasFlying = flying;
     flying = 2 <= camera && camera < 9 && (onGround === 0 || load !== 0);
-    // console.log({ camera, onGround, load, flying });
+    console.log({ camera, onGround, load, flying });
 
     if (flying !== wasFlying) {
       if (flying) this.#autopilot.reset();

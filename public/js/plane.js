@@ -43,6 +43,7 @@ export class Plane {
    */
   startNewTrail(location) {
     this.trail = new Trail(this.map, location);
+    return this.trail;
   }
 
   /**
@@ -108,14 +109,25 @@ export class Plane {
     this.state = state;
     const now = Date.now();
 
-    // update questions
+    // Check if we started a new flight because that requires
+    // immediately building a new flight trail.
+    const startedFlying = !this.lastUpdate.flying && this.state.flying;
+    if (startedFlying) {
+      this.startNewTrail();
+      this.lastUpdate.flying = true;
+    }
+
+    // And then debounce any real UI updates to once per secondish
+    if (now - this.lastUpdate.time < 995) return;
+
+    // Update questions
     Questions.update(state);
 
-    // update plane visualisation
+    // Update plane visualisation
     const { flightData } = state;
     if (flightData) this.updateMap(flightData, now);
 
-    // update the autopilot
+    // Update the autopilot
     if (state.autopilot) {
       const { waypoints, elevation, ...params } = state.autopilot;
       this.autopilot.update(params);
@@ -123,7 +135,7 @@ export class Plane {
       this.setElevationProbe(elevation);
     }
 
-    // cache and wait for the next state
+    // Cache and wait for the next state
     this.lastUpdate = { time: now, ...state };
   }
 
@@ -159,31 +171,25 @@ export class Plane {
     setText(`#lat`, lat.toFixed(5));
     setText(`#long`, long.toFixed(5));
 
-    // Did we start a new flight?
+    // Did we teleport?
     const latLong = [lat, long];
-    const startedFlying = !this.lastUpdate.flying && this.state.flying;
     const d = getDistanceBetweenPoints(
       this.lastUpdate.flightData.PLANE_LATITUDE,
       this.lastUpdate.flightData.PLANE_LONGITUDE,
       this.state.flightData.PLANE_LATITUDE,
       this.state.flightData.PLANE_LONGITUDE
     );
-
-    // Determine teleport distance based on the current airspeed
-    const kmps = (this.state.flightData.AIRSPEED_INDICATED ?? 0) / 0.00195;
-    const teleported = this.lastUpdate.flightData && d > 2 * kmps;
-    if (startedFlying || teleported) {
+    const kmps = (this.state.flightData.AIRSPEED_INDICATED ?? 0) / 1944;
+    const teleported = this.lastUpdate.flightData && d > 5 * kmps;
+    if (teleported) {
       this.startNewTrail(latLong);
       this.autopilot.update(await this.server.autopilot.getParameters());
     }
 
     // for some reason this can fail? O_o
     // TODO: do we still need this try/catch?
-    try {
-      this.trail.add(lat, long);
-    } catch (e) {
-      console.error(e);
-    }
+    this.trail ??= this.startNewTrail();
+    this.trail.add(lat, long);
 
     // Update our map position
     const { planeIcon, marker } = this;
