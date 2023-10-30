@@ -12,8 +12,19 @@ export class ClientClass {
    */
   async onConnect() {
     console.log(`client connected to server`);
-    this.#bootstrap();
-    this.#flightInfo = new FlightInformation(this.server.api);
+    // Set up our "initial" state. However, we might already have been
+    // sent events by the server by the time this kicks in, so we need
+    // to make sure to not overwrite any values that are "not nullish".
+    this.setState({
+      autopilot:
+        this.state.autopilot ?? (await this.server.autopilot.getParameters()),
+      crashed: this.state.crashed ?? false,
+      flightData: this.state.flightData ?? false,
+      flightModel: this.state.flightModel ?? false,
+      flying: this.state.flying ?? false,
+      MSFS: this.state.MSFS ?? false,
+      paused: this.state.paused ?? false,
+    });
     await this.server.api.register(`MSFS`);
   }
 
@@ -31,21 +42,6 @@ export class ClientClass {
     this.reconnect();
     console.log(`setting timeout`);
     setTimeout(() => this.#tryReconnect(), 5000);
-  }
-
-  /**
-   * ...docs go here...
-   */
-  async #bootstrap() {
-    this.setState({
-      autopilot: await this.server.autopilot.getParameters(),
-      crashed: false,
-      flightData: false,
-      flightModel: false,
-      flying: false,
-      MSFS: false,
-      paused: false,
-    });
   }
 
   /**
@@ -70,14 +66,6 @@ export class ClientClass {
    */
   async onMSFS(value) {
     this.setState({ MSFS: value });
-  }
-
-  /**
-   * ...docs go here
-   * @param {[Number]} value
-   */
-  async onView([value]) {
-    this.setState({ view: value });
   }
 
   /**
@@ -139,6 +127,7 @@ export class ClientClass {
     this.setState({ flying });
     if (flying && !wasFlying) {
       this.setState({ crashed: false, MSFS: true });
+      this.#flightInfo ??= new FlightInformation(this.server.api);
       this.setState(await this.#flightInfo.update());
       this.#poll();
     }

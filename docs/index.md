@@ -33,85 +33,7 @@ And we'll just be a passenger on a JavaScript-powered flying tour that starts wi
 
 # Table of Contents
 
-- [Part one: The prep work](#part-one-the-prep-work)
-  - [Creating an API that talks to MSFS using SimConnect](#creating-an-api-that-talks-to-msfs-using-simconnect)
-  - [Creating a web server to connect to our API](#creating-a-web-server-to-connect-to-our-api)
-  - [Making a web page](#making-a-web-page)
-  - [Implementing the messaging protocol](#implementing-the-messaging-protocol)
-    - [Implementing the MSFS interfacing functionality](#implementing-the-msfs-interfacing-functionality)
-    - [Updating the web server](#updating-the-web-server)
-    - [Updating our web page](#updating-our-web-page)
-    - [Adding write protection](#adding-write-protection)
-    - [Testing our code](#testing-our-code)
-- [Part two: visualizing flights](#part-two-visualizing-flights)
-  - [Checking the game data](#checking-the-game-data)
-  - [Putting our plane on the map](#putting-our-plane-on-the-map)
-  - [Recording our flight path](#recording-our-flight-path)
-  - [Rolling the plane](#rolling-the-plane)
-  - [Plotting flight data](#plotting-flight-data)
-- [Part three: writing an autopilot](#part-three-writing-an-autopilot)
-  - [Hot-reloading to make our dev lives easier](#hot-reloading-to-make-our-dev-lives-easier)
-  - [How does an autopilot work?](#how-does-an-autopilot-work)
-    - [The backbone of our Autopilot code: constrain-mapping](#the-backbone-of-our-autopilot-code-constrain-mapping)
-  - [Implementing cruise control](#implementing-cruise-control)
-    - [LVL: level mode](#lvl-level-mode)
-    - [ALT: altitude hold](#alt-altitude-hold)
-    - [Testing our code](#testing-our-code-1)
-      - [Adding autopilot buttons to our web page](#adding-autopilot-buttons-to-our-web-page)
-      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver)
-      - [Cessna 310R](#cessna-310r)
-      - [Beechcraft Model 18](#beechcraft-model-18)
-      - [Douglas DC-3](#douglas-dc-3)
-      - [Top Rudder Solo 103](#top-rudder-solo-103)
-  - [A basic autopilot](#a-basic-autopilot)
-    - [HDG: flying a heading](#hdg-flying-a-heading)
-    - [ALT: changing altitudes on the fly](#alt-changing-altitudes-on-the-fly)
-    - [Testing our code again](#testing-our-code-again)
-      - [Top Rudder Solo 103](#top-rudder-solo-103-1)
-      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver-1)
-      - [Cessna 310R](#cessna-310r-1)
-      - [Beechcraft Model 18](#beechcraft-model-18-1)
-      - [Douglas DC-3](#douglas-dc-3-1)
-  - [A fancy autopilot](#a-fancy-autopilot)
-    - [Auto throttle](#auto-throttle)
-    - [Using waypoints](#using-waypoints)
-      - [The server side](#the-server-side)
-      - [The client side](#the-client-side)
-      - [Flying and transitioning over waypoints](#flying-and-transitioning-over-waypoints)
-        - [Flight path policies](#flight-path-policies)
-      - [Saving and loading flight paths](#saving-and-loading-flight-paths)
-      - [Picking the right waypoint](#picking-the-right-waypoint)
-    - [Testing our code](#testing-our-code-2)
-      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver-2)
-      - [Cessna 310R](#cessna-310r-2)
-      - [Beechcraft Model 18](#beechcraft-model-18-2)
-      - [Douglas DC-3](#douglas-dc-3-2)
-- [Part four: “Let’s just have JavaScript fly the plane for us”](#part-four-lets-just-have-javascript-fly-the-plane-for-us)
-  - [Terrain follow mode](#terrain-follow-mode)
-    - [Working with ALOS data](#working-with-alos-data)
-    - [Finishing up](#finishing-up)
-    - [Testing our code](#testing-our-code-3)
-      - [Top Rudder Solo 103](#top-rudder-solo-103-2)
-      - [De Havilland DHC-2 “Beaver”](#de-havilland-dhc-2-beaver-3)
-      - [Cessna 310R](#cessna-310r-3)
-      - [Beechcraft Model 18](#beechcraft-model-18-3)
-      - [Douglas DC-3](#douglas-dc-3-3)
-  - [Auto takeoff](#auto-takeoff)
-    - [Preflight checklist](#preflight-checklist)
-    - [Runway roll](#runway-roll)
-    - [Rotate/take-off](#rotatetake-off)
-    - [Handoff to the autopilot](#handoff-to-the-autopilot)
-    - [Testing our code](#testing-our-code-4)
-  - [Auto-landing](#auto-landing)
-    - [Browser experiments](#browser-experiments)
-    - [Auto-landing phases](#auto-landing-phases)
-    - [Finding an approach](#finding-an-approach)
-    - [Getting lined up](#getting-lined-up)
-    - [Landing the plane](#landing-the-plane)
-      - [Getting onto the runway](#getting-onto-the-runway)
-      - [Braking and steering](#braking-and-steering)
-    - [Testing the code](#testing-the-code)
-- [Conclusions](#conclusions)"
+- REGENERATE LATER
 
 # Part one: The prep work
 
@@ -201,6 +123,7 @@ clientWebServer.listen(WEB_PORT, () => {
   console.log(`Server listening on http://localhost:${WEB_PORT}`);
   // And if we run this with "node webserver.js --browser", open a browser!
   if (process.argv.includes(`--browser`)) {
+    console.log(`Opening a browser...`);
     open(`http://localhost:${WEB_PORT}`);
   }
 });
@@ -211,11 +134,112 @@ So a tiny bit more code, but that's all we need to do in terms of setting up our
 - the server class, which will be our interface between MSFS and our clients, and
 - the client class, which will be our interface between the server and the browser.
 
-So let's start with our server class...
+### But first, some testing!
+
+Before we implement those though, let's verify that the code we wrote even works by implementing some tiny client and server classes with just enough code to show connections and function calls work.
+
+First, let's install our dependencies:
+
+```javascript
+> npm i dotenv open socketless msfs-simconnect-api-wrapper
+```
+
+And then we'll want to update our `package.json` to include `"type": "module"` since we'll be writing modern JS with normal `import` and `export` syntax rather than using the legacy Node.js `require` or the `module` global.
+
+With that done, we can fill in `src/classes/index.js`:
+
+```js
+// Our client class will announce its own connection, as well as browser connections:
+export class ClientClass {
+  onConnect() {
+    console.log(`[client] We connected to the server!`);
+  }
+  onBrowserConnect() {
+    console.log(`[client] A browser connected!`);
+  }
+}
+
+// Our server class will also announce that it got client connections:
+export class ServerClass {
+  onConnect(client) {
+    console.log(`[server] A client connected!`);
+  }
+  // And has a little test function that both logs and returns a value:
+  async test() {
+    console.log(`[server] test!`);
+    return "success!";
+  }
+}
+```
+
+And then we'll create a quick `public/index,html` page for the browser:
+
+```html
+<!DOCTYPE html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <title>Let's test our connections!</title>
+    <script src="setup.js" type="module" async></script>
+  </head>
+  <body>
+    <!-- we only need the dev tools console tab for now -->
+  </body>
+</html>
+```
+
+With a bare minimum browser client in `public/setup.js`:
+
+```javascript
+// We don't need to put a "socketless.js" in our public dir,
+// this is a "magic import" provided by socketless itself:
+import { createBrowserClient } from "./socketless.js";
+
+// Our browser client announces its connections, too:
+class BrowserClient {
+  async init() {
+    console.log(`[browser] We're connected to our web client!`);
+    // And then as part of startup, we'll call the server's test function:
+    console.log(`Calling test:`, await this.server.test());
+  }
+}
+
+// And then the only thing left to do in the browser
+// is to create a browser client instance:
+createBrowserClient(BrowserClient);
+```
+
+So let's run `node api-server.js` in one terminal, and `node web-server.js --browser` in another. Doing so will show us this in the server terminal:
+
+```
+...>node api-server.js
+Server listening on http://localhost:8080
+[server] A client connected!
+[server] test!
+```
+
+And we'll see this in the client terminal:
+
+```
+...>node web-server.js --browser
+Server listening on http://localhost:3000
+Opening a browser...
+[client] We connected to the server!
+[client] A browser connected!
+```
+
+And then because the `--browser` flag opened a browser, if we look at its dev tools "console" tab, we see:
+
+```
+[browser] We're connected to our web client! setup.js:8:18
+Calling test: success!
+```
+
+Awesome, we have a complete API server + web server + browser thin client and "things just work(tm)", we didn't have to write a single line of websocket or remote function calling code!
 
 ## Our API server
 
-Our server class is how clients "talk" to MSFS. Any function we expose on the server class will end up being a function that, as far as clients know, is just part of the local `this.server` object, so we'll want to make sure to keep things that should not be directly accessible either off the class (i.e. as globals) or mark them private, so that they can't be called by anyone else.
+Our server class is how clients "talk" to MSFS. Any function we expose on the server class will end up being a function that, as far as clients know, is just part of the local `this.server` object, so we'll want to make sure to keep things that should not be directly accessible either off the class (i.e. declare and initialize them outside the class) or mark them as private using the `#` character, so that they can't be called by anyone else.
 
 Let's look at some code:
 
@@ -533,18 +557,23 @@ export class ClientClass {
    * updating that based on server signals.
    */
   async onConnect() {
+    // Set up our "initial" state. However, we might already have been
+    // sent events by the server by the time this kicks in, so we need
+    // to make sure to not overwrite any values that are "not nullish".
     this.setState({
-      crashed: false,
-      flightData: false,
-      flightModel: false,
-      flying: false,
-      MSFS: false,
-      paused: false
+      crashed: this.state.crashed ?? false,
+      flightData: this.state.flightData ?? false,
+      flightModel: this.state.flightModel ?? false,
+      flying: this.state.flying ?? false,
+      MSFS: this.state.MSFS ?? false,
+      paused: this.state.paused ?? false,
     });
+
     // To keep the code manageable we're tucking all the code
     // that gets all the values we want from the API away in
     // its own, private, object.
     this.#flightInfo = new FlightInformation(this.server.api);
+    
     // And then we get the "is MSFS connected?" value
     await this.server.api.register(`MSFS`);
   }
@@ -838,7 +867,6 @@ In order for the browser to be able to "do something", we'll need -at the very l
     <!-- ...and we'll fill in the rest later! -->
   </body>
 </html>
-
 ```
 
 With an incredibly simple `setup.js`:
