@@ -172,7 +172,7 @@ export class ServerClass {
 }
 ```
 
-And then we'll create a quick `public/index,html` page for the browser:
+And then we'll create a quick `public/index.html` page for the browser:
 
 ```html
 <!DOCTYPE html>
