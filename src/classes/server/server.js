@@ -16,6 +16,16 @@ const api = MOCKED ? new MOCK_API() : new MSFS_API();
 let flying = false;
 let MSFS = false;
 
+function connectServerToAPI(server, onConnect) {
+  api.connect({
+    retries: Infinity,
+    retryInterval: 5,
+    onConnect,
+    onRetry: (_, s) =>
+      console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
+  });
+}
+
 /**
  * Our server-side API
  */
@@ -44,19 +54,12 @@ export class ServerClass {
     );
 
     // Then wait for MSFS to come online
-    const server = this;
-    api.connect({
-      retries: Infinity,
-      retryInterval: 5,
-      onConnect: () => {
-        MSFS = true;
-        console.log(`Connected to MSFS, binding.`);
-        this.#registerWithAPI(api, autopilot);
-        server.clients.forEach((client) => client.onMSFS(MSFS));
-        this.#poll();
-      },
-      onRetry: (_, s) =>
-        console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
+    connectServerToAPI(this, () => {
+      MSFS = true;
+      console.log(`Connected to MSFS, binding.`);
+      this.#registerWithAPI(api, autopilot);
+      this.clients.forEach((client) => client.onMSFS(MSFS));
+      this.#poll();
     });
   }
 
@@ -98,7 +101,6 @@ export class ServerClass {
   async onConnect(client) {
     if (MSFS) client.onMSFS(true);
     await this.#checkFlying(client);
-    client.setFlying(flying);
   }
 
   /**

@@ -6,24 +6,21 @@ const resultCache = {};
 const eventTracker = {};
 
 export class APIWrapper {
-  #getMSFS;
+  #api;
 
   /**
    *
    * @param {AutoPilot} api
-   * @param {Function} getMSFS
    */
-  constructor(api, getMSFS) {
-    this.api = api;
-    this.#getMSFS = getMSFS;
+  constructor(api) {
+    this.#api = api;
   }
 
   /**
    * register for MSFS events
    */
   async register(client, ...eventNames) {
-    // but not if we're not connected to MSFS yet
-    if (!this.#getMSFS()) return;
+    if (!this.#api.connected) return;
     eventNames.forEach((eventName) => this.#registerEvent(client, eventName));
   }
 
@@ -31,6 +28,7 @@ export class APIWrapper {
    * unregister from an MSFS event
    */
   async forget(client, eventName) {
+    if (!this.#api.connected) return;
     const pos = eventTracker[eventName].listeners.findIndex(
       (c) => c === client
     );
@@ -45,6 +43,7 @@ export class APIWrapper {
    * get simvar values
    */
   async get(client, ...simVarNames) {
+    if (!this.#api.connected) return {};
     const now = Date.now();
     const key = createHash("sha1").update(simVarNames.join(`,`)).digest("hex");
     // Check cache, and fill if nonexistent/expired necessary.
@@ -53,7 +52,7 @@ export class APIWrapper {
       resultCache[key].expires = now + 100;
       resultCache[key].data = new Promise(async (resolve) => {
         try {
-          resolve(await this.api.get(...simVarNames));
+          resolve(await this.#api.get(...simVarNames));
         } catch (e) {
           console.warn(e);
           resolve({});
@@ -65,19 +64,11 @@ export class APIWrapper {
   }
 
   /**
-   * get a special simvar (i.e. one known to the API, but not to MSFS)
-   */
-  async getSpecial(client, specialVarName) {
-    return await this.api.getSpecial(specialVarName);
-  }
-
-  /**
    * set simvars
    */
   async set(client, simVars) {
-    if (!client.authenticated) {
-      return false;
-    }
+    if (!this.#api.connected) return false;
+    if (!client.authenticated) return false;
 
     const errors = [];
     const entries = Object.entries(simVars);
@@ -87,7 +78,7 @@ export class APIWrapper {
     );
     entries.forEach(([key, value]) => {
       try {
-        this.api.set(key, value);
+        this.#api.set(key, value);
       } catch (e) {
         errors.push(e.message);
       }
@@ -99,10 +90,9 @@ export class APIWrapper {
    * trigger an MSFS event
    */
   async trigger(client, eventName, value) {
-    if (!client.authenticated) {
-      return false;
-    }
-    this.api.trigger(eventName, value);
+    if (!this.#api.connected) return false;
+    if (!client.authenticated) return false;
+    this.#api.trigger(eventName, value);
   }
 
   /**
@@ -113,7 +103,7 @@ export class APIWrapper {
 
     // custom "api server only" event
     if (eventName === `MSFS`) {
-      return client.onMSFS(this.#getMSFS());
+      return client.onMSFS(this.#api.connected);
     }
 
     // is this client already registered for this event?
@@ -135,7 +125,7 @@ export class APIWrapper {
     tracker.listeners.push(client);
 
     if (!tracker.off) {
-      tracker.off = this.api.on(SystemEvents[eventName], (...result) => {
+      tracker.off = this.#api.on(SystemEvents[eventName], (...result) => {
         tracker.value = result;
         tracker.listeners.forEach((client) =>
           client[eventHandlerName](tracker.value)

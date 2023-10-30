@@ -14,7 +14,7 @@ export class ClientClass {
     console.log(`client connected to server`);
     this.#bootstrap();
     this.#flightInfo = new FlightInformation(this.server.api);
-    await this.server.api.register(`MSFS`, `SIM`, `VIEW`);
+    await this.server.api.register(`MSFS`);
   }
 
   async onDisconnect() {
@@ -45,7 +45,6 @@ export class ClientClass {
       flying: false,
       MSFS: false,
       paused: false,
-      simState: 0,
     });
   }
 
@@ -71,14 +70,6 @@ export class ClientClass {
    */
   async onMSFS(value) {
     this.setState({ MSFS: value });
-  }
-
-  /**
-   * ...docs go here
-   * @param {[Number]} value
-   */
-  async onSim([value]) {
-    this.setState({ simState: value });
   }
 
   /**
