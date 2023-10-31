@@ -163,6 +163,6 @@ export class ServerClass {
   async authenticate(client, flightOwnerKey) {
     if (flightOwnerKey !== FLIGHT_OWNER_KEY) return false;
     console.log(`authenticating client`);
-    client.authenticated = true;
+    return (client.authenticated = true);
   }
 }

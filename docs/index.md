@@ -898,59 +898,44 @@ export class ServerClass {
    */
   async authenticate(client, flightOwnerKey) {
     if (flightOwnerKey !== FLIGHT_OWNER_KEY) return false;
-    client.authenticated = true;
+    return (client.authenticated = true);
   }
 }
 
 ```
 
-With that, we can now make clients, and by extension browsers, authenticate by having them call `this.server.authenticate(...)`, so let's make that work. First, we'll update our web client base file so that it has a special `/fok` route that browsers can call:
+With that, we can now make clients, and by extension browsers, authenticate by having them call `this.server.authenticate(...)`, so let's make that work by updating our client so it loads that key (if it has access to it) and call the authentication function:
 
 ```js
-...
+import { FlightInformation } from "./flight-information.js";
 
-const { API_PORT, WEB_PORT, FLIGHT_OWNER_KEY } = process.env;
-
-...
-
+// First, we try to get the key from our environment,
+// if the client is running with the --owner runtim flag:
+let flightOwnerKey = undefined;
 if (process.argv.includes(`--owner`)) {
-  clientWebServer.addRoute(`/fok`, (req, res) => {
-    res.writeHead(200, { "Content-Type": `text/plain` });
-    res.end(FLIGHT_OWNER_KEY);
-  });
+  flightOwnerKey = process.env.FLIGHT_OWNER_KEY;
 }
 
-clientWebServer.listen(WEB_PORT, () => {
- ...
+export class ClientClass {
+  #flightInfo;
+
+  async onConnect() {
+    ...
+    // Then, if we have a key, authenticate with it:
+    if (flightOwnerKey) {
+      this.setState({
+        authenticated: await this.server.authenticate(flightOwnerKey);
+        // And by setting our state, the browser will be able to tell
+        // whether or not we're authenticated at the server, as well.
+      });
+    }
+  }
+  
+  ...
 });
 ```
 
-And then we can update the browser's `setup.js` to tap into this:
-
-````js
-...
-
-const keyLabel = `flight-owner-key`;
-
-class BrowserClient {
-  async init() {
-    this.#authenticate();
-    ...
-  }
-    
-  ...
-
-  async #authenticate() {
-    if (!localStorage.getItem(keyLabel)) {
-      localStorage.setItem(keyLabel, await fetch(`./fok`).then((t) => t.text()));
-    }
-    const authKey = localStorage.getItem(keyLabel);
-    if (authKey) await this.server.authenticate(authKey);
-  }
-}
-````
-
-And now we can make the browser authenticate with the API server, so that things like `set` and `trigger` will work... if we add that, too:
+With that, all that's left is making sure that the `set` and `trigger` calls to the API will only work for authenticated clients:
 
 ```js
 ...
@@ -982,10 +967,21 @@ And that's our "auth" added, so we have all the parts in place:
 
 ### Testing our code
 
-With all of our steps covered, we now have a webpage that connects to the API server (by proxy), and if we open our developer tools and we select the "console" tab, we can verify that our web page can talk to MSFS, and vice versa. For instance, if we want to know some of our plane properties, we could call this:
+So, let's run this code and _actually_ talk to MSFS. First, let's make sure we have direct access to our browser client by updating that `setup.js`:
+
+```js
+...
+
+// we won't leave this in, but it'll let us do some testing:
+window.browserClient = createBrowserClient(BrowserClient);
+```
+
+As you can see the `createBrowserClient` returns the actual instance it builds. There's rarely a reason to capture that, but it can be very useful for testing, like now!
+
+Let's fire up MSFS and load up a plane on on a runway somewhere, run our API server, run our client with the `--owner` and `--browser` flags, and then let's open the developer tools in the browser and get to the `Console` tab. While there, let's ask MSFS for some things:
 
 ```javascript
-» await MSFS.get(
+» await browserClient.server.api.get(
   `CATEGORY`,
   `DESIGN_CRUISE_ALT`,
   `DESIGN_TAKEOFF_SPEED`,
@@ -999,7 +995,7 @@ With all of our steps covered, we now have a webpage that connects to the API se
 );
 ```
 
-And we should get all the relevant info. For instance, if we started a flight in the De Havilland DHC-2 "Beaver", we might get the following response:
+If we had loaded up a De Havilland DHC-2 "Beaver", we might get the following response:
 
 ```javascript
 « ▼ Object {
@@ -1018,10 +1014,10 @@ And we should get all the relevant info. For instance, if we started a flight in
 
 Of course, none of these things have units, but that's what the [SimConnect documentation](https://docs.flightsimulator.com/html/Programming_Tools/SimVars/Simulation_Variables.htm) is for: the Beaver is designed to cruise at 5000 feet, take off at 65 knots, it has a two wheels up front and a little wibble wheel at the back (i.e. it's a "tail dragger"), it has one engine, which is a piston propeller (which we know by looking up the enum for engine type); it weighs 3955 pounds, has a wing span of 48 feet, and has a typical descent rate of 16.667 feet per second.
 
-And of course, we can also ask for information that's relevant to our flight _right now_ rather than just asking about the plane in general:
+And of course, we can also ask for information that's relevant to our flight _right now_ rather than just asking about the plane in general. Say we actually took off and are cruising along, we can run:
 
 ```javascript
-» await window.MSFS.get(
+» await browserClient.server.api.get(
   `AIRSPEED_INDICATED`,
   `ELEVATOR_TRIM_PCT`,
   `PLANE_ALT_ABOVE_GROUND`,
@@ -1034,7 +1030,7 @@ And of course, we can also ask for information that's relevant to our flight _ri
 );
 ```
 
-This might give us something like:
+And this might give us something like:
 
 ```javascript
 « ▼ Object {
@@ -1055,9 +1051,9 @@ This tells us our plane is flying over Vancouver Island at GPS coordinates -123.
 We can trigger events, too:
 
 ```javascript
-» await MSFS.get(`TAILWHEEL_LOCK_ON`);
-» MSFS.trigger(`TOGGLE_TAILWHEEL_LOCK`);
-» await MSFS.get(`TAILWHEEL_LOCK_ON`);
+» await browserClient.server.api.get(`TAILWHEEL_LOCK_ON`);
+» browserClient.server.api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
+» await browserClient.server.api.get(`TAILWHEEL_LOCK_ON`);
 ```
 
 Which should result in:
@@ -1075,10 +1071,10 @@ Which should result in:
 And of course, we can listen for events. For example, we can write this:
 
 ```javascript
-» MSFS.on(`CRASHED`, () => console.log(`...we crashed!`))
+» browserClient.server.api.on(`CRASHED`, () => console.log(`...we crashed!`))
 ```
 
-And now if we point our plane towards the ground and just let gravity do the rest, eventually our flight will come to an abrupt stop (provided we have crash damage turned on, of course). The MSFS screen will go black, and we'll get a little dialog telling us that we crashed... but if we look at the dev tools console for our web page, we'll also see this little gem:
+And now if we point our plane towards the ground and just let gravity do the rest (don't worry, it's just pixels, it's perfectly safe), eventually our flight will come to an abrupt stop, the MSFS screen will go black, and we'll get a little dialog telling us that we crashed... but if we look at the dev tools console for our web page, we'll also see this little gem:
 
 ```javascript
 ...we crashed!

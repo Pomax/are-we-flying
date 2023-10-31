@@ -1,8 +1,3 @@
-import url from "url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-import dotenv from "dotenv";
-dotenv.config({ path: `${__dirname}/../../../.env` });
-
 import { AutoPilot } from "../../api/autopilot/autopilot.js";
 import { FlightInformation } from "./flight-information.js";
 
@@ -11,16 +6,29 @@ if (process.argv.includes(`--owner`)) {
   fok = process.env.FLIGHT_OWNER_KEY;
 }
 
+let reconnection = false;
+
 /**
  * Our client class
  */
 export class ClientClass {
   #flightInfo;
+  #reconnection;
+
+  constructor() {
+    const tryConnect = () => {
+      console.log(`trying to connect...`);
+      this.reconnect();
+      this.#reconnection = setTimeout(tryConnect, 5000);
+    };
+    setTimeout(tryConnect, 5000);
+  }
 
   /**
    * ...docs go here...
    */
   async onConnect() {
+    clearTimeout(this.#reconnection);
     console.log(`client connected to server`);
     // Set up our "initial" state. However, we might already have been
     // sent events by the server by the time this kicks in, so we need
@@ -28,10 +36,6 @@ export class ClientClass {
     this.setState({
       autopilot:
         this.state.autopilot ?? (await this.server.autopilot.getParameters()),
-      camera: this.state.camera ?? {
-        main: 2,
-        sub: 2,
-      },
       crashed: this.state.crashed ?? false,
       flightData: this.state.flightData ?? false,
       flightModel: this.state.flightModel ?? false,
@@ -39,8 +43,12 @@ export class ClientClass {
       MSFS: this.state.MSFS ?? false,
       paused: this.state.paused ?? false,
     });
+    if (fok) {
+      this.setState({
+        authenticated: await this.server.authenticate(fok),
+      });
+    }
     await this.server.api.register(`MSFS`);
-    await this.server.authenticate(fok);
   }
 
   async onDisconnect() {

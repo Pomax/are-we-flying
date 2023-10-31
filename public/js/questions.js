@@ -5,7 +5,7 @@ questions.innerHTML = content;
 export const Questions = {
   update(state) {
     document.querySelector(`.msfs-running`).checked = state.MSFS;
-    document.querySelector(`.in-game`).checked = state.camera.main < 9;
+    document.querySelector(`.in-game`).checked = state.camera?.main < 9;
     document.querySelector(`.powered-up`).checked = state.flightData.POWERED_UP;
     document.querySelector(`.engines-running`).checked =
       state.flightData.ENGINES_RUNNING;
