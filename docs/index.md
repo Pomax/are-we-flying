@@ -241,7 +241,7 @@ Awesome, we have a complete API server + web server + browser thin client and "t
 
 Our server class is how clients "talk" to MSFS. Any function we expose on the server class will end up being a function that, as far as clients know, is just part of the local `this.server` object, so we'll want to make sure to keep things that should not be directly accessible either off the class (i.e. declare and initialize them outside the class) or mark them as private using the `#` character, so that they can't be called by anyone else.
 
-Let's look at some code:
+Let's update our server class and let's move it into its own `src/classes/server.js` instead so we're not mixing our client and server code:
 
 ```js
 // Import the MSFS connector library and create an API instance:
@@ -539,7 +539,7 @@ Phew. That was a lot of code! But hopefully, it all made sense. Because we still
 
 ## Our Web server
 
-In addition to our API server, we're going to need a client that is also a web server, so that we can connect a browser and actually, you know, _use_ all of this. This means we'll have to define a client class such that `socketless` can take care of the rest. Thankfully, this is super easy: our client doesn't need to "do" anything other than make sure that values make it from the browser to the server, and from the server to the browser, so we're going to essentially be writing a state-manager, where the client takes signals from the server and turns them into `this.state` updates, and then `socketless` will take care of the tedious "making sure the browser gets that" parts. So: client class time!
+In addition to our API server, we're going to need a client that is also a web server, so that we can connect a browser and actually, you know, _use_ all of this. This means we'll have to define a client class such that `socketless` can take care of the rest. Thankfully, this is super easy: our client doesn't need to "do" anything other than make sure that values make it from the browser to the server, and from the server to the browser, so we're going to essentially be writing a state-manager, where the client takes signals from the server and turns them into `this.state` updates, and then `socketless` will take care of the tedious "making sure the browser gets that" parts. So: client class time! (which we put in its own `src/classes/client.js`)
 
 ```js
 import { FlightInformation } from "./flight-information.js";
@@ -760,71 +760,24 @@ export class FlightInformation {
 }
 ```
 
-And if you wanted to know the full list of values we fetch for the flight model, and the flight data.... well, here you go:
+And our list of flight model and flight data values (which we might add more to later):
 
 ```js
 export const FLIGHT_MODEL = [
-  `BETA_DOT`,
-  `CATEGORY`,
-  `DECISION_ALTITUDE_MSL`,
-  `DECISION_HEIGHT`,
-  `DESIGN_CRUISE_ALT`,
-  `DESIGN_SPAWN_ALTITUDE_CRUISE`,
-  `DESIGN_SPAWN_ALTITUDE_DESCENT`,
-  `DESIGN_SPEED_CLIMB`,
-  `DESIGN_SPEED_MIN_ROTATION`,
-  `DESIGN_SPEED_VC`,
-  `DESIGN_SPEED_VS0`,
-  `DESIGN_SPEED_VS1`,
-  `DESIGN_TAKEOFF_SPEED`,
-  `DYNAMIC_PRESSURE`,
-  `ELEVATOR_TRIM_UP_LIMIT`,
-  `ELEVATOR_TRIM_DOWN_LIMIT`,
-  `ENGINE_TYPE`,
-  `ESTIMATED_CRUISE_SPEED`,
-  `G_FORCE`,
-  `G_LIMITER_SETTING`,
-  `INCIDENCE_ALPHA`,
-  `INCIDENCE_BETA`,
-  `IS GEAR FLOATS`,
-  `IS_TAIL_DRAGGER`,
-  `LINEAR_CL_ALPHA`,
-  `MACH_MAX_OPERATE`,
-  `MAX_G_FORCE`,
-  `MIN_DRAG_VELOCITY`,
-  `MIN_G_FORCE`,
-  `NUMBER_OF_ENGINES`,
-  `SEMIBODY_LOADFACTOR_Y`,
-  `SEMIBODY_LOADFACTOR_YDOT`,
-  `SIGMA_SQRT`,
-  `SIMULATED_RADIUS`,
-  `STALL_ALPHA`,
-  `STATIC_PITCH`,
-  `STATIC_CG_TO_GROUND`,
-  `TITLE`,
-  `TYPICAL_DESCENT_RATE`,
-  `TOTAL_WEIGHT`,
-  `WING_AREA`,
-  `WING_FLEX_PCT:1`,
-  `WING_FLEX_PCT:2`,
-  `WING_SPAN`,
-  `YAW_STRING_ANGLE`,
-  `YAW_STRING_PCT_EXTENDED`,
-  `ZERO_LIFT_ALPHA`,
-  `PLANE_LATITUDE`,
-  `PLANE_LONGITUDE`,
+  `ENGINE_TYPE`,         // jet? piston?
+  `IS_GEAR_FLOATS`,      // water plane or regular?
+  `NUMBER_OF_ENGINES`,   // ...self explanatory
+  `STATIC_CG_TO_GROUND`, // how many feet above the ground is the center of gravity?
+  `TITLE`,               // what's the name of this plane?
 ];
 
 export const FLIGHT_DATA = [
-  `AILERON_TRIM_PCT`,
-  `AIRSPEED_INDICATED`,
+  // most of these should be relatively self-explanatory
   `AIRSPEED_TRUE`,
   `AUTOPILOT_HEADING_LOCK_DIR`,
   `AUTOPILOT_MASTER`,
   `CAMERA_STATE`,
   `CAMERA_SUBSTATE`,
-  `CRASH_FLAG`,
-  `CRASH_SEQUENCE`,
   `ELEVATOR_TRIM_POSITION`,
   `ELECTRICAL_TOTAL_LOAD_AMPS`,
   `ENG_COMBUSTION:1`,
@@ -842,8 +795,6 @@ export const FLIGHT_DATA = [
   `PLANE_PITCH_DEGREES`,
   `RUDDER_TRIM_PCT`,
   `SIM_ON_GROUND`,
-  `STATIC_CG_TO_GROUND`,
-  `TITLE`,
   `TURN_INDICATOR_RATE`,
   `VERTICAL_SPEED`,
 ];
@@ -853,54 +804,31 @@ With that, let's move on to the browser.
 
 ## The browser code
 
-In order for the browser to be able to "do something", we'll need -at the very least- an `index.html` in our `public` directory:
-
-```html
-<!DOCTYPE html>
-<html lang="en-GB">
-  <head>
-    <meta charset="utf-8" />
-    <title>Are we flying?</title>
-    <script src="js/setup.js" type="module" async></script>
-  </head>
-  <body>
-    <!-- ...and we'll fill in the rest later! -->
-  </body>
-</html>
-```
-
-With an incredibly simple `setup.js`:
+In order for the browser to be able to "do something", we'll reuse the `index.html` we made earlier, but let's update our `setup.js`:
 
 ```js
-// First, we import the socketless library. Note that this is *not*
-// the same library that you use on the Node side: it's a special
-// browser script that gets automatically served up by web clients.
-// You do *not* need to put anything in your public dir for this to
-// work, and in fact: even if you do, that file will get ignored.
 import { createBrowserClient } from "./socketless.js";
 
-// Then we import a file that's *actually* going to do the work...
+// Let's import a class that's *actually* going to do the work...
 import { Plane } from "./plane.js";
 
-// Then we define our browser client, whose sole responsibility is
+// And then we update our browser client, whose sole responsibility is
 // to hand off state updates to our "Plane":
 class BrowserClient {
   #plane;
 
-  // socketless will call this function instead of the constructor.
   async init() {
     this.#plane = new Plane(this.server);
   }
   
-  // And this function gets called any time the client updates its
-  // state, with the browser state having already been updated too.
-  // For convenience, the previous state is passed along.
+  // This function gets called any time the client updates its
+  // state, with the browser state having already been updated
+  // too. For convenience, the previous state is passed along.
   async update(prevState) {
     this.#plane.updateState(this.state);
   }
 }
 
-// And finally, make socketless hook everything up:
 createBrowserClient(BrowserClient);
 ```
 
@@ -935,7 +863,7 @@ export class Plane {
 }
 ```
 
-And that's it. There's nothing "meaningful" in our plane class yet, but we're done: we've set up a complete API server, web server, and browser system.
+And that's it. There's nothing "meaningful" in our plane class yet, but for the momebt we're done: we've set up a complete API server, web server, and browser system.
 
 ### Adding "write protection"
 

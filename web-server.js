@@ -14,13 +14,6 @@ const serverURL = `http://localhost:${API_PORT}`;
 const dir = `${__dirname}/public`;
 const { clientWebServer } = factory.createWebClient(serverURL, dir);
 
-if (process.argv.includes(`--owner`)) {
-  clientWebServer.addRoute(`/fok`, (req, res) => {
-    res.writeHead(200, { "Content-Type": `text/plain` });
-    res.end(FLIGHT_OWNER_KEY);
-  });
-}
-
 clientWebServer.listen(WEB_PORT, () => {
   console.log(`Server listening on http://localhost:${WEB_PORT}`);
   if (process.argv.includes(`--browser`)) {

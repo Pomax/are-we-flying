@@ -1,5 +1,15 @@
+import url from "url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+import dotenv from "dotenv";
+dotenv.config({ path: `${__dirname}/../../../.env` });
+
 import { AutoPilot } from "../../api/autopilot/autopilot.js";
 import { FlightInformation } from "./flight-information.js";
+
+let fok = undefined;
+if (process.argv.includes(`--owner`)) {
+  fok = process.env.FLIGHT_OWNER_KEY;
+}
 
 /**
  * Our client class
@@ -18,6 +28,10 @@ export class ClientClass {
     this.setState({
       autopilot:
         this.state.autopilot ?? (await this.server.autopilot.getParameters()),
+      camera: this.state.camera ?? {
+        main: 2,
+        sub: 2,
+      },
       crashed: this.state.crashed ?? false,
       flightData: this.state.flightData ?? false,
       flightModel: this.state.flightModel ?? false,
@@ -26,6 +40,7 @@ export class ClientClass {
       paused: this.state.paused ?? false,
     });
     await this.server.api.register(`MSFS`);
+    await this.server.authenticate(fok);
   }
 
   async onDisconnect() {

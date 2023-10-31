@@ -15,7 +15,7 @@ class BrowserClient {
    * ...docs go here...
    */
   async init() {
-    this.#authenticate();
+    // this.#authenticate();
     this.#plane = new Plane(this.server);
     if (experiment) {
       import(`./experiments/${experiment}/index.js`).then(({ Experiment }) =>
@@ -24,17 +24,17 @@ class BrowserClient {
     }
   }
 
-  /**
-   * ...docs go here...
-   */
-  async #authenticate() {
-    const label = this.#authenticationProperty;
-    if (!localStorage.getItem(label)) {
-      localStorage.setItem(label, await fetch(`./fok`).then((t) => t.text()));
-    }
-    const FOK = localStorage.getItem(label);
-    if (FOK) await this.server.authenticate(FOK);
-  }
+  // /**
+  //  * ...docs go here...
+  //  */
+  // async #authenticate() {
+  //   const label = this.#authenticationProperty;
+  //   if (!localStorage.getItem(label)) {
+  //     localStorage.setItem(label, await fetch(`./fok`).then((t) => t.text()));
+  //   }
+  //   const FOK = localStorage.getItem(label);
+  //   if (FOK) await this.server.authenticate(FOK);
+  // }
 
   /**
    * ...docs go here...
