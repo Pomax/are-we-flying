@@ -18,6 +18,7 @@ let MSFS = false;
 
 function connectServerToAPI(server, onConnect) {
   api.connect({
+    autoReconnect: true,
     retries: Infinity,
     retryInterval: 5,
     onConnect,

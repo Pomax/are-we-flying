@@ -117,6 +117,7 @@ export class WayPoints {
     this.currentWaypoint = this.currentWaypoint.next;
   }
 
+  // ...docs go here...
   getHeading(state) {
     const { modes } = this.autopilot;
     // if we're in auto-takeoff, waypoints should not be active yet
