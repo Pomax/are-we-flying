@@ -713,7 +713,7 @@ export class FlightInformation {
       return (this.data = false);
     }
 
-    // onvert all values that MSFS reports in radians to values in degrees
+    // Convert all values that MSFS reports in radians to values in degrees
     [
       `PLANE_LATITUDE`,
       `PLANE_LONGITUDE`,
@@ -1095,418 +1095,92 @@ We know when we're connected to MSFS, so let's write a few functions that let us
 Nothing particularly fancy (although we can pretty much use any amount of CSS to turn it _into_ something fancy), but it lets us see where in the process of firing up MSFS, clicking through to the world map, and starting a flight we are. So let's update our HTML file to include these questions, and then we can update our JS to start answering them:
 
 ```html
-<h1>Is Pomax flying?</h1>
-<p>
-  Let's see if Pomax is currently flying around in Microsoft Flight Simulator
-  2020...
-</p>
+<h1>Are we flying?</h1>
+<p>Let's see if we're currently flying around in Microsoft Flight Simulator 2020...</p>
 <ul>
-  <li>
-    Can we even tell? (is the API server running?)
-    <input type="checkbox" disabled class="server-up" />
-  </li>
-  <li>
-    Is MSFS running? <input type="checkbox" disabled class="msfs-running" />
-  </li>
-  <li>
-    Which plane did we pick?
-    <span class="specific-plane">... nothing yet?</span>
-  </li>
-  <li>
-    Are we actually "in a game"?
-    <input type="checkbox" disabled class="in-game" />
-  </li>
-  <li>
-    Are the engines running?
-    <input type="checkbox" disabled class="engines-running" />
-  </li>
+  <li>Is MSFS running? <input type="checkbox" disabled class="msfs-running" /></li>
+  <li>Which plane did we pick? <span class="specific-plane">... nothing yet?</span></li>
+  <li>Are we actually "in a game"? <input type="checkbox" disabled class="in-game" /></li>
+  <li>Do we have power? <input type="checkbox" disabled class="powered-up" /></li>
+  <li>Are the engines running? <input type="checkbox" disabled class="engines-running" /></li>
   <li>Are we flying?? <input type="checkbox" disabled class="in-the-air" /></li>
-  <li>
-    Are we on autopilot? <input type="checkbox" disabled class="using-ap" />
-  </li>
-  <li>
-    (... did we crash? <input type="checkbox" disabled class="plane-crashed" />)
-  </li>
+  <li>Are we on the in-game autopilot? <input type="checkbox" disabled class="using-ap" /></li>
+  <li>(... did we crash? <input type="checkbox" disabled class="plane-crashed" />)</li>
 </ul>
 ```
 
 Excellent: boring, but serviceable, so let's move on to the JS side!
 
-First let's write a little convenience file called `questions.js` that we're going to use to (un)check these questions:
+First let's write a little convenience file called `questions.js` that we're going to use to (un)check these questions, based on the fact that we have access to the web client's state:
 
 ```javascript
-// A simple helper function to (un)check a checkbox
-function setCheckbox(qs, val) {
-  const checkbox = questions.querySelector(qs);
-  if (val) checkbox.setAttribute(`checked`, `checked`);
-  else checkbox.removeAttribute(`checked`);
-}
+const content = await fetch("questions.html").then((res) => res.text());
+const questions = document.getElementById(`questions`);
+questions.innerHTML = content;
 
-// And then our (static) questions class that we're going to use to toggle all those boxes.
+const elements = Object.fromEntrier([
+  `msfs-running`,
+  `in-game`,
+  `powered-up`,
+  `engines-running`,
+  `in-the-air`,
+  `using-ap`,
+  `plane-crashed`,
+  `specific-plane`
+].map(e => {
+  const propName = e
+    .split(`-`)
+    .map((e,p) => 
+      p===0? e : e.substring(0,1).toUpperCase() + e.subtring(1).toLowerCase()
+    ).join(``);
+  return [propName, document.querySelector(`.${e}`)];
+}));
+
 export const Questions = {
-  serverUp(val) {
-    setCheckbox(`.server-up`, val);
-  },
-
-  msfsRunning(val) {
-    setCheckbox(`.msfs-running`, val);
-  },
-
-  inGame(val) {
-    setCheckbox(`.in-game`, val);
+  update(state) {
+    elements.msfsRunning.checked = state.MSFS;
+    elements.inGame.checked = state.camera?.main < 9;
+    elements.poweredUp.checked = state.flightData.POWERED_UP;
+    elements.enginesRunning.checked = state.flightData.ENGINES_RUNNING;
+    elements.inTheAir.checked = !state.flightData.SIM_ON_GROUND;
+    elements.usingAp.checked = state.flightData.AUTOPILOT_MASTER;
+    elements.planeCrashed.checked = state.crashed;
+    if (state.flightModel?.TITLE) this.modelLoaded(state.flightModel.TITLE);
   },
 
   modelLoaded(modelName) {
     let model = `...nothing yet?`;
     let article = `a`;
-    // gotta be linguistically correct: if our aeroplane name starts with a vowel, we need to use "an", not "a":
-    if (
-      [`a`, `i`, `u`, `e`, `o`].includes(
-        modelName.substring(0, 1).toLowerCase()
-      )
-    ) {
-      article += `n`;
-    }
+    // let's be linguistically correct:
+    if ([`a`, `i`, `u`, `e`, `o`].includes(modelName.substring(0, 1).toLowerCase())) article += `n`;
     if (modelName) model = `...Looks like ${article} ${modelName}. Nice!`;
-    questions.querySelector(`.specific-plane`).textContent = model;
-  },
-
-  enginesRunning(val) {
-    setCheckbox(`.engines-running`, val);
-  },
-
-  inTheAir(val) {
-    setCheckbox(`.in-the-air`, val);
-  },
-
-  usingAutoPilot(val) {
-    setCheckbox(`.using-ap`, val);
-  },
-
-  planeCrashed(val) {
-    setCheckbox(`.plane-crashed`, val);
-  },
-
-  resetQuestions() {
-    this.inGame(false);
-    this.enginesRunning(false);
-    this.inTheAir(false);
-    this.usingAutoPilot(false);
-    this.planeCrashed(false);
-    // you may notice we don't reset the model: it'll automatically update when we pick a new plane.
+    elements.specificPlane.textContent = model;
   },
 };
 ```
 
-Cool! Of course, this does nothing yet, so let's plug it into our `index.js` so that we can run through our sequence of "where in the game we are". Specifically, we're going to update our connection `props` that we use for starting our web socket connection:
+Cool! Of course, this does nothing yet, so let's plug it into our `plane.js` so that we can run through our sequence of "where in the game we are" as part of the update call:
 
 ```javascript
-import { Questions } from "./questions.js";
-import { Plane } from "./plane.js";
-
-let plane;
-
-const props = {
-  ...
-  onConnect: async () => {
-    console.log(`connected to API server`);
-    Questions.serverUp(true);
-    addEventListenerAPI(`MSFS`, () => {
-      Questions.msfsRunning(true);
-      // Create a plane if we don't have one yet
-      plane ??= new Plane();
-      // And make sure it gets reset, whether we just built it or not.
-      plane.reset();
-    });
-  },
-  onDisconnect: async () => {
-    console.log(`disconnected from API server`);
-    Questions.serverUp(false);
-    Questions.msfsRunning(false);
-  },
-};
-
 ...
-
-connectAPI(`/`, props);
-```
-
-That's the first few questions answered, but... what's that `plane` variable? In short: it's where we're going to continue our code. We don't want a giant spaghetti mess of code, we want nicely contained code that's easy to maintain, so if MSFS is running, we build a `Plane` and then we track everything flight related in there, instead.
-
-...in fact, let's define our plane right now!
-
-```javascript
 import { Questions } from "./questions.js";
-import { getAPI, addEventListenerAPI } from "./api.js";
-
-const DUNCAN_AIRPORT = [48.756669, -123.711434];
-const INITIAL_RUNWAY_HEADING = 150;
-const degrees = (v) => (180 * v) / Math.PI;
-
-const POLLING_PROPS = [
-  "AILERON_TRIM_PCT",
-  "AIRSPEED_TRUE",
-  "AUTOPILOT_MASTER",
-  "AUTOPILOT_HEADING_LOCK_DIR",
-  "CRASH_FLAG",
-  "CRASH_SEQUENCE",
-  "ELEVATOR_TRIM_POSITION",
-  "GPS_GROUND_TRUE_TRACK",
-  "GROUND_ALTITUDE",
-  "AUTOPILOT_HEADING_LOCK_DIR",
-  "INDICATED_ALTITUDE",
-  "PLANE_ALT_ABOVE_GROUND",
-  "PLANE_BANK_DEGREES",
-  "PLANE_HEADING_DEGREES_MAGNETIC",
-  "PLANE_HEADING_DEGREES_TRUE",
-  "PLANE_LATITUDE",
-  "PLANE_LONGITUDE",
-  "PLANE_PITCH_DEGREES",
-  "SIM_ON_GROUND",
-  "STATIC_CG_TO_GROUND",
-  "TURN_INDICATOR_RATE",
-  "VERTICAL_SPEED",
-];
-
-// We need some states so we can track where in the question list we are:
-const WAIT_FOR_GAME = Symbol(`wait for in game`);
-const WAIT_FOR_MODEL = Symbol(`wait for model`);
-const WAIT_FOR_ENGINES = Symbol(`wait for engines`);
-const POLLING_GAME = Symbol(`polling game`);
 
 export class Plane {
-  constructor() {
-    console.log(`building a plane`);
-    // we'll assume the location of our plane until we get that information from MSFS.
-    this.state = {};
-    this.lastUpdated = {
-      crashed: false,
-      lat: DUNCAN_AIRPORT[0],
-      long: DUNCAN_AIRPORT[1],
-    };
-    this.sequencer = new Sequence(
-      WAIT_FOR_GAME,
-      WAIT_FOR_MODEL,
-      WAIT_FOR_ENGINES,
-      POLLING_GAME
-    );
-    this.eventsRegistered = false;
-    this.waitForInGame();
-  }
+  ...
 
-  reset() {
-    this.sequencer.reset();
-    this.eventsRegistered = false;
-    clearEventListenersAPI();
-  }
+  async updateState(state) {
+    this.state = state;
+    const now = Date.now();    
 
-  // This function registers for the MSFS "SIM" event, and if it gets it, it knows we're in game.
-  async waitForInGame() {
-    this.sequencer.start();
-    console.log(`wait for in-game`);
+    // Update our questions:
+    Questions.update(state);
 
-    const waitForSim = async ([state]) => {
-      console.log(`wait for sim:`, state);
-      if (state === 1) {
-        Questions.resetPlayer();
-        Questions.inGame(true);
-        // of course once we're in game, we'll want to know which plane we're flying.
-        this.waitForModel();
-      }
-    };
-
-    addEventListenerAPI(`SIM`, waitForSim);
-    addEventListenerAPI(`PAUSED`, () => (this.paused = true));
-    addEventListenerAPI(`UNPAUSED`, () => (this.paused = false));
-  }
-
-  // This function creates a "Flight Model", which is a class that aggregates some 40+ values
-  // all relating to the flight model, like its category, trim limits, ideal cruise speed, etc.
-  async waitForModel() {
-    const { sequencer } = this;
-    if (sequencer.state !== WAIT_FOR_GAME) return;
-    sequencer.next();
-
-    console.log(`loading model`);
-    const model = (this.flightModel = new FlightModel());
-    const { title, lat, long, engineCount } = await model.bootstrap();
-    Questions.modelLoaded(model.values.TITLE);
-
-    // Once we have our aeroplane, we can put it on the map and then start waiting for the engines to be running:
-    this.lastUpdate.lat = lat;
-    this.lastUpdate.long = long;
-    const once = true;
-    this.update(once);
-    this.waitForEngines(engineCount);
-  }
-
-  async waitForEngines(engineCount) {
-    const { sequencer } = this;
-    if (
-      sequencer.state !== WAIT_FOR_MODEL &&
-      sequencer.state !== WAIT_FOR_ENGINES
-    )
-      return;
-    sequencer.next();
-
-    const results = await getAPI(
-      ...[
-        `ENG_COMBUSTION:1`,
-        `ENG_COMBUSTION:2`,
-        `ENG_COMBUSTION:3`,
-        `ENG_COMBUSTION:4`,
-      ]
-    );
-
-    // There is no convenient event for this, so we'll just check this once per second.
-    const checkEngines = async () => {
-      const results = await getAPI(...engines);
-      // We consider the engines to be running if any of them are running.
-      for (let i = 1; i <= engineCount; i++) {
-        if (results[`ENG_COMBUSION:${i}`]) {
-          console.log(`engines are running`);
-          Questions.enginesRunning(true);
-          return this.startPolling();
-        }
-      }
-      setTimeout(checkEngines, 1000);
-    };
-
-    checkEngines();
-  }
-
-  // Once the engines are running, we can start polling the game for actual flight data.
-  async startPolling() {
-    const { sequencer } = this;
-    if (sequencer.state !== WAIT_FOR_ENGINES) return;
-    sequencer.next();
-
-    this.update();
-  }
-
-  // Every time we get an update to the game data, we update our state, our vector, and our orientation
-  async update(once = false) {
-    if (!once && this.sequencer.state !== POLLING_GAME) return;
-
-    // make sure we can't call this function when it's already being called:
-    if (!once && this.locked_for_updates) return;
-    this.locked_for_updates = true;
-
-    // Get all the values we want to show:
-    const data = await getAPI(...POLLING_PROPS);
-    if (data === null) return;
-
-    // Update our current state, and update the web page:
-    this.setState(data);
-    this.updatePage(data);
-
-    // Then schedule the next update call one second from now.
-    if (!once) {
-      setTimeout(() => {
-        this.locked_for_updates = false;
-        this.update();
-      }, 1000);
-    }
-  }
-
-  // our "set state" function basically transforms all the game data into values and units we can use.
-  async setState(data) {
-    if (data.TITLE === undefined) return;
-
-    if (this.state.title !== data.TITLE) {
-      // Update our plane, because thanks to dev tools and add-ons, people can just switch planes mid-flight:
-      Questions.modelLoaded(data.TITLE);
-    }
-
-    // start our current state object:
-    this.state = {
-      title: data.TITLE,
-      cg: data.STATIC_CG_TO_GROUND,
-    };
-
-    // A lot of values are in radians, and are easier to work with as degrees.
-    Object.assign(this.state, {
-      lat: degrees(data.PLANE_LATITUDE),
-      long: degrees(data.PLANE_LONGITUDE),
-      airBorn:
-        data.SIM_ON_GROUND === 0 || this.state.alt > this.state.galt + 30,
-      alt: data.INDICATED_ALTITUDE,
-      aTrim: data.AILERON_TRIM_PCT,
-      ap_maser: data.AUTOPILOT_MASTER === 1,
-      crashed: !(data.CRASH_FLAG === 0 && data.CRASH_SEQUENCE === 0),
-      bank: degrees(data.PLANE_BANK_DEGREES),
-      bug: data.AUTOPILOT_HEADING_LOCK_DIR,
-      galt: data.GROUND_ALTITUDE,
-      heading: degrees(data.PLANE_HEADING_DEGREES_MAGNETIC),
-      palt: data.PLANE_ALT_ABOVE_GROUND - this.state.cg,
-      pitch: degrees(data.PLANE_PITCH_DEGREES),
-      speed: data.AIRSPEED_TRUE,
-      trim: data.ELEVATOR_TRIM_POSITION,
-      trueHeading: degrees(data.PLANE_HEADING_DEGREES_TRUE),
-      turnRate: degrees(data.TURN_INDICATOR_RATE),
-      vspeed: data.VERTICAL_SPEED,
-      yaw: degrees(
-        data.PLANE_HEADING_DEGREES_MAGNETIC - data.GPS_GROUND_TRUE_TRACK
-      ),
-    });
-
-    // check to see if we need to "uncrash" the plane:
-    const crashed = this.state.crashed;
-    if (this.lastUpdate.crashed !== crashed) {
-      Questions.planeCrashed(crashed);
-    }
-  }
-
-  // Our "update page" function won't do much yet, but this is where all the good stuff's going to happen.
-  async updatePage(data) {
-    if (paused) return;
-    const now = Date.now();
-
-    // For now, the only thing we do is answer two questions:
-    const { ap_master, airBorn, speed } = this.state;
-    Questions.inTheAir(airBorn && speed > 0);
-    Questions.usingAutoPilot(ap_master);
-
-    // And then we save this state so we can reference it during the next update call.
-    this.lastUpdate = Object.assign({ time: now }, this.state);
+    this.lastUpdate = { time: now, ...state };    
   }
 }
 ```
 
-Whew, that's a lot of code. And we're not even done! We also need that flight model class:
-
-```javascript
-import { getAPI } from "./api.js";
-
-// We use this object to store a whole bunch of static properties, as well as the plane's start position.
-// The code in the repo stores about 50 properties, but there are loads more that we could add.
-const flightModelValues = [
-   ...
-  `NUMBER_OF_ENGINES`,
-  ...
-  `PLANE_LATITUDE`,
-  `PLANE_LONGITUDE`,
-   ...
-  `TITLE`,
-  ...
-];
-
-export class FlightModel {
-  constructor(api) { this.api = api;}
-
-  async bootstrap() {
-    const values = (this.values = await getAPI(...flightModelValues));
-    return {
-      lat: this.values.LATITUDE,
-      long: this.values.LONGITUDE,
-      title: this.values.TITLE,
-      engineCount: this.values.NUMBER_OF_ENGINES
-    };
-  }
-}
-```
-
-That's decidedly less code than `plane.js` at least. Now, we still only implemented the code that lets us answer the question list, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually _see_ something on our webpage.
+And that's the "game state" readback sorted out! Easy-peasy! Of course, we still only implemented the code that lets us answer the question list, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually _**see**_ something on our webpage...
 
 ## Putting our plane on the map
 
