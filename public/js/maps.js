@@ -1,74 +1,78 @@
 import { waitFor } from "./utils.js";
 import { Duncan } from "./locations.js";
+import { setMapScale } from "./leaflet/nautical.js";
 
+// Wait for leaflet to be available
 const L = await waitFor(async () => window.L);
 
+// set our default location to Duncan, BC.
 const map = L.map("map").setView(Duncan, 15);
 
-(async () => {
-  await waitFor(() => !!L.control.scalenautic);
-  L.control
-    .scalenautic({
-      metric: true,
-      imperial: false,
-      nautic: true,
-    })
-    .addTo(map);
-})();
+// Since we're flying, we want distances in kilometers, and nautical miles
+setMapScale(map);
 
-const openStreetMap = L.tileLayer(
-  `https://tile.openstreetmap.org/{z}/{x}/{y}.png`,
+// Viz control: if we drag the map itself, turn off auto-centering
+const centerBtn = document.getElementById(`center-map`);
+centerBtn.checked = true;
+map.on("dragstart", (e) => (centerBtn.checked = false));
+
+// We'll be loading OSM, as well as gmaps' street view, satellite view, and elevation maps:
+const sources = [
   {
+    name: `openStreetMap`,
+    url: `https://tile.openstreetmap.org/{z}/{x}/{y}.png`,
     maxZoom: 19,
-    attribution: `© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>`,
-  }
-);
-
-const googleStreets = L.tileLayer(
-  `http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}`,
+    attribution: {
+      url: `http://www.openstreetmap.org/copyright`,
+      label: `OpenStreetMap`,
+    },
+  },
   {
-    maxZoom: 20,
+    name: `googleStreets`,
+    url: `http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}`,
     subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>`,
-  }
-);
-
-const googleHybrid = L.tileLayer(
-  `http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}`,
+    maxZoom: 20,
+    attribution: {
+      url: `https://www.google.com/permissions/geoguidelines`,
+      label: `Google Maps`,
+    },
+  },
   {
-    maxZoom: 20,
+    name: `googleTerrain`,
+    url: `http://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}`,
     subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>`,
-  }
-);
-
-const googleSat = L.tileLayer(
-  `http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}`,
+    maxZoom: 20,
+    attribution: {
+      url: `https://www.google.com/permissions/geoguidelines`,
+      label: `Google Maps`,
+    },
+  },
   {
-    maxZoom: 20,
+    name: `googleSat`,
+    url: `http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}`,
     subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>`,
-  }
+    maxZoom: 20,
+    attribution: {
+      url: `https://www.google.com/permissions/geoguidelines`,
+      label: `Google Maps`,
+    },
+  },
+];
+
+// Turn that into an easy-to-use object instead:
+const mapLayers = Object.fromEntries(
+  sources.map((e) => [
+    e.name,
+    L.tileLayer(e.url, {
+      subdomains: e.subdomains ?? [],
+      maxZoom: e.maxZoom,
+      attribution: `© <a href="${e.attribution.url}">${e.attribution.label}</a>`,
+    }),
+  ])
 );
 
-const googleTerrain = L.tileLayer(
-  `http://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}`,
-  {
-    maxZoom: 20,
-    subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>`,
-  }
-);
-
-const mapLayers = {
-  openStreetMap,
-  googleStreets,
-  googleHybrid,
-  googleSat,
-  googleTerrain,
-};
-
-const activeLayers = [openStreetMap, googleTerrain];
+// And use the OSM + elevation views as default pair.
+const activeLayers = [mapLayers.openStreetMap, mapLayers.googleTerrain];
 
 // update the applied layers
 function update() {
@@ -79,15 +83,6 @@ function update() {
   overlay?.setOpacity(0.5);
   overlay?.addTo(map);
 }
-
-// if we drag the map itself, turn off "center"
-map.on("dragstart", function (e) {
-  document.getElementById(`center-map`).checked = false;
-});
-
-// "center map on plane" checkbox
-const centerBtn = document.getElementById(`center-map`);
-centerBtn.checked = true;
 
 // Hook our layer options into our HTML <select> elements
 [1, 2].forEach((layer) => {
@@ -108,6 +103,8 @@ centerBtn.checked = true;
   });
 });
 
-// And done: make suer our layers get applied, and then export the master "map" object
+// And done: make sure our layers get applied, and then export the
+// master "map" object as well as the "are we centering?" button.
 update();
+
 export { map, centerBtn };

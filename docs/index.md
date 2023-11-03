@@ -1328,7 +1328,8 @@ We use this because we don't want to do any map work until Leaflet's been loaded
 Then, we can change our `place.js` to load this map:
 
 ```javascript
-import { map } from "./map.js";
+import { map as defaultMap, centerBtn } from "./maps.js";
+
 ...
 ```
 
@@ -1336,7 +1337,7 @@ Which gives us something that looks a little like this:
 
 <img src="./blank-map.png" alt="image-20230527105720116" style="zoom:67%;" />
 
-Which is pretty good, but it's lacking a certain someth- oh right our plane. Let's update our `plane.js` so that this map can actually show our plane flying around.
+Which is pretty good, but it's lacking a certain someth- oh right: our plane. Let's update our `plane.js` so that this map can actually show our plane flying around.
 
 ```javascript
 import { waitFor } from "./utils.js";

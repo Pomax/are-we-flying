@@ -1,37 +1,62 @@
+import url from "url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import { AutoPilot } from "../../api/autopilot/autopilot.js";
-import { FlightInformation } from "./flight-information.js";
 
+// hot reloadable
+import { addReloadWatcher } from "../../api/autopilot/reload-watcher.js";
+import { FlightInformation as fi } from "./flight-information.js";
+let FlightInformation = fi;
+addReloadWatcher(
+  __dirname,
+  `flight-information.js`,
+  (lib) => (FlightInformation = lib.FlightInformation)
+);
+
+const RECONNECT_TIMEOUT = 5000;
+
+// Do we have a flight owner key that we need to authenticate with?
 let fok = undefined;
 if (process.argv.includes(`--owner`)) {
   fok = process.env.FLIGHT_OWNER_KEY;
 }
 
-let reconnection = false;
-
 /**
  * Our client class
  */
 export class ClientClass {
-  #flightInfo;
   #reconnection;
 
-  constructor() {
-    const tryConnect = async () => {
-      if (this.server) return;
-      console.log(`trying to connect...`);
-      this.setState({
-        autopilot: false,
-        crashed: false,
-        flightData: false,
-        flightModel: false,
-        flying: false,
-        MSFS: false,
-        paused: false,
-      });
-      this.reconnect();
-      this.#reconnection = setTimeout(tryConnect, 5000);
-    };
-    setTimeout(tryConnect, 5000);
+  /**
+   * @type {FlightInformation}
+   */
+  #flightInfo;
+
+  /**
+   * When our client starts up, also start a reconnect
+   * attempt
+   */
+  init() {
+    this.setState({ offline: true });
+    setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT);
+  }
+
+  /**
+   * A private function that lets us reconnect to the server
+   * in case it disappears and comes back online.
+   */
+  async #tryReconnect() {
+    if (this.server) {
+      clearTimeout(this.#reconnection);
+      this.setState({ offline: !this.server });
+      console.log(`reconnected`);
+      return;
+    }
+    console.log(`trying to reconnect to the server...`);
+    this.reconnect();
+    this.#reconnection = setTimeout(
+      () => this.#tryReconnect(),
+      RECONNECT_TIMEOUT
+    );
   }
 
   /**
@@ -51,6 +76,7 @@ export class ClientClass {
       flightModel: this.state.flightModel ?? false,
       flying: this.state.flying ?? false,
       MSFS: this.state.MSFS ?? false,
+      offline: false,
       paused: this.state.paused ?? false,
     });
     if (fok) {
@@ -63,18 +89,12 @@ export class ClientClass {
 
   async onDisconnect() {
     console.log(`disconnected`);
-    this.setState({ flying: false });
+    this.setState({
+      flying: false,
+      offline: true,
+      MSFS: false,
+    });
     this.#tryReconnect();
-  }
-
-  async #tryReconnect() {
-    if (this.server) {
-      return console.log(`reconnected`);
-    }
-    console.log(`trying reconnect`);
-    this.reconnect();
-    console.log(`setting timeout`);
-    setTimeout(() => this.#tryReconnect(), 5000);
   }
 
   /**
@@ -157,9 +177,9 @@ export class ClientClass {
    */
   async setFlying(flying) {
     const wasFlying = this.state.flying;
-    this.setState({ flying });
+    this.setState({ flying, crashed: false, MSFS: true });
     if (flying && !wasFlying) {
-      this.setState({ crashed: false, MSFS: true });
+      console.log(`starting a new flight...`);
       this.#flightInfo ??= new FlightInformation(this.server.api);
       this.setState(await this.#flightInfo.update());
       this.#poll();
