@@ -18,12 +18,20 @@ void vertex(double x, double y) {
   vertex((float)x, (float)y);
 }
 
+double abs(double v) {
+  return Math.abs(v);
+}
+
 double sin(double v) {
   return Math.sin(v);
 }
 
 double cos(double v) {
   return Math.cos(v);
+}
+
+double acos(double v) {
+  return Math.acos(v);
 }
 
 double atan2(double y, double x) {

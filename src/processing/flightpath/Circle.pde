@@ -1,10 +1,14 @@
 class Circle extends Point {
   double r;
-  
+
   Circle(Circle other) {
     this(other.x, other.y, other.r);
   }
-  
+
+  Circle(Point other, double r) {
+    this(other.x, other.y, r);
+  }
+
   Circle(double x, double y, double r) {
     super(x, y);
     this.r = r;
@@ -19,11 +23,11 @@ class Circle extends Point {
     ellipse(x, y, 2*r, 2*r);
     super.draw();
   }
-  
+
   boolean isIn(double x, double y) {
     return dist(x, y, this.x, this.y) <= r;
   }
-  
+
   Point intersection(Point p1, Point p2) {
     return intersection(p1.x, p1.y, p2.x, p2.y);
   }

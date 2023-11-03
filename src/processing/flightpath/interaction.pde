@@ -23,6 +23,7 @@ void mouseReleased() {
 
 void mouseClicked() {
   placeWayPoint(mouseX, mouseY);
+  redraw();
 }
 
 void keyPressed() {
@@ -32,5 +33,8 @@ void keyPressed() {
     } else {
       loop();
     }
+  }
+  if (key == 'r') {
+    reset();
   }
 }

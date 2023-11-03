@@ -48,6 +48,10 @@ class Point {
     double y = lerp(this.y, other.y, v);
     return new Point(x, y);
   }
+  
+  Vec2 to(Point other) {
+    return new Vec2(other.x - x, other.y - y);
+  }
 
   String toString() {
     return x + "," + y;

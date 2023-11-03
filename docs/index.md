@@ -278,7 +278,7 @@ export class ServerClass {
     connectServerToAPI(this, () => {
       // When MSFS exists and we're connected, write that down:
       MSFS = true;
-      
+
       // And then let every connected client (and there might be none,
       // or there might be a hundred!) know that we connected.
       this.clients.forEach((client) => client.onMSFS(MSFS));
@@ -439,7 +439,7 @@ export class APIWrapper {
       });
     }
   }
-  
+
   /**
    * Unregister for previously registered event(s).
    */
@@ -477,7 +477,7 @@ export class APIWrapper {
     // If a client asks for a (set of) value(s) and we already just fetched those, we
     // instead fetch it from our local cache. Which means building a cache:
     const now = Date.now();
-    // we're creating cache entries based on all vars requested, by creating a 
+    // we're creating cache entries based on all vars requested, by creating a
     // cache key that is simply the list of var names as SHA1 digest.
     const key = createHash("sha1").update(simVarNames.join(`,`)).digest("hex");
     resultCache[key] ??= { expires: now };
@@ -552,7 +552,7 @@ export class ClientClass {
 
   /**
    * The main role of our client is to encode a state that can be
-   * automatically communicated to the browser. As such, really 
+   * automatically communicated to the browser. As such, really
    * the only thing we're doing si setting up a state, and then
    * updating that based on server signals.
    */
@@ -573,13 +573,13 @@ export class ClientClass {
     // that gets all the values we want from the API away in
     // its own, private, object.
     this.#flightInfo = new FlightInformation(this.server.api);
-    
+
     // And then we get the "is MSFS connected?" value
     await this.server.api.register(`MSFS`);
   }
 
   /**
-   * If we become disconnected from the server, go into a 
+   * If we become disconnected from the server, go into a
    * "holding pattern" where we check whether the server
    * is back every few seconds.
    */
@@ -608,12 +608,12 @@ export class ClientClass {
   async onBrowserConnect(browser) {
     this.setState({ connected: true });
   }
-  
+
   // And the opposite when the browser disconnects, of course:
   async onBrowserDisconnect(browser) {
     this.setState({ connected: false });
   }
-  
+
   // Then a set of self-explanatory "state copies" based on server events:
   async onMSFS(value) {
     this.setState({ MSFS: value });
@@ -652,14 +652,14 @@ export class ClientClass {
   async #poll() {
     // if we're not flying, stop polling.
     if (!this.state.flying) return;
-    
+
     // But if we *are* flying, get the current flight data,
     // store that in our client state, and through the magic
     // of socketless, the browser will automatically get the
     // same update.
     const flightData = await this.#flightInfo.updateFlight();
     if (flightData) this.setState({ flightData });
-    
+
     // Then schedule the next poll call 1 second from now (1000 milliseconds)
     setTimeout(() => this.#poll(), 1000);
   }
@@ -687,7 +687,7 @@ export class FlightInformation {
     this.model = false;
     this.data = false;
   }
-  
+
   async update() {
     const [flightModel, flightData] = await Promise.all([
       this.updateModel(),
@@ -820,7 +820,7 @@ class BrowserClient {
   async init() {
     this.#plane = new Plane(this.server);
   }
-  
+
   // This function gets called any time the client updates its
   // state, with the browser state having already been updated
   // too. For convenience, the previous state is passed along.
@@ -857,7 +857,7 @@ export class Plane {
     const now = Date.now();
 
     // ...we'll be filling this out in due time...
-    
+
     this.lastUpdate = { time: now, ...state };
   }
 }
@@ -890,7 +890,7 @@ const { FLIGHT_OWNER_KEY } = process.env;
 
 export class ServerClass {
   ...
-  
+
   /**
    * An almost trivially simple authentication function:
    * if we get the right value, the client's authenticated.
@@ -930,7 +930,7 @@ export class ClientClass {
       });
     }
   }
-  
+
   ...
 });
 ```
@@ -942,7 +942,7 @@ With that, all that's left is making sure that the `set` and `trigger` calls to 
 
 export class APIWrapper {
   ...
-  
+
   async set(client, simVars) {
     if (!this.#api.connected) return false;
     if (!client.authenticated) return false;
@@ -1118,42 +1118,47 @@ const content = await fetch("questions.html").then((res) => res.text());
 const questions = document.getElementById(`questions`);
 questions.innerHTML = content;
 
-const elements = Object.fromEntrier([
-  `msfs-running`,
-  `in-game`,
-  `powered-up`,
-  `engines-running`,
-  `in-the-air`,
-  `using-ap`,
-  `plane-crashed`,
-  `specific-plane`
-].map(e => {
-  const propName = e
-    .split(`-`)
-    .map((e,p) => 
-      p===0? e : e.substring(0,1).toUpperCase() + e.subtring(1).toLowerCase()
-    ).join(``);
-  return [propName, document.querySelector(`.${e}`)];
-}));
+const elements = Object.fromEntries(
+  [
+    `msfs-running`,
+    `in-game`,
+    `powered-up`,
+    `engines-running`,
+    `in-the-air`,
+    `using-ap`,
+    `plane-crashed`,
+    `specific-plane`,
+  ].map((e) => {
+    console.log(e);
+    const propName = e
+      .split(`-`)
+      .map((s, p) =>   (p === 0) ? s : s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase())
+      .join(``);
+    return [propName, document.querySelector(`.${e}`)];
+  })
+);
 
 export const Questions = {
   update(state) {
     elements.msfsRunning.checked = state.MSFS;
     elements.inGame.checked = state.camera?.main < 9;
-    elements.poweredUp.checked = state.flightData.POWERED_UP;
-    elements.enginesRunning.checked = state.flightData.ENGINES_RUNNING;
-    elements.inTheAir.checked = !state.flightData.SIM_ON_GROUND;
-    elements.usingAp.checked = state.flightData.AUTOPILOT_MASTER;
+    elements.poweredUp.checked = state.flightDat?.POWERED_UP;
+    elements.enginesRunning.checked = state.flightData?.ENGINES_RUNNING;
+    elements.inTheAir.checked = !state.flightData?.SIM_ON_GROUND;
+    elements.usingAp.checked = state.flightData?.AUTOPILOT_MASTER;
     elements.planeCrashed.checked = state.crashed;
-    if (state.flightModel?.TITLE) this.modelLoaded(state.flightModel.TITLE);
+    // And we'll do this one separately because it's a more than just a checkmark:
+    this.modelLoaded(state.flightModel?.TITLE);
   },
 
   modelLoaded(modelName) {
     let model = `...nothing yet?`;
-    let article = `a`;
-    // let's be linguistically correct:
-    if ([`a`, `i`, `u`, `e`, `o`].includes(modelName.substring(0, 1).toLowerCase())) article += `n`;
-    if (modelName) model = `...Looks like ${article} ${modelName}. Nice!`;
+    if (modelName) {
+      // let's be linguistically correct:
+      let article = `a`;
+      if ([`a`, `i`, `u`, `e`, `o`].includes(modelName.substring(0, 1).toLowerCase())) article += `n`;
+      model = `...Looks like ${article} ${modelName}. Nice!`;
+    }
     elements.specificPlane.textContent = model;
   },
 };
@@ -1170,12 +1175,12 @@ export class Plane {
 
   async updateState(state) {
     this.state = state;
-    const now = Date.now();    
+    const now = Date.now();
 
     // Update our questions:
     Questions.update(state);
 
-    this.lastUpdate = { time: now, ...state };    
+    this.lastUpdate = { time: now, ...state };
   }
 }
 ```
@@ -1298,7 +1303,7 @@ update();
 export { centerBtn, map };
 ```
 
-With a brief explanation of that `waitFor` function:
+With a look at that `waitFor` function:
 
 ```javascript
 // Return a promise that doesn't resolve until `fn()` returns a truthy value
@@ -1318,7 +1323,9 @@ export function waitFor(fn, timeout = 5000, retries = 100) {
 }
 ```
 
-And a change to our `index.js` for loading things in:
+We use this because we don't want to do any map work until Leaflet's been loaded in, and as an external third party library, we have no idea when that might be.
+
+Then, we can change our `place.js` to load this map:
 
 ```javascript
 import { map } from "./map.js";

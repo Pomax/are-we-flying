@@ -16,8 +16,18 @@ export class ClientClass {
   #reconnection;
 
   constructor() {
-    const tryConnect = () => {
+    const tryConnect = async () => {
+      if (this.server) return;
       console.log(`trying to connect...`);
+      this.setState({
+        autopilot: false,
+        crashed: false,
+        flightData: false,
+        flightModel: false,
+        flying: false,
+        MSFS: false,
+        paused: false,
+      });
       this.reconnect();
       this.#reconnection = setTimeout(tryConnect, 5000);
     };

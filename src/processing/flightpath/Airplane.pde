@@ -20,10 +20,9 @@ class Airplane extends Circle {
     double dx = (target.x - x);
     double dy = (target.y - y);
     double a = atan2(dy, dx);
-    double diff = a - heading;
-    if (diff > PI) {
-      diff -= 2 * PI;
-    }
+    double diff = (10e6 * (a - heading))/10e6;
+    if (diff < PI) diff += TAU;
+    if (diff > PI) diff -= TAU;
     if (diff < -cap) diff = -cap;
     if (diff > cap) diff = cap;
     heading += diff;
