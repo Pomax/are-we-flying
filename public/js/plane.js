@@ -93,6 +93,7 @@ export class Plane {
   async setElevationProbe(value) {
     // remove the old probe line
     if (this.elevationProbe) this.elevationProbe.remove();
+    return;
 
     // then draw a new one, but only if there is a value to visualize
     if (!value) return;
@@ -139,23 +140,29 @@ export class Plane {
     this.state = state;
     const now = Date.now();
 
+    // Update questions
+    Questions.update(state);
+
     // Check if we started a new flight because that requires
     // immediately building a new flight trail.
     const startedFlying = !this.lastUpdate.flying && this.state.flying;
     if (startedFlying) {
       this.startNewTrail();
-      this.lastUpdate.flying = true;
+      // this.lastUpdate.flying = true;
     }
 
     // And then debounce any real UI updates to once per secondish
     if (now - this.lastUpdate.time < 995) return;
 
-    // Update questions
-    Questions.update(state);
-
     // Update plane visualisation
     const { flightData } = state;
     if (flightData) this.updateMap(flightData, now);
+
+    // Update the attitude indicator:
+    Attitude.setPitchBank(
+      flightData.PLANE_PITCH_DEGREES,
+      flightData.PLANE_BANK_DEGREES
+    );
 
     // Update the autopilot
     if (state.autopilot) {
@@ -212,10 +219,11 @@ export class Plane {
     this.planeIcon?.classList.toggle(`paused`, paused);
     const pic = getAirplaneSrc(flightModel.TITLE);
     [...planeIcon.querySelectorAll(`img`)].forEach(
-      (img) => (img.src = `planes/${pic}`)
+      // (img) => (img.src = `planes/${pic}`)
+      (img) => (img.src = `planes/vertigo.png`)
     );
     this.planeIcon.classList.toggle(`crashed`, crashed);
-    this.setCSSVariables(planeIcon, varData);
+    this.updateMarker(planeIcon, varData);
 
     // And update the graphs
     this.updateChart(varData, now);
@@ -226,10 +234,10 @@ export class Plane {
    * @param {*} css
    * @param {*} varData
    */
-  setCSSVariables(planeIcon, varData) {
+  updateMarker(planeIcon, varData) {
     const css = planeIcon.style;
-    const { alt, bank, bug, cg, galt, paag } = varData;
-    const { heading, pitch, speed, trueHeading } = varData;
+    const { alt, bug, cg, galt, paag } = varData;
+    const { heading, speed, trueHeading } = varData;
     const palt = paag - cg;
 
     this.autopilot.setCurrentAltitude(palt);
@@ -244,7 +252,6 @@ export class Plane {
       (galt | 0) === 0 ? `${alt | 0}'` : `${palt | 0}' (${alt | 0}')`;
     planeIcon.querySelector(`.alt`).textContent = altitudeText;
     planeIcon.querySelector(`.speed`).textContent = `${speed | 0}kts`;
-    Attitude.setPitchBank(pitch, bank);
   }
 
   /**

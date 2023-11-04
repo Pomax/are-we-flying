@@ -22,14 +22,14 @@ We'll be tackling this whole thing in four parts:
 
 1. The first part will cover the prep work we need to do to set up a working system of MSFS, a SimConnect API server for communicating to and from MSFS, and a web server that hosts a webpage and takes care of communicating to and from the API server.
 2. The second part will cover the web page where we're going to visualize everything we can about our flights in MSFS, including graphs that plot the various control values over time, to get a better insight into how an aeroplane responds to control inputs.
-3. The third part will cover the thing you came here for: writing our own autopilot (in several stages of complexity) and make our computer fly planes all on its own!
-4. The fourth part will cover the thing you didn't realize you came here for: taking everything we've done and turning it into a google maps style autopilot, where we just tap a few places we want to pass over, and then with the plane still sitting on the runway, click "take off" and then enjoy the ride.
+3. The third part will cover the thing you came here for: writing our own autopilot (in several stages of complexity) and making our computer fly planes all on its own!
+4. The fourth part will cover the thing you didn't realize you came here for: taking everything we've done and turning it into a google maps style autopilot, where we just tap a few places we want to pass over in the browser, and then with the plane still sitting on the runway, click "take off" in the browser and have the plane just... start flying in MSFS with us along for the ride, not having to do anything.
 
-And by the time we're done, we'll have something that looks a little bit like this:
+And then by the time we're done, we'll have something that looks a little bit like this:
 
 <img src="./preview-shot.png" alt="image-20230531213249038" style="zoom:80%;" />
 
-And we'll just be a passenger on a JavaScript-powered flying tour that starts with pressing one button with the plane waiting on the runway. We're going to learn things.
+If that sounds good to you, then read on!
 
 # Table of Contents
 
@@ -180,7 +180,7 @@ And then we'll create a quick `public/index.html` page for the browser:
   <head>
     <meta charset="utf-8" />
     <title>Let's test our connections!</title>
-    <script src="setup.js" type="module" async></script>
+    <script src="js/setup.js" type="module" async></script>
   </head>
   <body>
     <!-- we only need the dev tools console tab for now -->
@@ -188,7 +188,7 @@ And then we'll create a quick `public/index.html` page for the browser:
 </html>
 ```
 
-With a bare minimum browser client in `public/setup.js`:
+With a bare minimum browser client in `public/js/setup.js`:
 
 ```javascript
 // We don't need to put a "socketless.js" in our public dir,
@@ -544,12 +544,43 @@ In addition to our API server, we're going to need a client that is also a web s
 ```js
 import { FlightInformation } from "./flight-information.js";
 
+const RECONNECT_TIMEOUT_IN_MS = 5000;
+const POLL_RATE_IN_MS = 1000;
+
 /**
  * Our client class
  */
 export class ClientClass {
+  #reconnection;
   #flightInfo;
 
+  /**
+   * When our client starts up, start a "reconnect 5 seconds
+   * from now" attempt, cleaned up when we connect.
+   */
+  init() {
+    setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
+    // Also set our initial state: we think the server is offline.
+    this.setState({ offline: true });
+  }
+
+  /**
+   * A private function that lets us reconnect to the server
+   * in case it disappears and comes back online.
+   */
+  async #tryReconnect() {
+    if (this.server) {
+      // we're (re)connected, clean up the reconnection
+      // timer and update our state:
+      clearTimeout(this.#reconnection);
+      this.setState({ offline: !this.server });
+      return;
+    }
+    // If we get here, we're not (re)connected yet...
+    this.reconnect();
+    this.#reconnection = setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
+  }
+  
   /**
    * The main role of our client is to encode a state that can be
    * automatically communicated to the browser. As such, really
@@ -566,14 +597,9 @@ export class ClientClass {
       flightModel: this.state.flightModel ?? false,
       flying: this.state.flying ?? false,
       MSFS: this.state.MSFS ?? false,
+      offline: false,
       paused: this.state.paused ?? false,
     });
-
-    // To keep the code manageable we're tucking all the code
-    // that gets all the values we want from the API away in
-    // its own, private, object.
-    this.#flightInfo = new FlightInformation(this.server.api);
-
     // And then we get the "is MSFS connected?" value
     await this.server.api.register(`MSFS`);
   }
@@ -588,18 +614,9 @@ export class ClientClass {
     // we won't be informed about whether or not we're still
     // flying, or really anything about the flight at all, so
     // record that we're not flying (anymore).
-    this.setState({ flying: false });
+    this.setState({ flying: false, offline: true, MSFS: false });
     // Then start the reconnect cycle
     this.#tryReconnect();
-  }
-
-  async #tryReconnect() {
-    // If this.server exists, we've been reconnected and we
-    // can stop trying to reconnect.
-    if (this.server) return;
-    // If we get here, we're clearly not connected, so: try to reconnect.Ï
-    this.reconnect();
-    setTimeout(() => this.#tryReconnect(), 5000);
   }
 
   // Record that a connection has been established. Since the state
@@ -615,21 +632,11 @@ export class ClientClass {
   }
 
   // Then a set of self-explanatory "state copies" based on server events:
-  async onMSFS(value) {
-    this.setState({ MSFS: value });
-  }
-  async pause() {
-    this.setState({ paused: true });
-  }
-  async unpause() {
-    this.setState({ paused: false });
-  }
-  async crashed() {
-    this.setState({ crashed: true });
-  }
-  async crashReset() {
-    this.setState({ crashed: false });
-  }
+  async onMSFS(value) { this.setState({ MSFS: value }); }
+  async pause()       { this.setState({ paused: true }); }
+  async unpause()     { this.setState({ paused: false }); }
+  async crashed()     { this.setState({ crashed: true }); }
+  async crashReset()  { this.setState({ crashed: false }); }
 
   /**
    * Then the function that matters most: the one that tells the client
@@ -642,9 +649,10 @@ export class ClientClass {
     this.setState({ flying });
     if (flying && !wasFlying) {
       this.setState({ crashed: false, MSFS: true });
+      this.#flightInfo = new FlightInformation(this.server.api);
       const { flightModel, flightData } = await this.#flightInfo.update();
       this.setState({ flightModel, flightData });
-      // start polling for updates:
+      // start polling for regular updates:
       this.#poll();
     }
   }
@@ -661,7 +669,7 @@ export class ClientClass {
     if (flightData) this.setState({ flightData });
 
     // Then schedule the next poll call 1 second from now (1000 milliseconds)
-    setTimeout(() => this.#poll(), 1000);
+    setTimeout(() => this.#poll(), POLL_RATE_IN_MS);
   }
 }
 ```
@@ -670,13 +678,15 @@ So let's have a quick look at that `FlightInformation` class, because it mainly 
 
 ```js
 import { MSFS_API } from "msfs-simconnect-api-wrapper";
-import { FLIGHT_MODEL, FLIGHT_DATA } from "./flight-values.js";
+import {
+  BOOLEAN_VALUES,
+  DEGREE_VALUES,
+  PERCENT_VALUES,
+  FLIGHT_MODEL,
+  FLIGHT_DATA,
+} from "./flight-values.js";
 
-/**
- *  Adds two custom flight data properties:
- *   - ENGINES_RUNNING: bool
- *   - POWERED_UP: bool
- */
+// Our convenience class for getting flight model information and in-progress flight data:
 export class FlightInformation {
   constructor(api) {
     this.api = api;
@@ -688,6 +698,7 @@ export class FlightInformation {
     this.data = false;
   }
 
+  // The "update" function just runs both updates and returns the result:
   async update() {
     const [flightModel, flightData] = await Promise.all([
       this.updateModel(),
@@ -696,85 +707,54 @@ export class FlightInformation {
     return { flightModel, flightData };
   }
 
+  // The model update function is pretty simple:
   async updateModel() {
     const modelData = await this.api.get(...FLIGHT_MODEL);
     if (!modelData) return (this.model = false);
     return (this.model = modelData);
   }
 
-  /**
-   * This is the import function, getting all the flight-relevant
-   * values, and converting a bunch of them to units we can work with.
-   */
+  // This is the import function, though: getting all the flight-relevant
+  // values, and converting a bunch of them to units we can work with.
   async updateFlight() {
     const flightData = await this.api.get(...FLIGHT_DATA);
+    if (!flightData) return (this.data = false);
 
-    if (!flightData) {
-      return (this.data = false);
-    }
+    // Convert values to the units they're supposed to be:
+    BOOLEAN_VALUES.forEach((p) => (flightData[p] = !!flightData[p]));
+    DEGREE_VALUES.forEach((p) => (flightData[p] *= 180 / Math.PI));
+    PERCENT_VALUES.forEach((p) => (flightData[p] *= 100));
+    flightData.VERTICAL_SPEED *= 60; // "feet per second" -> "feet per minute"
 
-    // Convert all values that MSFS reports in radians to values in degrees
-    [
-      `PLANE_LATITUDE`,
-      `PLANE_LONGITUDE`,
-      `PLANE_BANK_DEGREES`,
-      `PLANE_HEADING_DEGREES_MAGNETIC`,
-      `PLANE_HEADING_DEGREES_TRUE`,
-      `PLANE_PITCH_DEGREES`,
-      `TURN_INDICATOR_RATE`,
-    ].forEach((p) => {
-      flightData[p] *= 180 / Math.PI;
-    });
+    // Create a convenience value for "are any engines running?"
+    flightData.ENGINES_RUNNING = [1, 2, 3, 4].reduce(
+      (t, num) => t || flightData[`ENG_COMBUSTION:${num}`],
+      false
+    );
 
-    // Also convert all "numerical booleans" (i.e. 0 or 1) to real booleans (i.e false or true).
-    [
-      `AUTOPILOT_MASTER`,
-      `ENG_COMBUSTION:1`,
-      `ENG_COMBUSTION:2`,
-      `ENG_COMBUSTION:3`,
-      `ENG_COMBUSTION:4`,
-      `SIM_ON_GROUND`,
-    ].forEach((p) => {
-      flightData[p] = !!flightData[p];
-    });
-
-    // And convert "feet per second" to "feet per minute"...
-    flightData[`VERTICAL_SPEED`] *= 60;
-
-    // ... and all "percent over 100" values to real percentages...
-    flightData[`AILERON_TRIM_PCT`] *= 100;
-    flightData[`RUDDER_TRIM_PCT`] *= 100;
-
-    // And then finally, create two derivative "convenience values"
-    // for "are the engines running?" and "is the plane powered up?":
-    flightData[`ENGINES_RUNNING`] = [
-      `ENG_COMBUSTION:1`,
-      `ENG_COMBUSTION:2`,
-      `ENG_COMBUSTION:3`,
-      `ENG_COMBUSTION:4`,
-    ].reduce((t, p) => t || flightData[p], false);
-    flightData[`POWERED_UP`] = flightData.ELECTRICAL_TOTAL_LOAD_AMPS !== 0;
+    // Create a convenience value for "is the plane powered on?"
+    flightData.POWERED_UP = flightData.ELECTRICAL_TOTAL_LOAD_AMPS !== 0;
 
     return (this.data = flightData);
   }
 }
 ```
 
-And our list of flight model and flight data values (which we might add more to later):
+The list of variables we'll be working with is as follows (with the `BOOLEAN_VALUES`, `DEGREE_VALUES`, and `PERCENT_VALUES` omitted because all that matters for those is that they exist, we don't need to waste space on showing that `PLANE_HEADING_DEGREES_MAGNETIC` or the like will need converting):
 
 ```js
 export const FLIGHT_MODEL = [
-  `ENGINE_TYPE`,         // jet? piston?
-  `IS_GEAR_FLOATS`,      // water plane or regular?
-  `NUMBER_OF_ENGINES`,   // ...self explanatory
-  `STATIC_CG_TO_GROUND`, // how many feet above the ground is the center of gravity?
-  `TITLE`,               // what's the name of this plane?
+  `ENGINE_TYPE`,
+  `IS_GEAR_FLOATS`,      // Is this a normal plane or a water plane?
+  `NUMBER_OF_ENGINES`,
+  `STATIC_CG_TO_GROUND`, // How many feet above the ground is the center of gravity for this plane?
+  `TITLE`,               // What's the name of this plane?
 ];
 
+// And most of these should be relatively self-explanatory:
 export const FLIGHT_DATA = [
-  // most of these should be relatively self-explanatory
   `AIRSPEED_TRUE`,
-  `AUTOPILOT_HEADING_LOCK_DIR`,
+  `AUTOPILOT_HEADING_LOCK_DIR`, // this is the autopilot "heading bug" 
   `AUTOPILOT_MASTER`,
   `CAMERA_STATE`,
   `CAMERA_SUBSTATE`,
@@ -804,7 +784,7 @@ With that, let's move on to the browser.
 
 ## The browser code
 
-In order for the browser to be able to "do something", we'll reuse the `index.html` we made earlier, but let's update our `setup.js`:
+In order for the browser to be able to "do something", we'll use the same `index.html` we made earlier, but let's update our `setup.js`:
 
 ```js
 import { createBrowserClient } from "./socketless.js";
@@ -812,19 +792,17 @@ import { createBrowserClient } from "./socketless.js";
 // Let's import a class that's *actually* going to do the work...
 import { Plane } from "./plane.js";
 
-// And then we update our browser client, whose sole responsibility is
-// to hand off state updates to our "Plane":
+// And then we update our browser client, whose sole responsibility
+// is to hand off state updates to our "Plane":
 class BrowserClient {
   #plane;
 
   async init() {
     this.#plane = new Plane(this.server);
   }
-
-  // This function gets called any time the client updates its
-  // state, with the browser state having already been updated
-  // too. For convenience, the previous state is passed along.
   async update(prevState) {
+    // Rather than "doing anything here", we just pass the current state
+    // on to the Plane, and all we do here is wait for the next update.
     this.#plane.updateState(this.state);
   }
 }
@@ -832,7 +810,7 @@ class BrowserClient {
 createBrowserClient(BrowserClient);
 ```
 
-As mentioned in the code, the `socketless.js` import is handled by the web client itself, it "just exists" if you're using `socketless`. So that just leaves looking at our `Plane` code:
+As mentioned in the code, the `socketless.js` import is handled by the web client itself, it "just exists" if you're using `socketless`. So that just leaves looking at our `Plane` code, which we'll put in `public/js/plane.js`:
 
 ```js
 // We'll be building this out later, but this will be our main entry point when it
@@ -865,7 +843,7 @@ export class Plane {
 
 And that's it. There's nothing "meaningful" in our plane class yet, but for the momebt we're done: we've set up a complete API server, web server, and browser system.
 
-### Adding "write protection"
+## Adding "write protection"
 
 That just leaves one last thing: making sure everyone can _read_ values, but that only we get to _write_ values. You don't want someone just randomly messing with your flight!
 
@@ -921,12 +899,12 @@ export class ClientClass {
 
   async onConnect() {
     ...
-    // Then, if we have a key, authenticate with it:
+    // Then, if we have a key, use that to authenticate when we have a connection to the server:
     if (flightOwnerKey) {
       this.setState({
         authenticated: await this.server.authenticate(flightOwnerKey);
-        // And by setting our state, the browser will be able to tell
-        // whether or not we're authenticated at the server, as well.
+        // And by setting a state value, the browser will be able to tell
+        // whether or not we're authenticated at the server as well.
       });
     }
   }
@@ -965,7 +943,7 @@ And that's our "auth" added, so we have all the parts in place:
 4. we can load up http://localhost:3000 in the browser, and then
 5. we can use a UI that's based on the current client state, with the option to get values from MSFS as well as set values and trigger events in MSFS as needed.
 
-### Testing our code
+## Testing our code
 
 So, let's run this code and _actually_ talk to MSFS. First, let's make sure we have direct access to our browser client by updating that `setup.js`:
 
@@ -1090,7 +1068,7 @@ Before we try to automate flight by writing an autopilot, it helps if we can kno
 
 We know when we're connected to MSFS, so let's write a few functions that let us cascade through the various stages of the game before we get to "actually controlling a plane". Let's start with what we want that to look like:
 
-![image-20230526165525395](./questions.png)
+![Are we flying?](./questions.png)
 
 Nothing particularly fancy (although we can pretty much use any amount of CSS to turn it _into_ something fancy), but it lets us see where in the process of firing up MSFS, clicking through to the world map, and starting a flight we are. So let's update our HTML file to include these questions, and then we can update our JS to start answering them:
 
@@ -1098,6 +1076,7 @@ Nothing particularly fancy (although we can pretty much use any amount of CSS to
 <h1>Are we flying?</h1>
 <p>Let's see if we're currently flying around in Microsoft Flight Simulator 2020...</p>
 <ul>
+  <li>Is our API server running? <input type="checkbox" disabled class="server-online" /></li>
   <li>Is MSFS running? <input type="checkbox" disabled class="msfs-running" /></li>
   <li>Which plane did we pick? <span class="specific-plane">... nothing yet?</span></li>
   <li>Are we actually "in a game"? <input type="checkbox" disabled class="in-game" /></li>
@@ -1118,49 +1097,68 @@ const content = await fetch("questions.html").then((res) => res.text());
 const questions = document.getElementById(`questions`);
 questions.innerHTML = content;
 
+// The query selectors for our elements:
+const qss = [
+  `server-online`,
+  `msfs-running`,
+  `in-game`,
+  `powered-up`,
+  `engines-running`,
+  `in-the-air`,
+  `using-ap`,
+  `plane-crashed`,
+  `specific-plane`,
+];
+
+// A bit of house-keeping 
+const vowels = [`a`, `i`, `u`, `e`, `o`, `A`, `I`, `U`, `E`, `O`];
+
+function titleCase(s) {
+  return s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase();
+}
+
+function reCase(e) {
+  return e
+    .split(`-`)
+    .map((s, p) => (p === 0 ? s : titleCase(s)))
+    .join(``);
+}
+
+// Let's create an object that's { serverOnline: span, msfsRunning: span, ... }
+// because that'll make it easier to set text and check checkboxes:
 const elements = Object.fromEntries(
-  [
-    `msfs-running`,
-    `in-game`,
-    `powered-up`,
-    `engines-running`,
-    `in-the-air`,
-    `using-ap`,
-    `plane-crashed`,
-    `specific-plane`,
-  ].map((e) => {
-    console.log(e);
-    const propName = e
-      .split(`-`)
-      .map((s, p) =>   (p === 0) ? s : s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase())
-      .join(``);
+  qss.map((e) => {
+    const propName = reCase(e);
     return [propName, document.querySelector(`.${e}`)];
   })
 );
 
+// And then our questions helper: we're simply going to set every checkbox
+// based on what's in the current state, only spending a little more time
+// on the plane model, and mostly because we want the right "a" vs. "an"
+// depending on whether the title starts with a vowel or not:
 export const Questions = {
   update(state) {
+    elements.serverOnline.checked = !state.offline;
     elements.msfsRunning.checked = state.MSFS;
     elements.inGame.checked = state.camera?.main < 9;
     elements.poweredUp.checked = state.flightDat?.POWERED_UP;
     elements.enginesRunning.checked = state.flightData?.ENGINES_RUNNING;
-    elements.inTheAir.checked = !state.flightData?.SIM_ON_GROUND;
+    elements.inTheAir.checked = state.flightData && !state.flightData.SIM_ON_GROUND;
     elements.usingAp.checked = state.flightData?.AUTOPILOT_MASTER;
     elements.planeCrashed.checked = state.crashed;
-    // And we'll do this one separately because it's a more than just a checkmark:
     this.modelLoaded(state.flightModel?.TITLE);
   },
 
   modelLoaded(modelName) {
-    let model = `...nothing yet?`;
+    let model = `(...nothing yet?)`;
     if (modelName) {
-      // let's be linguistically correct:
       let article = `a`;
-      if ([`a`, `i`, `u`, `e`, `o`].includes(modelName.substring(0, 1).toLowerCase())) article += `n`;
+      if (vowels.includes(modelName.substring(0, 1))) article += `n`;
       model = `...Looks like ${article} ${modelName}. Nice!`;
     }
     elements.specificPlane.textContent = model;
-  },
+  }
 };
 ```
 
@@ -1185,35 +1183,35 @@ export class Plane {
 }
 ```
 
-And that's the "game state" readback sorted out! Easy-peasy! Of course, we still only implemented the code that lets us answer the question list, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually _**see**_ something on our webpage...
+And that's the "game state" readback sorted out! Easy-peasy! 
+
+### Trying our question list out
+
+Let's try this out:
+
+- Start MSFS, 
+- then up the server with `node api-server.js` and our client with `node web-server.js --owner --browser` ,
+- then look at what happens in the browser as MSFS finished starting up.
+- Load up a plane on a runway somewhere, and see what happens.
+- Load up a plane mid-flight and see what the checkboxes do! And of course,
+- look at what happens when you shut down MSFS, and what happens when you shut down the API server _before_ you shut down the web client.
 
 ## Putting our plane on the map
 
-With access to this vast trove of flight information, we still need to do something with all that data, so let's set up a [Leaflet](https://leafletjs.com/) map that we can put our plane on, so we can see what's happening in-sim. Step one: some HTML to make that work:
+Of course, we still only implemented the code that lets us answer the question list, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually _**see**_ something on our webpage... so let's set up a [Leaflet](https://leafletjs.com/) map that we can put our plane on, so we can see what's happening in-sim.
+
+Step one: some HTML to make that work:
 
 ```html
-<div id="maps-selectors">
-  Map underlay:
-  <select class="map-layer-1"></select>
-  Map overlay:
-  <select class="map-layer-2"></select>
-  <label for="center-map">Center map on plane:</label>
-  <input id="center-map" type="checkbox" checked="checked" />
-</div>
-
-<div id="viz">
-  <div id="map" style="width: 1200px; height: 800px"></div>
-  <p>GPS location: <span class="lat">0</span>, <span class="long">0</span></p>
-</div>
+<div id="map" style="width: 1200px; height: 800px"></div>
 ```
 
-And then we'll define a `map.js` that we can import and takes care of setting up the map for us:
+And then let's write a `public/js/map.js` that we can import to take care of the map for us:
 
 ```javascript
 import { waitFor } from "./utils.js";
-import { Duncan } from "./locations.js";
 
-const DUNCAN_AIRPORT = [48.756669, -123.711434];
+const DUNCAN_AIRPORT = [48.75660, -123.71134];
 
 // Leaflet creates a global "L" object to work with, so use that to tie into the <div id="map"></div> we have sitting
 // in our index.html. However, because independent page scripts can't be imported, we need to wait for it to be available:
@@ -1222,88 +1220,16 @@ const L = await waitFor(async() => window.L);
 // With our "L" object available, ler's make a map, centered on Duncan airport:
 export const map = L.map("map").setView(DUNCAN_AIRPORT, 15);
 
-// Of course, this map won't show anything yet: it needs a map tile source. So let's define a whole slew of those!
-const openStreetMap = L.tileLayer(
+// Of course, this won't *show* anything: we still need an actual map tile layer:
+L.tileLayer(
   `https://tile.openstreetmap.org/{z}/{x}/{y}.png`, {
     maxZoom: 19,
-    attribution: `© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>` }
-);
-
-const googleStreets = L.tileLayer(
-  `http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}`, {
-    maxZoom: 20,
-    subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>` }
-);
-
-const googleHybrid = L.tileLayer(
-  `http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}`, {
-    maxZoom: 20,
-    subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>` }
-);
-
-const googleSat = L.tileLayer(
-  `http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}`, {
-    maxZoom: 20,
-    subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>` }
-);
-
-const googleTerrain = L.tileLayer(
-  `http://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}`, {
-    maxZoom: 20,
-    subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    attribution: `© <a href="https://www.google.com/intl/en-GB_ALL/permissions/geoguidelines/">Google Maps</a>` }
-);
-
-// We'll be showing two maps at the same time, one as base layer, and one as transparant overlay:
-const mapLayers = { openStreetMap, googleStreets, googleHybrid, googleSat, googleTerrain };
-const activeLayers = [openStreetMap, googleTerrain];
-
-function update() {
-  Object.values(mapLayers).forEach((layer) => layer.removeFrom(map));
-  const [base, overlay] = activeLayers;
-  base.setOpacity(1);
-  base.addTo(map);
-  overlay?.setOpacity(0.5);
-  overlay?.addTo(map);
-}
-
-// And because we want to be able to change those, hook into the page HTML:
-[1, 2].forEach((layer) => {
-  const select = document.querySelector(`.map-layer-${layer}`);
-
-  // Add all the layers to this select element, making sure to preselect
-  // the OSM and Google terrain maps in the first and second select element:
-  Object.entries(mapLayers).forEach(([name, map]) => {
-    const opt = document.createElement(`option`);
-    opt.textContent = name;
-    opt.value = name;
-    if (layer === 1 && name === `openStreetMap`) opt.selected = `selected`;
-    if (layer === 2 && name === `googleTerrain`) opt.selected = `selected`;
-    select.append(opt);
-  });
-
-  // then, if we pick a new layer, apply that:
-  select.addEventListener(`change`, (evt) => {
-    activeLayers[layer - 1] = mapLayers[evt.target.value];
-    update();
-  });
-});
-
-// With all that done, we also hook into the "center the map on our plane" checkbox,
-// with some logic so that if we click-drag the map, we uncheck that box.
-const centerBtn = document.getElementById(`center-map`);
-centerBtn.checked = true;
-map.on('dragstart', () => (document.getElementById(`center-map`).checked = false);
-
-// Finally, run our initial map setup and export the things other files will need.
-update();
-export { centerBtn, map };
+    attribution: `© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>`
+  }
+).addTo(map);
 ```
 
-With a look at that `waitFor` function:
+With a quick look at that `waitFor` function:
 
 ```javascript
 // Return a promise that doesn't resolve until `fn()` returns a truthy value
@@ -1323,97 +1249,190 @@ export function waitFor(fn, timeout = 5000, retries = 100) {
 }
 ```
 
-We use this because we don't want to do any map work until Leaflet's been loaded in, and as an external third party library, we have no idea when that might be.
+We use this because we don't want to do any map work until Leaflet's been loaded in, and as an external third party library, we have no idea when that might be. We can now add an `import { map: defaultMap } from "./maps.js"` to our `plane.js` and presto! Now our browser page actually has more than just text:
 
-Then, we can change our `place.js` to load this map:
+![A basic page overview with questions and map](./page-overview.png)
 
-```javascript
-import { map as defaultMap, centerBtn } from "./maps.js";
+Which is pretty good, but it's lacking a certain something...  oh right: our plane. Let's make a quick little plane icon and put that on the map, at the correct latitude and longitude, pointing in the right direction. Let's make a `public/map-marker.html` file and put some code in there:
 
-...
+```html
+<div id="plane-icon">
+  <div class="bounds">
+    <link rel="stylesheet" href="css/map-marker.css" />
+
+    <div class="basics">
+      <!-- One normal plane: -->
+      <img src="/planes/plane.png" class="plane" />
+      <!-- And a plane shadow, because seeing a shadow on a map makes a *huge* difference: -->
+      <img src="/planes/plane.png" class="shadow" />
+    </div>
+  </div>
+</div>
 ```
 
-Which gives us something that looks a little like this:
+With that `plane.png` being a simple little non-existent plane silhouette:
 
-<img src="./blank-map.png" alt="image-20230527105720116" style="zoom:67%;" />
+<img src="../public/planes/plane.png" style="width: 72px; height: 50px" />
 
-Which is pretty good, but it's lacking a certain someth- oh right: our plane. Let's update our `plane.js` so that this map can actually show our plane flying around.
+Although we do want a bit of CSS here, because while we _could_ rotate this image using JS to point in the right direction, that's a bit silly when CSS lets you use `tranform: rotate(...)` : all we need to do is make sure that the CSS variable `--heading` is some plain number in degrees, and then CSS will do the rest. So... 
 
-```javascript
-import { waitFor } from "./utils.js";
+```css
+#plane-icon {
+  /* in terms of CSS, our id element is the keeper of CSS-variables: */
+  --heading: 0;
+  --degrees: calc(1deg * var(--heading));
+  --altitude: 0;
+  --alt-em: calc(sqrt(var(--altitude)) / 20);
+}
 
-...
+#plane-icon .basics {
+  /* we want to overlay the plane and its shadow, so mark this element relative */
+  position: relative;
+}
 
-const L = await waitFor(async () => window.L);
+#plane-icon .basics .shadow {
+  /* the higher we're flying, the more our shadow should blur: */
+  --shadow-blur-size: calc(1px * var(--alt-em) / 2);
+  position: absolute;  
+  filter: blur(var(--shadow-blur-size)) opacity(0.3);
+  transform-origin: center center; 
+  /* we only need to rotate the shadow */
+  transform: rotate(var(--degrees));
+}
 
-...
-
-export class Plane {
-  constructor(map, location, heading) {
-    console.log(`building a plane`);
-    this.state = {}
-    this.lastUpdated = {
-        crashed: false,
-        heading: heading,
-        lat: location[0],
-        long: location[1],
-    };
-    this.sequencer = new Sequence(
-        WAIT_FOR_GAME,
-        WAIT_FOR_MODEL,
-        WAIT_FOR_ENGINES,
-        POLLING_GAME
-    );
-    this.eventsRegistered = false;
-    this.addPlaneIconToMap(map, location, heading);
-    this.waitForInGame();
-  }
-
-  ...
-
-  // To add the plane to the map, we create a Leaflet icon, which lets us define
-  // custom HTML, and then we create and add a Leaflet marker to the map.
-  async addPlaneIconToMap() {
-    const { lat, long, heading } = this.state;
-    const props = {
-      icon: L.divIcon({
-        iconSize: [73 / 2, 50 / 2],
-        iconAnchor: [73 / 4, 50 / 4],
-        popupAnchor: [10, 10],
-        className: `map-pin`,
-        html: MapMarker.getHTML(heading),
-      }),
-    };
-    this.marker = L.marker(location, props).addTo(map);
-    this.planeIcon = document.querySelector(`#plane-icon`);
-  }
+#plane-icon .basics .plane {
+  --elevation-offset: calc(-1em * var(--alt-em))
+  position: absolute;  
+  transform-origin: center center; 
+  /* but we rotate *and* move the real plane icon up based on high it's flying */
+  transform: translate(0, var(--elevation-offset)) rotate(var(--degrees));
 }
 ```
 
-We have a plane marker, "in theory", but there's nothing in this code that actually tells us what our marker looks like, because we've hidden it behind `MapMarker.getHTML(heading)`. So... _fine_, what does that look like (and can we finally start seeing all of this come together)?
+Which just leaves the fun part: let's add this icon to our map. First, a little map helper file in `public/js/map-marker.js`:
 
 ```javascript
-import { defaultPlane } from "./airplane-src.js";
-
+// Load our .html "partial"
 const content = await fetch("map-marker.html").then((res) => res.text());
 const div = document.createElement(`div`);
 div.innerHTML = content;
 const MapMarker = div.children[0];
-MapMarker.querySelectorAll(`img`).forEach(
-  (img) => (img.src = `planes/${defaultPlane}`)
-);
 
+// Then create a little helper function that gets the HTML we need for
+// leaflet to put our icon on the map, with some initial heading:
 MapMarker.getHTML = (initialHeading) => {
   MapMarker.style.setProperty(`--heading`, initialHeading);
   return MapMarker.outerHTML;
 };
 
+// And then just export that.
 export { MapMarker };
 ```
 
-Yep, `MapMarker` is really just a front for a templating instruction that loads the markup from `map-marker.html` ... so what does _that_ look like? Like this:
+And then we can update our `plane.js`:
 
-![image-20230527110207192](./plane-marker.png)
+```js
+import { MapMarker } from "./map-marker.js";
+
+...
+
+class Plane {
+  constructor(server, map = defaultMap, location = DUNCAN_AIRPORT, heading = 135) {
+    ...
+    // bind the map, and add our plane icon:
+    this.map = map;
+    this.addPlaneIconToMap(map, location, heading);
+  }
+  
+  /**
+   * We'll use Leaflet's "icon" functionality to add our plane:
+   */
+  async addPlaneIconToMap(map, location, heading) {
+    const props = {
+      icon: L.divIcon({
+        iconSize: [36, 25],
+        iconAnchor: [36/2, 25/2],
+        className: `map-pin`,
+        html: MapMarker.getHTML(heading)
+      }),
+    };
+    // Create our plane icon on the map:
+    this.marker = L.marker(location, props).addTo(map);
+    // And then cache the resulting HTML element so we can use it later in the code:
+    this.planeIcon = document.querySelector(`#plane-icon`);
+  }
+
+  /**
+   * We've seen this function before =)
+   */
+  async updateState(state) {
+    this.state = state;
+    const now = Date.now();
+    Questions.update(state);
+
+    // let's update our map!
+    if (state.flightData) {
+      this.updateMap(state);
+    }
+
+    this.lastUpdate = { time: now, ...state };
+  }
+  
+  /**
+   * A dedicated function for updating the map!
+   */
+  async updateMap({ flightData }) {
+    const { map, marker, planeIcon } = this;
+    const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } = flightData;
+
+    // Do we have a GPS coordinate? (And not the 0,0 off the West coast
+    // of Africa that you get while you're not in game?)
+    if (lat === undefined || long === undefined) return;
+    if (abs(lat) < 0.1 && abs(long) < 0.1) return;
+
+    // Update our plane's position on the map:
+    marker.setLatLng([lat, long]);
+    
+    // And make sure the map follows our plane, so we don't fly off the screen:
+    map.setView([lat, long]);
+    
+    // And then set our CSS variables so that the browser "does the rest":
+    this.updateMarker(planeIcon.style, flightData);
+  }
+
+  /**
+   * A dedicated function for updating ther marker, which right now means
+   * updating the CSS variables we're using to show our plane and shadow.
+   */
+  updateMarker(css, flightData) {
+    // Point the plane in the right direction:
+    const heading = flightData.PLANE_HEADING_DEGREES_MAGNETIC;
+    css.setProperty(`--heading`, heading);
+
+    // And then also place the plane itself higher than
+    // its shadown on the ground, if we're in the air:
+    const cg = flightData.STATIC_CG_TO_GROUND;
+    const paag = flightData.PLANE_ALT_ABOVE_GROUND;
+    css.setProperty(`--altitude`, Math.max(paag - cg, 0));
+  }
+}
+```
+
+And through the magic of "the OG web stack" we suddenly have a visualization that shows our plane somewhere in the air, and its shadow on the ground:
+
+![A basic map with plane icon](./basic-map.png)
+
+Nice!
+
+...
+
+...I mean, yes, it's nice, but this doesn't really tell us much, does it? How high are we flying? What's our airspeed? Which heading are we actually flying? I think we're going to need some more HTML. And probably some CSS variables. And a smattering of JS.
+
+### Improving our map
+
+Let's start by considering what we might want to visualize. We basically want all the information you'd get in a cockpit, but presented in marker form, so let's go for the traditional navigation marker: a compass, with information arranged in and around that. What if we had a nice compass ring around our plane, with heading indication, current speed, and current altitude (both above the ground and "as far as the barometer can tell"). What about something like... this?
+
+![our map icon](./plane-marker.png)
 
 Oh yeah: we're getting fancy. We're not using a simple little pin, we're cramming as much MSFS information into our marker as we can:
 
@@ -1436,14 +1455,8 @@ How do we build that? With HTML and SVG:
     <link rel="stylesheet" href="css/map-marker.css" />
 
     <div class="basics">
-      <img
-        src="https://github.com/Pomax/are-we-flying/assets/177243/fb5211e8-eadf-4afd-909a-2c8780e71cd4"
-        class="plane"
-      />
-      <img
-        src="https://github.com/Pomax/are-we-flying/assets/177243/fb5211e8-eadf-4afd-909a-2c8780e71cd4"
-        class="shadow"
-      />
+      <img src="/planes/plane.png" class="plane" />
+      <img src="/planes/plane.png" class="shadow" />
       <hr class="alt-line" />
       <hr class="speedo" />
       <hr class="speedarrow" />
@@ -1467,254 +1480,29 @@ How do we build that? With HTML and SVG:
         </g>
 
         <g transform="translate(0,0) scale(0.92)">
-          <g class="inner ring">
-            <path d="M 175 100 H 185" style="--d: 170" />
-            <path d="M 175 100 H 185" style="--d: 160" />
-            <path d="M 175 100 H 185" style="--d: 150" />
-            <path d="M 175 100 H 185" style="--d: 140" />
-            <path d="M 175 100 H 185" style="--d: 130" />
-            <path d="M 175 100 H 185" style="--d: 120" />
-            <path d="M 175 100 H 185" style="--d: 110" />
-            <path d="M 175 100 H 185" style="--d: 100" />
-            <path
-              d="M 185 100 V 95 L 175 100 L 185 105 Z"
-              style="--d: 90"
-              fill="#0003"
-            />
-            <path d="M 175 100 H 185" style="--d: 80" />
-            <path d="M 175 100 H 185" style="--d: 70" />
-            <path d="M 175 100 H 185" style="--d: 60" />
-            <path d="M 175 100 H 185" style="--d: 50" />
-            <path d="M 175 100 H 185" style="--d: 40" />
-            <path d="M 175 100 H 185" style="--d: 30" />
-            <path d="M 175 100 H 185" style="--d: 20" />
-            <path d="M 175 100 H 185" style="--d: 10" />
-            <path
-              d="M 185 100 V 95 L 175 100 L 185 105 Z"
-              style="--d: 0"
-              fill="#0003"
-            />
-            <path d="M 175 100 H 185" style="--d: -10" />
-            <path d="M 175 100 H 185" style="--d: -20" />
-            <path d="M 175 100 H 185" style="--d: -30" />
-            <path d="M 175 100 H 185" style="--d: -40" />
-            <path d="M 175 100 H 185" style="--d: -50" />
-            <path d="M 175 100 H 185" style="--d: -60" />
-            <path d="M 175 100 H 185" style="--d: -70" />
-            <path d="M 175 100 H 185" style="--d: -80" />
-            <path
-              d="M 185 100 V 95 L 175 100 L 185 105 Z"
-              style="--d: -90"
-              fill="#0003"
-            />
-            <path d="M 175 100 H 185" style="--d: -100" />
-            <path d="M 175 100 H 185" style="--d: -110" />
-            <path d="M 175 100 H 185" style="--d: -120" />
-            <path d="M 175 100 H 185" style="--d: -130" />
-            <path d="M 175 100 H 185" style="--d: -140" />
-            <path d="M 175 100 H 185" style="--d: -150" />
-            <path d="M 175 100 H 185" style="--d: -160" />
-            <path d="M 175 100 H 185" style="--d: -170" />
-            <path
-              d="M 185 100 V 95 L 175 100 L 185 105 Z"
-              style="--d: -180"
-              fill="#0003"
-            />
-
-            <text text-anchor="middle" fill="black" x="100" y="39">36</text>
-            <text
-              text-anchor="middle"
-              fill="black"
-              x="134"
-              y="46"
-              class="small"
-            >
-              3
-            </text>
-            <text
-              text-anchor="middle"
-              fill="black"
-              x="158"
-              y="69"
-              class="small"
-            >
-              6
-            </text>
-            <text text-anchor="middle" fill="black" x="167" y="103">9</text>
-            <text
-              text-anchor="middle"
-              fill="black"
-              x="156"
-              y="136"
-              class="small"
-            >
-              12
-            </text>
-            <text
-              text-anchor="middle"
-              fill="black"
-              x="133"
-              y="160"
-              class="small"
-            >
-              15
-            </text>
-            <text text-anchor="middle" fill="black" x="100" y="171">18</text>
-            <text
-              text-anchor="middle"
-              fill="black"
-              x="67"
-              y="160"
-              class="small"
-            >
-              21
-            </text>
-            <text
-              text-anchor="middle"
-              fill="black"
-              x="44"
-              y="136"
-              class="small"
-            >
-              24
-            </text>
-            <text text-anchor="middle" fill="black" x="35" y="103">27</text>
-            <text text-anchor="middle" fill="black" x="43" y="69" class="small">
-              30
-            </text>
-            <text text-anchor="middle" fill="black" x="67" y="46" class="small">
-              33
-            </text>
-
-            <circle
-              cx="50%"
-              cy="50%"
-              r="80"
-              fill="none"
-              stroke="#F5C1"
-              stroke-width="10"
-            />
+          <g class="inner ring">      
+            <!-- and then a whoooole bunch of SVG code -->
           </g>
-
           <g class="outer ring">
-            <path d="M 185 100 H 195" style="--d: 170" />
-            <path d="M 185 100 H 195" style="--d: 160" />
-            <path d="M 185 100 H 195" style="--d: 150" />
-            <path d="M 185 100 H 195" style="--d: 140" />
-            <path d="M 185 100 H 195" style="--d: 130" />
-            <path d="M 185 100 H 195" style="--d: 120" />
-            <path d="M 185 100 H 195" style="--d: 110" />
-            <path d="M 185 100 H 195" style="--d: 100" />
-            <path d="M 185 100 V 95 L 195 100 L 185 105 Z" style="--d: 90" />
-            <path d="M 185 100 H 195" style="--d: 80" />
-            <path d="M 185 100 H 195" style="--d: 70" />
-            <path d="M 185 100 H 195" style="--d: 60" />
-            <path d="M 185 100 H 195" style="--d: 50" />
-            <path d="M 185 100 H 195" style="--d: 40" />
-            <path d="M 185 100 H 195" style="--d: 30" />
-            <path d="M 185 100 H 195" style="--d: 20" />
-            <path d="M 185 100 H 195" style="--d: 10" />
-            <path d="M 185 100 V 95 L 195 100 L 185 105 Z" style="--d: 0" />
-            <path d="M 185 100 H 195" style="--d: -10" />
-            <path d="M 185 100 H 195" style="--d: -20" />
-            <path d="M 185 100 H 195" style="--d: -30" />
-            <path d="M 185 100 H 195" style="--d: -40" />
-            <path d="M 185 100 H 195" style="--d: -50" />
-            <path d="M 185 100 H 195" style="--d: -60" />
-            <path d="M 185 100 H 195" style="--d: -70" />
-            <path d="M 185 100 H 195" style="--d: -80" />
-            <path d="M 185 100 V 95 L 195 100 L 185 105 Z" style="--d: -90" />
-            <path d="M 185 100 H 195" style="--d: -100" />
-            <path d="M 185 100 H 195" style="--d: -110" />
-            <path d="M 185 100 H 195" style="--d: -120" />
-            <path d="M 185 100 H 195" style="--d: -130" />
-            <path d="M 185 100 H 195" style="--d: -140" />
-            <path d="M 185 100 H 195" style="--d: -150" />
-            <path d="M 185 100 H 195" style="--d: -160" />
-            <path d="M 185 100 H 195" style="--d: -170" />
-            <path d="M 185 100 V 95 L 195 100 L 185 105 Z" style="--d: -180" />
-
-            <text text-anchor="middle" fill="black" x="100" y="0">36</text>
-            <text text-anchor="middle" fill="black" x="153" y="12">3</text>
-            <text text-anchor="middle" fill="black" x="192" y="52">6</text>
-            <text text-anchor="middle" fill="black" x="205" y="104">9</text>
-            <text text-anchor="middle" fill="black" x="194" y="159">12</text>
-            <text text-anchor="middle" fill="black" x="154" y="198">15</text>
-            <text text-anchor="middle" fill="black" x="100" y="210">18</text>
-            <text text-anchor="middle" fill="black" x="48" y="198">21</text>
-            <text text-anchor="middle" fill="black" x="5" y="158">24</text>
-            <text text-anchor="middle" fill="black" x="-7" y="104">27</text>
-            <text text-anchor="middle" fill="black" x="5" y="52">30</text>
-            <text text-anchor="middle" fill="black" x="45" y="11">33</text>
-
-            <circle
-              cx="50%"
-              cy="50%"
-              r="90"
-              fill="none"
-              stroke="#F5C4"
-              stroke-width="10"
-            />
-          </g>
-
-          <g class="ring" style="transform: scale(0.9)">
-            <circle
-              cx="50%"
-              cy="50%"
-              r="105"
-              fill="none"
-              stroke="black"
-              stroke-width="1"
-            />
-            <circle
-              cx="50%"
-              cy="50%"
-              r="85"
-              fill="none"
-              stroke="black"
-              stroke-width="1"
-            />
-            <circle
-              cx="50%"
-              cy="50%"
-              r="95"
-              fill="none"
-              stroke="black"
-              stroke-width="1"
-            />
-          </g>
-
-          <g class="outer">
-            <path
-              class="heading-bug"
-              d="M 172 98 L 197 98 L 200 100 L 197 102 L 172 102 Z"
-            />
-            <path
-              class="heading"
-              d="M 185 98 L 197 98 L 200 100 L 197 102 L 185 102 Z"
-            />
-          </g>
+            <!-- and then even more SVG code -->
+          </g>          
+          <!-- and even more SVG code! -->
         </g>
-      </g>
     </svg>
   </div>
 </div>
 ```
 
-With a whole bunch of CSS that makes things really easy to control: all the different aspects of this marker are controlled using a few CSS variables:
+Now, I'm skipping over the SVG code here mostly because it's just a _lot_ of SVG and really all you need is to copy-paste the code [here]() to keep following along. What's more important is the updates to our CSS:
 
 ```css
 #plane-icon {
   --speed: 120; /* our airspeed in knots, without a unit */
   --altitude: 1500; /* our altitude in feet, without a unit */
-  --sqrt-alt: 39; /* In order to show altitude on the map, we'll be using the square root of our altitude */
   --heading: 150; /* our magnetic compass heading in degrees, without a unit */
   --heading-bug: 220; /* our "heading bug" compass angle in degrees, without a unit */
   --north: 15.8; /* the compass deviation from true north in degrees, without a unit */
-}
-
-#plane-icon {
-  --alt-em: calc(var(--sqrt-alt) / 20);
+  --alt-em: calc(sqrt(var(--sqrt-alt)) / 20);
   --f: 250;
   --dim: calc(var(--f) * 1px);
   --font-size: calc(var(--dim) / 17);
@@ -1726,173 +1514,16 @@ With a whole bunch of CSS that makes things really easy to control: all the diff
   left: 16px;
 }
 
-#plane-icon .bounds {
-  position: absolute;
-  width: var(--dim);
-  height: var(--dim);
-  top: calc(var(--dim) / -2);
-  left: calc(var(--dim) / -2);
-}
-
-/* If we've crashed, show a big old pirate X in the spot we crashed at, instead of the flight marker */
-#plane-icon.crashed {
-  background-image: url(images/crashed.png);
-  width: 30px;
-  height: 30px;
-  background-size: 100% 100%;
-  position: absolute;
-  left: 2px;
-  top: -3px;
-}
-
-#plane-icon.crashed * {
-  display: none !important;
-}
-
-@keyframes pulsing {
-  0% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-/* If the game is paused, show our plane fading in and out */
-#plane-icon.paused .basics {
-  animation: 2s linear infinite alternate pulsing;
-}
-
-#plane-icon .basics img {
-  position: absolute;
-  display: inline-block;
-  z-index: 10;
-  --w: calc(var(--dim) / 5);
-  width: var(--w);
-  height: var(--w);
-  --to: 10px;
-  top: calc(var(--dim) / 2 - var(--w) / 2 + var(--to));
-  left: calc(var(--dim) / 2 - var(--w) / 2);
-  /* rotate the plane icon so that it points in the right direction */
-  transform-origin: calc(50%) calc(50% - var(--to));
-  --rot: rotate(calc(1deg * var(--heading) + 1deg * var(--north)));
-  transform: translate(0, calc(-1em * var(--alt-em))) var(--rot);
-}
-
-/* Since we're drawing our plane at a specific height, also draw the "shadow" on the "ground" */
-#plane-icon .basics img.shadow {
-  position: absolute;
-  /* the higher our plane, the more blurry we make the shadow */
-  filter: blur(calc(0.5px * var(--alt-em))) opacity(0.3);
-  transform: var(--rot);
-}
-
-#plane-icon .basics hr {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  margin: 0;
-  padding: 0;
-  transform-origin: 1px 1px;
-  transform: rotate(-90deg);
-  border: 1px solid red;
-}
-
-#plane-icon .basics .alt-line {
-  width: calc(1em * var(--alt-em));
-}
-
-#plane-icon .basics .speedo,
-#plane-icon .basics .speedarrow {
-  --w: calc(1em * var(--speed) / 50);
-  width: var(--w);
-  --rot: calc(1deg * var(--heading) + 1deg * var(--north));
-  transform: rotate(calc(-90deg + var(--rot)));
-}
-
-#plane-icon .basics .speedarrow {
-  --b: 5px;
-  --r: calc(var(--b) * 1.5);
-  border: var(--b) solid red;
-  border-left-color: transparent;
-  border-top-color: transparent;
-  width: 0;
-  transform-origin: 0 0;
-  transform: rotate(calc(var(--rot) - 90deg)) translate(
-      calc(var(--w) - var(--r)),
-      0
-    )
-    rotate(-45deg);
-}
-
-#plane-icon .basics .label {
-  position: absolute;
-  color: white;
-  width: 100%;
-  font-weight: bold;
-  text-align: center;
-  text-shadow:
-    0px 0px 5px black,
-    0px 0px 10px black,
-    0px 0px 15px black;
-}
-
-#plane-icon .basics .alt {
-  top: -4%;
-}
-#plane-icon .basics .speed {
-  top: 96%;
-}
-
-/* SVG rules */
-
-#plane-icon svg.compass {
-  font-family: Arial;
-  font-size: 12px;
-}
-
-#plane-icon svg.compass g.box {
-  display: none;
-}
-#plane-icon svg.compass path {
-  transform-origin: 50% 50%;
-}
-#plane-icon svg.compass text.small {
-  font-size: 80%;
-}
-#plane-icon svg.compass g path {
-  stroke: black;
-}
-#plane-icon svg.compass g.ring path {
-  transform: rotate(calc(var(--d) * 1deg));
-}
-#plane-icon svg.compass g {
-  transform-origin: 50% 50%;
-}
-#plane-icon svg.compass g.inner {
-  font-size: 70%;
-}
-#plane-icon svg.compass g.outer {
-  transform: rotate(calc(var(--north) * 1deg));
-}
-
-#plane-icon svg.compass g path.heading {
-  stroke: black;
-  fill: #3d3;
-  transform: rotate(calc((var(--heading) * 1deg) - 90deg));
-}
-
-#plane-icon svg.compass g path.heading-bug {
-  stroke: black;
-  fill: red;
-  transform: rotate(calc(var(--heading-bug) * 1deg - 90deg));
-}
+/*
+ And then a whole bunch of CSS that makes use of those variables
+*/
 ```
 
-We can update these variables on the JS side, based on the values we get from MSFS, and things will just "look right". Yay, web stack!
+Again, if you want to follow along grab the CSS [here](), but the important part is those new CSS variables,  which we can update on the JS side based on the values we get from MSFS:
 
 ```javascript
 import { getAirplaneSrc } from "./airplane-src.js";
+const { max, sqrt } = Math;
 
 ...
 
@@ -1900,43 +1531,48 @@ export class Plane {
 
   ...
 
-  // When we set our state,
-  async setState(data) {
-    if (data.TITLE === undefined) return;
+  /**
+   * Our map update function is a little bigger now:
+   */
+  async updateMap(flightData, now) {
+    const { map, marker, planeIcon } = this;
+    const { paused, crashed, flightModel } = this.state;
+    const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } = flightData;
 
-    if (this.state.title !== data.TITLE) {
-      Questions.modelLoaded(data.TITLE);
-      // pick the right aeroplane to show in our marker:
-      const pic = getAirplaneSrc(data.TITLE);
-      [...this.planeIcon.querySelectorAll(`img`)].forEach((img) => (img.src = `planes/${pic}`));
-    }
+    if (lat === undefined || long === undefined) return;
+    if (abs(lat) < 0.1 && abs(long) < 0.1) return;
 
-    ...
+    marker.setLatLng([lat, long]);
+    map.setView([lat, long]);
+    this.setCSSVariables(planeIcon.style, flightData);
+
+    // Is the game paused? Or, have we crashed??
+    planeIcon.classList.toggle(`paused`, paused);
+    planeIcon.classList.toggle(`crashed`, crashed);
+
+    // Make sure we're using the right silhouette image:
+    const pic = getAirplaneSrc(flightModel.TITLE);
+    [...planeIcon.querySelectorAll(`img`)].forEach(
+      (img) => (img.src = `planes/${pic}`)
+    );
+
+    // Then update the marker's CSS variables and various text bits:
+    this.updateMarker(planeIcon.style, flightData);
   }
 
-  // Then let's update our "update page" function so that it updates our plane on the map!
-  async updatePage(data) {
-    if (paused) return;
+  /**
+   * Our marker update function is also little bigger now:
+   */
+  updateMarker(css, flightData) {
+    const cg = flightData.STATIC_CG_TO_GROUND;
+    const paag = flightData.PLANE_ALT_ABOVE_GROUND;
+    const palt = paag - cg;
+    const speed = flightData.AIRSPEED_INDICATED;
+    const heading = flightData.PLANE_HEADING_DEGREES_MAGNETIC;
+    const trueHeading = flightData.PLANE_HEADING_DEGREES_TRUE;
+    const bug = flightData.AUTOPILOT_HEADING_LOCK_DIR;
 
-    const now = Date.now();
-    const { lat, long, airBorn, speed, alt, palt, heading, trueHeading, ap, bug } = this.state;
-    const latLong = [lat, long];
-    const { planeIcon } = this;
-    const css = planeIcon.style;
-
-    // Do some checkbox logic:
-    Questions.inTheAir(airBorn && speed > 0);
-    Questions.usingAutoPilot(ap_master);
-
-    // Then update our GPS coordinate on the page,
-    document.getElementById(`lat`).textContent = lat.toFixed(5);
-    document.getElementById(`long`).textContent = long.toFixed(5);
-    // center the map on that coordinate (if that box is checked!),
-    if (centerBtn.checked) this.map.setView(latLong);
-    // and put our marker at our current GPS coordinate, of course.
-    this.marker.setLatLng(latLong);
-
-    // Then we update the various aspects of our plane marker by setting our CSS variables:
+    this.autopilot.setCurrentAltitude(palt);
     css.setProperty(`--altitude`, max(palt, 0));
     css.setProperty(`--sqrt-alt`, sqrt(max(palt, 0)));
     css.setProperty(`--speed`, speed | 0);
@@ -1944,15 +1580,18 @@ export class Plane {
     css.setProperty(`--heading`, heading);
     css.setProperty(`--heading-bug`, bug);
 
-    // And save our state so we have it available for the next call.
-    this.lastUpdate = { time: now, ...this.state };
+    const alt = flightData.INDICATED_ALTITUDE;
+    const galt = fligthData.GROUND_ALTITUDE;
+    const altitudeText = (galt | 0) === 0 ? `${alt | 0}'` : `${palt | 0}' (${alt | 0}')`;
+    planeIcon.querySelector(`.alt`).textContent = altitudeText;
+    planeIcon.querySelector(`.speed`).textContent = `${speed | 0}kts`;
   }
 }
 ```
 
 And the final bit of the puzzle, `airplane-src.js`, for which we're going to want to create a directory called `planes` inside our `public` directory, so that we can fill it with plane icons, like these:
 
-![image-20230602140414522](./plane-icons.png)
+![so many planes!](./plane-icons.png)
 
 And then with some tactical JS we can swap the correct icon in based on the plane we're flying:
 
@@ -1982,7 +1621,7 @@ export function getAirplaneSrc(title = ``) {
 
 And that'll do it. Let's fire up MSFS, load a plane into the world, and let's see what that looks like!
 
-![image-20230527111508698](./plane-on-map.png)
+![A map with our marker on it](./marker-on-map.png)
 
 It looks spectacular, and we can see ourselves flying around on the map on our webpage!
 
@@ -1996,14 +1635,142 @@ Yeah, so, here's a fun thing about our planet: you'd think magnetic lines run no
     </a>
     <figcaption style="text-align:center">A map of the magnetic declination on planet Earth</figcaption>
 </figure>
-
 The green lines are where a compass will actually point north, but everywhere else on the planet your compass will be off by various degrees. For example, it's only a touch off in Belgium, but at the south tip of the border between Alaska and Canada, your compass will be a pointing a whopping 20 degrees away from true north. When you're flying a plane, you better be aware of that, and you better know which of your instruments use compass heading, and which of them use true heading, or you might not get to where you thought you were going.
+
+### Seeing the terrain
+
+So... this looks good, but we're missing one thing: terrain. Maps might be flat, but the world isn't, and when we're flying we'd like to know where the hills and mountains are so we can either avoid them, or plan accordingly. So let's add a terrain layer to our map by updating our `maps.js`:
+
+```javascript
+...
+
+// Let's make our layers a little more "data driven" by first defining a list of sources:
+const sources = [
+  {
+    name: `openStreetMap`,
+    url: `https://tile.openstreetmap.org/{z}/{x}/{y}.png`,
+    maxZoom: 19,
+    attribution: {
+      url: `http://www.openstreetmap.org/copyright`,
+      label: `OpenStreetMap`,
+    },
+  },
+  {
+    name: `googleTerrain`,
+    url: `http://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}`,
+    subdomains: ["mt0", "mt1", "mt2", "mt3"],
+    maxZoom: 20,
+    attribution: {
+      url: `https://www.google.com/permissions/geoguidelines`,
+      label: `Google Maps`,
+    },
+  },
+];
+
+// and then converting those to map layers:
+const mapLayers = Object.fromEntries(
+  sources.map((e) => [
+    e.name,
+    L.tileLayer(e.url, {
+      subdomains: e.subdomains ?? [],
+      maxZoom: e.maxZoom,
+      attribution: `© <a href="${e.attribution.url}">${e.attribution.label}</a>`,
+    }),
+  ])
+);
+
+// We'll keep the openstreetmap layer as base layer:
+mapLayers.openStreetMap.setOpacity(1);
+mapLayers.openStreetMap.addTo(map);
+
+// And then we'll add the terrain layer as 50% opacity overlay:
+mapLayers.googleTerrain.setOpacity(0.5);
+mapLayers.googleTerrain.addTo(map);
+
+...
+```
+
+And now our map looks looks _amazing_:
+
+![Our map, now with terrain!](./map-with-terrain.png)
+
+### Adding scale to our map
+
+One last thing: we have no idea what the scale of this map is, so let's add something that gives us a sense of distance in both kilometers, and nautical miles. Both common values used in aviation. To do this we'll create a little Leaflet plugin called `public/js/leaflet/nautical.js`:
+
+```javascript
+// Based on https://github.com/PowerPan/leaflet.nauticscale/blob/master/dist/leaflet.nauticscale.js
+import { waitFor } from "../utils.js";
+
+// Of course, we first need to wait for Leaflet...
+const L = await waitFor(async () => window.L);
+
+// Then we can define a new Leaflet control that extends the base Leaflet scale visualization:
+L.Control.ScaleNautical = L.Control.Scale.extend({
+  options: { nautical: false },
+  _addScales: function (options, className, container) {
+    L.Control.Scale.prototype._addScales.call(this, options, className, container);
+    L.setOptions(options);
+    if (this.options.nautical) this._nScale = L.DomUtil.create("div", className, container);
+  },
+  _updateScales: function (maxMeters) {
+    L.Control.Scale.prototype._updateScales.call(this, maxMeters);
+    if (this.options.nautical && maxMeters) {
+      this._updateNautical(maxMeters);
+    }
+  },
+  _updateNautical: function (maxMeters) {
+    const scale = this._nScale;
+    const maxNauticalMiles = maxMeters / 1852;
+    let nauticalMiles;
+    if (maxMeters >= 1852) {
+      nauticalMiles = L.Control.Scale.prototype._getRoundNum.call(this, maxNauticalMiles);
+    } else {
+      nauticalMiles = maxNauticalMiles.toFixed(maxNauticalMiles > 0.1 ? 1 : 0);
+    }
+    const scaleWidth = (this.options.maxWidth * (nauticalMiles / maxNauticalMiles)).toFixed(0);
+    scale.style.width = `${scaleWidth - 10}px`;
+    scale.textContent = `${nauticalMiles} nm`;
+  },
+});
+
+L.control.scaleNautical = (options) => new L.Control.ScaleNautical(options);
+
+export function setMapScale(map, metric=true, imperial=false, nautical=true) {
+  L.control.scaleNautical({ metric, imperial, nautical }).addTo(map);
+}
+```
+
+How this code works isn't super important, but what it does when use it is: if we update our `maps.js` file as follows:
+
+```javascript
+import { waitFor } from "./utils.js";
+import { Duncan } from "./locations.js";
+import { setMapScale } from "./leaflet/nautical.js";
+
+// Wait for leaflet to be available
+const L = await waitFor(async () => window.L);
+
+// set our default location to Duncan, BC.
+const map = L.map("map").setView(Duncan, 15);
+
+// Since we're flying, we want distances in kilometers, and nautical miles
+setMapScale(map);
+
+...
+```
+
+And we refresh our browser, we now have a handy-dandy scale marker:
+
+![now with scale](./map-with-scale.png)
+
+Looking pretty good!
 
 ## Recording our flight path
 
 Seeing ourselves flying around on the map is pretty great, but we can only see "where we are", instead of seeing where we've been so far. As it turns out, Leaflet supports drawing polygons, so let's also add some "flight tracking" to our web page (not in the least because it's something that will be pretty important for debugging autopilot code later!).
 
-First, we create a little `trail.js` class because you know how this works by now, new code gets its own module:
+First, we create a little `public/js/trail.js` class because you know how this works by now, new code gets its own file:
 
 ```javascript
 export class Trail {
@@ -2023,11 +1790,11 @@ export class Trail {
     const pair = [lat, long];
     coords.push(pair);
 
-    // if we have fewer than 2 points, we can't draw a trail yet.
+    // If we have fewer than 2 points, we can't draw a trail yet!
     const l = coords.length;
     if (l < 2) return;
 
-    // if we have exactly 2 points, we create the trail polyon
+    // If we have exactly 2 points, we create the trail polyon
     if (l === 2) {
       this.line = L.polyline([...coords], {
         className: `flight-trail`,
@@ -2037,12 +1804,8 @@ export class Trail {
       return this.line.addTo(this.map);
     }
 
-    // otherwise, we simply append this position to the trail.
+    // Otherwise, we simply append this position to the trail.
     this.line.addLatLng(pair);
-  }
-
-  remove() {
-    this.line?.remove();
   }
 }
 ```
@@ -2064,46 +1827,60 @@ export class Plane {
   startNewTrail(location) {
     this.trail = new Trail(this.map, location);
   }
+  
+  /**
+   * We're well-acquainted with this function by now:
+   */
+  async updateState(state) {
+    this.state = state;
+    const now = Date.now();
+    Questions.update(state);
 
-  ...
+    // Check if we started a new flight because that requires immediately building a new flight trail:
+    const startedFlying = !this.lastUpdate.flying && this.state.flying;
+    if (startedFlying) this.startNewTrail();
+    
+    // And then update our map.
+    if (state.flightData) this.updateMap(state);
 
-  async waitForModel() {
-    ...
-    const model = (this.flightModel = new FlightModel());
-    const { title, lat, long, engineCount } = await model.bootstrap();
-    this.lastUpdate.lat = lat;
-    this.lastUpdate.long = long;
-    this.startNewTrail([lat, long]);
+    this.lastUpdate = { time: now, ...state };
+  }
+
+  async updateMap(flightData, now) {
+    const { map, marker, planeIcon } = this;
+    const { paused, crashed, flightModel } = this.state;
+    const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } = flightData;
+
+    if (lat === undefined || long === undefined) return;
+    if (abs(lat) < 0.1 && abs(long) < 0.1) return;
+
+    // First off: did we teleport? E.g. did the plane's position change
+    // impossibly fast, due to restarting a flight, using the "teleport"
+    // function in Parallel 42's "Flow" add-on, etc? Because if so, we
+    // need to start a new trail.
+    const { PLANE_LATITUDE: lat2, PLANE_LONGITUDE: long2 } = this.lastUpdate.flightData;
+    const d = getDistanceBetweenPoints(lat2, long2, lat, long);
+    const kmps = (speed ?? 0) / 1944;
+    // We'll call ourselves "teleported" if we moved at a speed of over
+    // 5 kilometers per second (3.1 miles per second), which is roughly
+    // equivalent to mach 14.5, which is a little over half the orbital
+    // speed of the international space station.
+    const teleported = this.lastUpdate.flightData && d > 5 * kmps;
+    if (teleported) this.startNewTrail([lat, long]);
+
+    // Then we can add the current position to our trail
+    this.trail.add(lat, long);
+   
     ...
   }
 
-  ...
-
-  // And update our "update page" function so that when we start a new trail when we skip across the world.
-  async updatePage(data) {
-    ...
-
-    document.getElementById(`lat`).textContent = lat.toFixed(5);
-    document.getElementById(`long`).textContent = long.toFixed(5);
-    this.map.setView([lat, long]);
-
-    // We do this based on "impossible distance". If we spawn in on a new location, or we teleport
-    // (by using Flow Pro or the developer tools, for example), or we use slew mode: start a new trail.
-    const moved = dist(this.lastUpdate.lat, this.lastUpdate.long, lat, long);
-
-    // 1 knot is 1.852 km/h, or 0.0005 km/s, which is 0.000005 degrees of arc per second.
-    // the "speed" is in (true) knots, so if we move more than speed * 0.000005 degrees,
-    // we know we teleported. Or the game's glitching. So to humour glitches, we'll
-    // double that to speed * 0.00001 and use that as cutoff value:
-    if (moved > speed * 0.0001) this.startNewTrail(latLong);
-
-    ...
+   ...
 }
 ```
 
-Relatively little code, but a profound improvement:
+Relatively little code, but a profound improvement. Our map now shows the flight path so far:
 
-![image-20230527115737439](./loop-on-map.png)
+![Now we know where we came from](./map-with-flightpath.png)
 
 Alright, now we've got things we can post to Instagram!
 
@@ -2111,9 +1888,11 @@ Alright, now we've got things we can post to Instagram!
 
 There's one thing our fancy marker isn't showing though, which is the current roll and pitch, which would be really nice to be able to see at a glance. So... let's build an [attitude indicator](https://en.wikipedia.org/wiki/Attitude_indicator), also sometimes called an "artificial horizon":
 
-<img src="./attitude.png" alt="image-20230527152217024" style="zoom:67%;" />
+![now with attitude](./attitude.png)
 
-Much like our regular marker, we're just going the HTML, SVG, and CSS route, and update CSS variables based on bank angle and pitch. This one's a little easier than the map marker file at least:
+This is a way to visualize whether the plane is pitching up, down, or is flying level, as well as showing whether we're turning, left, right, or flying straight. It's a critical part of the cockpit, and it would be very nice if we could see one at all times, too. So just like before, let's whip up a bit of HTML, SVG, CSS, and JS to make that happen.
+
+Thankfully, the attitude indicator is considerably less code than the airplane marker, so let's create a `public/attitude.html`:
 
 ```html
 <div id="attitude">
@@ -2125,20 +1904,11 @@ Much like our regular marker, we're just going the HTML, SVG, and CSS route, and
     <div class="ground"></div>
 
     <div class="scales">
-      <hr />
-      <hr class="minor small" />
-      <hr class="minor small" />
-      <hr />
-      <hr class="small" />
-      <hr class="small" />
-      <hr />
-      <hr class="small" />
-      <hr class="small" />
-      <hr />
-      <hr class="minor small" />
-      <hr class="minor small" />
-      <hr />
-      <hr />
+      <hr /> <hr class="minor small" /> <hr class="minor small" />
+      <hr /> <hr class="small" /> <hr class="small" />
+      <hr /> <hr class="small" /> <hr class="small" />
+      <hr /> <hr class="minor small" /> <hr class="minor small" />
+      <hr /><hr />
       <div class="center-mark"></div>
       <div class="sky"></div>
       <div class="ground"></div>
@@ -2164,202 +1934,28 @@ Much like our regular marker, we're just going the HTML, SVG, and CSS route, and
     </div>
 
     <div class="bird">
-      <hr />
-      <hr />
-      <hr />
-      <hr />
-      <hr />
+      <hr/><hr/><hr/><hr/><hr/>
     </div>
   </div>
 </div>
 ```
 
-Although the CSS is doing all the heavy lifting, so it's pretty elaborate:
+With... okay, quite a _lot_ of CSS, so have a look [here]() if you're following along, I'll just highlight the important part here, which is (of course) the CSS variables section:
 
 ```css
 #attitude {
   --bank: 0;
   --pitch: 0;
-
   --safety-pad: -5%;
   --frame-pad: 7%;
   --box-pad: 5%;
   --active-pad: 10%;
   --dial-space: 3px;
-
-  position: absolute;
-  z-index: 1000;
-  left: calc(1200px - 250px - 1.5em);
-  width: 250px;
-  height: 250px;
-  margin: 1em;
-  background: #444;
-  background-image: url(images/gray-textured-pattern-background-1488751952b8R.jpg);
-  background-size: 120% 130%;
-  box-shadow:
-    0 0 13px 0 inset black,
-    7px 9px 10px 0px #0008;
-  border-radius: 1em;
-}
-#attitude .frame {
-  position: absolute;
-  top: var(--frame-pad);
-  left: var(--frame-pad);
-  right: var(--frame-pad);
-  bottom: var(--frame-pad);
-}
-#attitude .frame .inner-shadow {
-  position: absolute;
-  z-index: 5;
-  width: 100%;
-  height: 100%;
-  box-shadow: 0 0 7px 1px inset black;
-  border-radius: 0.3em;
-}
-#attitude .sky {
-  background: skyblue;
-  position: absolute;
-  top: 0;
-  bottom: 50%;
-  left: 0;
-  right: 0;
-  border-radius: 0.3em 0.3em 0 0;
-}
-#attitude .ground {
-  background: sienna;
-  position: absolute;
-  top: 50%;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  border-radius: 0 0 0.3em 0.3em;
-}
-#attitude .scales {
-  --pad: calc(var(--frame-pad) + var(--dial-space));
-  position: absolute;
-  z-index: 1;
-  top: var(--pad);
-  right: var(--pad);
-  left: var(--pad);
-  bottom: var(--pad);
-  border-radius: 100%;
-  overflow: hidden;
-  border: 2px solid #eee;
-  transform-origin: 50% 50%;
-  transform: rotate(calc(1deg * var(--bank)));
-}
-#attitude .scales .sky {
-  top: var(--safety-pad);
-  left: var(--safety-pad);
-  right: var(--safety-pad);
-}
-#attitude .scales .ground {
-  bottom: var(--safety-pad);
-  left: var(--safety-pad);
-  right: var(--safety-pad);
-}
-#attitude .scales hr {
-  --angle: 0deg;
-  position: absolute;
-  z-index: 2;
-  top: 50%;
-  left: -5%;
-  right: 50%;
-  border: 1px solid #fff;
-  transform-origin: 100% 0;
-  transform: rotate(calc(90deg + var(--angle)));
-}
-#attitude .scales .center-mark {
-  --size: 7px;
-  position: absolute;
-  z-index: 5;
-  top: -5%;
-  left: calc(50% - var(--size) - 1px);
-  right: calc(50% + var(--size) + 1px);
-  width: 0;
-  height: 0;
-  border: var(--size) solid white;
-  border-right-color: transparent;
-  border-top-color: transparent;
-  transform: rotate(-45deg);
-}
-#attitude .scales hr.small {
-  left: 0%;
-  right: 50%;
-}
-#attitude .scales hr.minor {
-  border-color: #0002;
+  ...
 }
 
-#attitude .scales hr:nth-child(1) {
-  --angle: 60deg;
-}
-#attitude .scales hr:nth-child(2) {
-  --angle: 50deg;
-}
-#attitude .scales hr:nth-child(3) {
-  --angle: 40deg;
-}
-#attitude .scales hr:nth-child(4) {
-  --angle: 30deg;
-}
-#attitude .scales hr:nth-child(5) {
-  --angle: 20deg;
-}
-#attitude .scales hr:nth-child(6) {
-  --angle: 10deg;
-}
-#attitude .scales hr:nth-child(7) {
-  --angle: 0deg;
-}
-#attitude .scales hr:nth-child(8) {
-  --angle: -10deg;
-}
-#attitude .scales hr:nth-child(9) {
-  --angle: -20deg;
-}
-#attitude .scales hr:nth-child(10) {
-  --angle: -30deg;
-}
-#attitude .scales hr:nth-child(11) {
-  --angle: -40deg;
-}
-#attitude .scales hr:nth-child(12) {
-  --angle: -50deg;
-}
-#attitude .scales hr:nth-child(13) {
-  --angle: -60deg;
-}
-#attitude .scales hr:nth-child(14) {
-  --angle: -90deg;
-  top: 45%;
-  left: -5%;
-  right: -5%;
-}
+...
 
-#attitude .box {
-  border-radius: 100%;
-  position: absolute;
-  top: var(--box-pad);
-  bottom: var(--box-pad);
-  left: var(--box-pad);
-  right: var(--box-pad);
-  overflow: hidden;
-}
-#attitude .box .gyro {
-  border-radius: 100%;
-  position: absolute;
-  z-index: 3;
-  --step: calc(1px + 1%);
-  top: var(--active-pad);
-  left: var(--active-pad);
-  right: var(--active-pad);
-  bottom: var(--active-pad);
-  overflow: hidden;
-  transform-origin: center center;
-  transform: rotate(calc(1deg * var(--bank)));
-  border: 2px solid #eee;
-}
 #attitude .box .gyro .sky {
   position: absolute;
   top: 0;
@@ -2367,127 +1963,45 @@ Although the CSS is doing all the heavy lifting, so it's pretty elaborate:
   left: 0;
   right: 0;
 }
-#attitude .box .bug {
-  --size: 7px;
-  position: absolute;
-  z-index: 4;
-  top: 15%;
-  left: calc(50% - var(--size));
-  right: calc(50% + var(--size));
-  width: 0;
-  height: 0;
-  border: var(--size) solid orange;
-  border-left-color: transparent;
-  border-bottom-color: transparent;
-  transform: rotate(-45deg);
-}
-#attitude .box .gyro .pitch-marker {
-  position: absolute;
-  border: 1px solid #333a;
-  left: 30%;
-  right: 30%;
-}
-#attitude .box .gyro .pitch-marker.small {
-  left: 40%;
-  right: 40%;
-}
 
-#attitude .box .gyro .sky .pitch-marker:nth-of-type(1) {
-  bottom: calc(var(--step) * -2);
-}
-#attitude .box .gyro .sky .pitch-marker:nth-of-type(2) {
-  bottom: calc(var(--step) * 1.5);
-}
-#attitude .box .gyro .sky .pitch-marker:nth-of-type(3) {
-  bottom: calc(var(--step) * 5);
-}
-#attitude .box .gyro .sky .pitch-marker:nth-of-type(4) {
-  bottom: calc(var(--step) * 9);
-}
-
-#attitude .box .gyro .ground .pitch-marker {
-  border-color: #fffa;
-}
-#attitude .box .gyro .ground {
-  position: absolute;
-  top: calc(52% - calc(1% * var(--pitch)));
-  bottom: 0%;
-  left: 0;
-  right: 0;
-}
-
-#attitude .box .gyro .ground .pitch-marker:nth-of-type(1) {
-  top: calc(var(--step) * -1);
-}
-#attitude .box .gyro .ground .pitch-marker:nth-of-type(2) {
-  top: calc(var(--step) * 2);
-}
-#attitude .box .gyro .ground .pitch-marker:nth-of-type(3) {
-  top: calc(var(--step) * 5);
-}
-#attitude .box .gyro .ground .pitch-marker:nth-of-type(4) {
-  top: calc(var(--step) * 8);
-}
-
-#attitude .box .gyro .box-shadow {
-  position: absolute;
-  z-index: 3;
-  width: 100%;
-  height: 100%;
-  border-radius: 100%;
-  box-shadow: 0 0 25px -2px black inset;
-}
-#attitude .bird hr {
-  position: absolute;
-  z-index: 5;
-  border: 2px solid orange;
-  top: 46%;
-}
-#attitude .bird hr:nth-of-type(1) {
-  left: 15%;
-  right: 60%;
-}
-#attitude .bird hr:nth-of-type(2) {
-  left: 39%;
-  right: 55%;
-  transform-origin: 0 100%;
-  transform: rotate(30deg);
-}
-#attitude .bird hr:nth-of-type(3) {
-  top: 45%;
-  left: 50%;
-  right: 50%;
-  bottom: 55%;
-  margin: 5% 0 0 -2px;
-  border-width: 3px;
-  border-radius: 100%;
-}
-#attitude .bird hr:nth-of-type(4) {
-  left: 55%;
-  right: 39%;
-  transform-origin: 100% 0;
-  transform: rotate(-30deg);
-}
-#attitude .bird hr:nth-of-type(5) {
-  left: 61%;
-  right: 15%;
-}
+...
 ```
 
-And then we update `plane.js` to set these new CSS variables as part of the `updatePage` function:
+And then we create a little `public/js/attitude.js` file to help us inject and update that:
 
 ```javascript
-  async updatePage(data) {
-    if (paused) return;
+const content = await fetch("attitude.html").then((res) => res.text());
+const attitude = document.getElementById(`attitude`);
+attitude.innerHTML = content;
 
-    ...
-
-    const attitude = document.getElementById(`attitude`);
+export const Attitude = {
+  setPitchBank(pitch, bank) {
     attitude.style.setProperty(`--pitch`, pitch);
     attitude.style.setProperty(`--bank`, bank);
+  },
+};
+```
 
+Barely anything to it. Now we just import that and then call the `setPitchBank` function during the update cycle in our `plane.js`:
+
+```javascript
+import { Attitude } from "./attitude.js";
+...
+export class Plane {
+  ...
+  /**
+   * Yet again, we're back in updateState
+   */
+  async updateState(state) {
     ...
+    
+    // Update the attitude indicator:
+    const { PLANE_PITCH_DEGREES: pitch, PLANE_BANK_DEGREES: bank } = state.flightData;
+    Attitude.setPitchBank(pitch, bank);
+
+    this.lastUpdate = { time: now, ...state };
   }
+}
 ```
 
 And done, that's our attitude indicator hooked up.
@@ -2535,50 +2049,95 @@ export function initCharts() {
 }
 ```
 
-After which we update our `updatePage` functions:
+After which we update our `plane.js` to use this charting solution:
 
 ```javascript
+import { initCharts } from "./dashboard/charts.js";
+
 ...
-const trimToDegree = (v) => (v / (Math.PI / 10)) * 90;
-...
+
 export class Plane {
-  ...
-
-  async function updatePage(data) {
+  constructor(server, map = defaultMap, location = Duncan, heading = 135) {
+    ...
+    // Set up our chart solution, which will inject some elements
+    // into the page that will do the relevant drawing for us:
+    this.charts = initCharts();
+  }
+ 
+  /**
+   * Where else but updateState?
+   */
+  async updateState(state) {
     ...
 
-    // We're basically taking *everything* out of our current state now
-    const {
-      airBorn, speed, alt, galt, palt, vspeed,
-        lat, long, bank, pitch, trim, aTrim,
-        heading, trueHeading, turnRate, bug
-    } = this.state;
+    // And update the graphs... but at this point, let's write a little
+    // function that makes "Getting things out of flightData" easier, because
+    // we sure are trying to get stuff from it all over the place, and all
+    // those ALL_CAPS_VARIABLE_NAMES are making for some unpleasant code...
+    this.updateChart(getVarData(state.flightData), now);
 
-    ...
+    // And that last line in updateState:
+    this.lastUpdate = { time: now, ...state };
+  }
+  
+  /**
+   * And then in the updateChart function we simply pick our
+   * values, and tell the charting solution to plot them.
+   */
+  updateChart(varData, now) {
+    // Get our variables...
+    const { alt, bank, galt, pitch, speed, heading } = varData;
+    const { vspeed, trim, aTrim, turnRate } = varData;
 
-    // Because whatever we're not using to draw things on the map, we're using
-    // to plot as flight data using our graphing solution:
-    charts.update({
+    // ...and update all the charts for them!
+    this.charts.update({
       ground: galt,
       altitude: alt,
-      vspeed: vspeed * 60,
-      dvs: ((vspeed - this.lastUpdate.vspeed) * 60) / (now - this.lastUpdate.time),
+      vspeed: vspeed,
+      dvs: (vspeed - this.lastUpdate.vspeed) / (now - this.lastUpdate.time),
       speed: speed,
       pitch: pitch,
-      trim: trimToDegree(trim),
+      trim: trim,
       heading: heading - 180,
       bank: bank,
       dbank: (bank - this.lastUpdate.bank) / (now - this.lastUpdate.time),
       "turn rate": turnRate,
-      "aileron trim": aTrim * 100,
-    });
+      "aileron trim": aTrim,
+    })
+}
 
-    this.lastUpdate = { time: now, ...this.state };
-  }
+/**
+ * And here's that function to make getting values out of flightData easier:
+ */
+function getVarData(flightData) {
+  const {
+    AILERON_TRIM_PCT: aTrim,
+    AIRSPEED_INDICATED: speed,
+    AUTOPILOT_HEADING_LOCK_DIR: bug,
+    ELEVATOR_TRIM_POSITION: trim,
+    GROUND_ALTITUDE: galt,
+    INDICATED_ALTITUDE: alt,
+    PLANE_ALT_ABOVE_GROUND: paag,
+    PLANE_BANK_DEGREES: bank,
+    PLANE_HEADING_DEGREES_MAGNETIC: heading,
+    PLANE_HEADING_DEGREES_TRUE: trueHeading,
+    PLANE_LATITUDE: lat,
+    PLANE_LONGITUDE: long,
+    PLANE_PITCH_DEGREES: pitch,
+    STATIC_CG_TO_GROUND: cg,
+    TURN_INDICATOR_RATE: turnRate,
+    VERTICAL_SPEED: vspeed,
+  } = flightData;
+  return {
+    ...{ lat, long },
+    ...{ alt, bank, bug, cg, galt, paag },
+    ...{ heading, pitch, speed, trueHeading },
+    ...{ vspeed, trim, aTrim, turnRate },
+  };
 }
 ```
 
-And now we can see what our plane is doing over time:
+Now we can see what our plane is doing over time, which means we're ready to get down to what you started reading this page for. Now that we're some 10,000 words down the page.
 
 <figure style="width: 50%; margin: auto; margin-bottom: 1em; overflow: hidden;" >
   <a href="charts.png" target="_blank">
@@ -2586,7 +2145,13 @@ And now we can see what our plane is doing over time:
   </a>
   <figcaption style="font-style: italic; text-align: center;">All the data</figcaption>
 </figure>
-And with that, we're _finally_ ready to start writing our autopilot code, confident in the knowledge that we can see what effect our code will have on our plane, and that we can effectively analyze and debug anything we do in the next part.
+Right. _Let's do this_...
+
+
+
+# --------- continue here ----------
+
+
 
 # Part three: writing an autopilot
 

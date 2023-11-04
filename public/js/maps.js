@@ -27,16 +27,16 @@ const sources = [
       label: `OpenStreetMap`,
     },
   },
-  {
-    name: `googleStreets`,
-    url: `http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}`,
-    subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    maxZoom: 20,
-    attribution: {
-      url: `https://www.google.com/permissions/geoguidelines`,
-      label: `Google Maps`,
-    },
-  },
+  // {
+  //   name: `googleStreets`,
+  //   url: `http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}`,
+  //   subdomains: ["mt0", "mt1", "mt2", "mt3"],
+  //   maxZoom: 20,
+  //   attribution: {
+  //     url: `https://www.google.com/permissions/geoguidelines`,
+  //     label: `Google Maps`,
+  //   },
+  // },
   {
     name: `googleTerrain`,
     url: `http://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}`,
@@ -47,16 +47,16 @@ const sources = [
       label: `Google Maps`,
     },
   },
-  {
-    name: `googleSat`,
-    url: `http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}`,
-    subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    maxZoom: 20,
-    attribution: {
-      url: `https://www.google.com/permissions/geoguidelines`,
-      label: `Google Maps`,
-    },
-  },
+  // {
+  //   name: `googleSat`,
+  //   url: `http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}`,
+  //   subdomains: ["mt0", "mt1", "mt2", "mt3"],
+  //   maxZoom: 20,
+  //   attribution: {
+  //     url: `https://www.google.com/permissions/geoguidelines`,
+  //     label: `Google Maps`,
+  //   },
+  // },
 ];
 
 // Turn that into an easy-to-use object instead:

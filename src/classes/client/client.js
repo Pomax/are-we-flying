@@ -1,18 +1,8 @@
-import url from "url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import { AutoPilot } from "../../api/autopilot/autopilot.js";
+import { FlightInformation } from "./flight-information.js";
 
-// hot reloadable
-import { addReloadWatcher } from "../../api/autopilot/reload-watcher.js";
-import { FlightInformation as fi } from "./flight-information.js";
-let FlightInformation = fi;
-addReloadWatcher(
-  __dirname,
-  `flight-information.js`,
-  (lib) => (FlightInformation = lib.FlightInformation)
-);
-
-const RECONNECT_TIMEOUT = 5000;
+const RECONNECT_TIMEOUT_IN_MS = 5000;
+const POLL_RATE_IN_MS = 1000;
 
 // Do we have a flight owner key that we need to authenticate with?
 let fok = undefined;
@@ -36,8 +26,8 @@ export class ClientClass {
    * attempt
    */
   init() {
+    setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
     this.setState({ offline: true });
-    setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT);
   }
 
   /**
@@ -55,7 +45,7 @@ export class ClientClass {
     this.reconnect();
     this.#reconnection = setTimeout(
       () => this.#tryReconnect(),
-      RECONNECT_TIMEOUT
+      RECONNECT_TIMEOUT_IN_MS
     );
   }
 
@@ -177,10 +167,11 @@ export class ClientClass {
    */
   async setFlying(flying) {
     const wasFlying = this.state.flying;
-    this.setState({ flying, crashed: false, MSFS: true });
+    this.setState({ flying });
     if (flying && !wasFlying) {
       console.log(`starting a new flight...`);
-      this.#flightInfo ??= new FlightInformation(this.server.api);
+      this.setState({ crashed: false, MSFS: true });
+      this.#flightInfo = new FlightInformation(this.server.api);
       this.setState(await this.#flightInfo.update());
       this.#poll();
     }
@@ -192,11 +183,7 @@ export class ClientClass {
   async #poll() {
     if (!this.state.flying) return;
     const flightData = await this.#flightInfo.updateFlight();
-    if (flightData) {
-      this.setState({ flightData });
-    } else {
-      console.log(`flight data was empty?`);
-    }
-    setTimeout(() => this.#poll(), 1000);
+    if (flightData) this.setState({ flightData });
+    setTimeout(() => this.#poll(), POLL_RATE_IN_MS);
   }
 }

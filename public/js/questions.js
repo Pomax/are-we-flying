@@ -3,6 +3,7 @@ const questions = document.getElementById(`questions`);
 questions.innerHTML = content;
 
 const qss = [
+  `server-online`,
   `msfs-running`,
   `in-game`,
   `powered-up`,
@@ -35,11 +36,13 @@ const elements = Object.fromEntries(
 
 export const Questions = {
   update(state) {
+    elements.serverOnline.checked = !state.offline;
     elements.msfsRunning.checked = state.MSFS;
     elements.inGame.checked = state.camera?.main < 9;
     elements.poweredUp.checked = state.flightDat?.POWERED_UP;
     elements.enginesRunning.checked = state.flightData?.ENGINES_RUNNING;
-    elements.inTheAir.checked = !state.flightData?.SIM_ON_GROUND;
+    elements.inTheAir.checked =
+      state.flightData && !state.flightData.SIM_ON_GROUND;
     elements.usingAp.checked = state.flightData?.AUTOPILOT_MASTER;
     elements.planeCrashed.checked = state.crashed;
     // And we'll do this one separately because it's a more than just a checkmark:
@@ -47,7 +50,7 @@ export const Questions = {
   },
 
   modelLoaded(modelName) {
-    let model = `...nothing yet?`;
+    let model = `(...nothing yet?)`;
     if (modelName) {
       let article = `a`;
       if (vowels.includes(modelName.substring(0, 1))) article += `n`;

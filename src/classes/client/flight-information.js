@@ -1,5 +1,11 @@
 import { MSFS_API } from "msfs-simconnect-api-wrapper";
-import { FLIGHT_MODEL, FLIGHT_DATA } from "./flight-values.js";
+import {
+  BOOLEAN_VALUES,
+  DEGREE_VALUES,
+  PERCENT_VALUES,
+  FLIGHT_MODEL,
+  FLIGHT_DATA,
+} from "./flight-values.js";
 
 /**
  *
@@ -54,52 +60,24 @@ export class FlightInformation {
    */
   async updateFlight() {
     const flightData = await this.api.get(...FLIGHT_DATA);
+    if (!flightData) return (this.data = false);
 
-    if (!flightData) {
-      return (this.data = false);
-    }
+    // Convert values to the units they're supposed to be:
+    BOOLEAN_VALUES.forEach((p) => (flightData[p] = !!flightData[p]));
+    DEGREE_VALUES.forEach((p) => (flightData[p] *= 180 / Math.PI));
+    PERCENT_VALUES.forEach((p) => (flightData[p] *= 100));
 
-    // convert all values in radians to values in degrees
-    [
-      `PLANE_LATITUDE`,
-      `PLANE_LONGITUDE`,
-      `PLANE_BANK_DEGREES`,
-      `PLANE_HEADING_DEGREES_MAGNETIC`,
-      `PLANE_HEADING_DEGREES_TRUE`,
-      `PLANE_PITCH_DEGREES`,
-      `TURN_INDICATOR_RATE`,
-    ].forEach((p) => {
-      flightData[p] *= 180 / Math.PI;
-    });
+    // Convert "feet per second" to "feet per minute"
+    flightData.VERTICAL_SPEED *= 60;
 
-    // convert all "numerical booleans" to true booleans
-    [
-      `AUTOPILOT_MASTER`,
-      `ENG_COMBUSTION:1`,
-      `ENG_COMBUSTION:2`,
-      `ENG_COMBUSTION:3`,
-      `ENG_COMBUSTION:4`,
-      `SIM_ON_GROUND`,
-    ].forEach((p) => {
-      flightData[p] = !!flightData[p];
-    });
+    // Create a convenience value for "are any engines running?"
+    flightData.ENGINES_RUNNING = [1, 2, 3, 4].reduce(
+      (t, num) => t || flightData[`ENG_COMBUSTION:${num}`],
+      false
+    );
 
-    // convert "feet per second" to "feet per minute"
-    flightData[`VERTICAL_SPEED`] *= 60;
-
-    // convert "percent over 100" to percentages
-    flightData[`AILERON_TRIM_PCT`] *= 100;
-    flightData[`RUDDER_TRIM_PCT`] *= 100;
-
-    // Create a convenience value for "engines running?"
-    flightData[`ENGINES_RUNNING`] = [
-      `ENG_COMBUSTION:1`,
-      `ENG_COMBUSTION:2`,
-      `ENG_COMBUSTION:3`,
-      `ENG_COMBUSTION:4`,
-    ].reduce((t, p) => t || flightData[p], false);
-
-    flightData[`POWERED_UP`] = flightData.ELECTRICAL_TOTAL_LOAD_AMPS !== 0;
+    // Create a convenience value for "is the plane powered on?"
+    flightData.POWERED_UP = flightData.ELECTRICAL_TOTAL_LOAD_AMPS !== 0;
 
     return (this.data = flightData);
   }
