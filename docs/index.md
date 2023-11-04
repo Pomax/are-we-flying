@@ -1401,7 +1401,7 @@ class Plane {
   }
 
   /**
-   * A dedicated function for updating ther marker, which right now means
+   * A dedicated function for updating the marker, which right now means
    * updating the CSS variables we're using to show our plane and shadow.
    */
   updateMarker(css, flightData) {
@@ -1418,7 +1418,7 @@ class Plane {
 }
 ```
 
-And through the magic of "the OG web stack" we suddenly have a visualization that shows our plane somewhere in the air, and its shadow on the ground:
+And through the magic of "the O.G. web stack" we suddenly have a visualization that shows our plane somewhere in the air, and its shadow on the ground:
 
 ![A basic map with plane icon](./basic-map.png)
 
@@ -1426,7 +1426,7 @@ Nice!
 
 ...
 
-...I mean, yes, it's nice, but this doesn't really tell us much, does it? How high are we flying? What's our airspeed? Which heading are we actually flying? I think we're going to need some more HTML. And probably some CSS variables. And a smattering of JS.
+...I mean... I guess it's nicer than note having a plane on the map, but this doesn't really tell us much, does it? How high are we flying? What's our airspeed? Which heading are we actually flying? I think we're going to need some more HTML.And some SVG. And probably some CSS variables. And a smattering of JS.
 
 ### Improving our map
 
@@ -1434,15 +1434,15 @@ Let's start by considering what we might want to visualize. We basically want al
 
 ![our map icon](./plane-marker.png)
 
-Oh yeah: we're getting fancy. We're not using a simple little pin, we're cramming as much MSFS information into our marker as we can:
+Oh yeah: we're getting fancy. We're not using a simple little pin with a text bubble, we're cramming as much MSFS information into our marker as we can:
 
 - Up top we have the current altitude above the ground in feet, with the altitude relative to sea level in parentheses.
 - Down below, the speed in knots.
-- In the center, we have the plane itself, offset vertically based on its altitude.
+- In the center, we have the plane itself, offset vertically based on its altitude, with a picture that looks like the in-game plane.
 - Below it, on the ground, we have the same plane but blurred and made translucent so it looks like a ground shadow.
 - Also below the plane we have an altitude line connecting the plane to its GPS position on the map,
 - as well as a line indicating both the current heading and speed of the plane.
-- The outer compass ring represents the magnetic compass as we'd see it inside the plane,
+- The outer compass ring represents the magnetic compass as we see it inside the plane,
 - and the an inner compass ring represents the "true" north, based on GPS.
 - The outer ring has a red "heading bug" that points in the direction that the plane should be going according to the autopilot,
 - as well a green "current heading" marker so we don't have to guess our heading based on the speed line.
@@ -1493,7 +1493,7 @@ How do we build that? With HTML and SVG:
 </div>
 ```
 
-Now, I'm skipping over the SVG code here mostly because it's just a _lot_ of SVG and really all you need is to copy-paste the code [here]() to keep following along. What's more important is the updates to our CSS:
+Now, I'm skipping over the SVG code here mostly because it's just a _lot_ of SVG and really all you need is to copy-paste the code [here](https://github.com/Pomax/are-we-flying/blob/main/public/map-marker.html) to keep following along. What's more important is the updates to our CSS:
 
 ```css
 #plane-icon {
@@ -1519,7 +1519,7 @@ Now, I'm skipping over the SVG code here mostly because it's just a _lot_ of SVG
 */
 ```
 
-Again, if you want to follow along grab the CSS [here](), but the important part is those new CSS variables,  which we can update on the JS side based on the values we get from MSFS:
+Again, if you want to follow along grab the CSS [here](https://github.com/Pomax/are-we-flying/blob/main/public/css/map-marker.css), but the important part is those new CSS variables,  which we can update on the JS side based on the values we get from MSFS:
 
 ```javascript
 import { getAirplaneSrc } from "./airplane-src.js";
@@ -1589,7 +1589,7 @@ export class Plane {
 }
 ```
 
-And the final bit of the puzzle, `airplane-src.js`, for which we're going to want to create a directory called `planes` inside our `public` directory, so that we can fill it with plane icons, like these:
+And the final bit of the puzzle, `airplane-src.js`, for which we're going to want to create a directory called `public/planes` so that we can fill it with plane icons, like these:
 
 ![so many planes!](./plane-icons.png)
 
@@ -1623,11 +1623,11 @@ And that'll do it. Let's fire up MSFS, load a plane into the world, and let's se
 
 ![A map with our marker on it](./marker-on-map.png)
 
-It looks spectacular, and we can see ourselves flying around on the map on our webpage!
+That's looking pretty good
 
-> **"That looks cool! But hold up... why are there _two_ compasses?"** - you, hopefully (again)
+> **"Oh, yeah that looks cool! But hold up... why are there _two_ compasses?"** - you, hopefully (again)
 
-Yeah, so, here's a fun thing about our planet: you'd think magnetic lines run north to south, like those pictures of metal filings around a magnet... which they would, if the Earth was a bar-magnet-sized magnet. Instead, it's _absolutely huge_ and a highly imperfect magnet, so a picture of the magnetic field plotted on a map looks more like this:
+Yeah, so, here's a fun thing about our planet: you'd think magnetic lines run north to south, like those pictures of metal filings around a magnet... which they would, if the Earth was a bar-magnet-sized magnet. Instead, it's an _absolutely huge_ and highly imperfect magnet, so aif we look at a picture of "how wrong a magnet wrt true north/south anyewhere on the planet", things look like this:
 
 <figure style="width: 80%; margin: auto;">
     <a href="https://en.wikipedia.org/wiki/File:World_Magnetic_Declination_2015.pdf">
@@ -1635,7 +1635,7 @@ Yeah, so, here's a fun thing about our planet: you'd think magnetic lines run no
     </a>
     <figcaption style="text-align:center">A map of the magnetic declination on planet Earth</figcaption>
 </figure>
-The green lines are where a compass will actually point north, but everywhere else on the planet your compass will be off by various degrees. For example, it's only a touch off in Belgium, but at the south tip of the border between Alaska and Canada, your compass will be a pointing a whopping 20 degrees away from true north. When you're flying a plane, you better be aware of that, and you better know which of your instruments use compass heading, and which of them use true heading, or you might not get to where you thought you were going.
+The green lines are where a compass will _actually_ point north, but everywhere else on the planet your compass will be off by various degrees. For example, it's only a tiny bit off if you're in Belgium, but at the south tip of the border between Alaska and Canada, your compass will be a pointing a whopping 20 degrees away from true north. When you're flying a plane, you'd better be aware of that, and you better know which of your instruments use compass heading, and which of them use true heading, or you might not get to where you thought you were going.
 
 ### Seeing the terrain
 
@@ -1741,7 +1741,7 @@ export function setMapScale(map, metric=true, imperial=false, nautical=true) {
 }
 ```
 
-How this code works isn't super important, but what it does when use it is: if we update our `maps.js` file as follows:
+How this code works isn't super important, but what it does when we use it, is: if we update our `maps.js` file as follows:
 
 ```javascript
 import { waitFor } from "./utils.js";
@@ -1760,7 +1760,7 @@ setMapScale(map);
 ...
 ```
 
-And we refresh our browser, we now have a handy-dandy scale marker:
+And we refresh our browser, we now have a handy-dandy scale marker in the lower left corner:
 
 ![now with scale](./map-with-scale.png)
 
@@ -1768,7 +1768,7 @@ Looking pretty good!
 
 ## Recording our flight path
 
-Seeing ourselves flying around on the map is pretty great, but we can only see "where we are", instead of seeing where we've been so far. As it turns out, Leaflet supports drawing polygons, so let's also add some "flight tracking" to our web page (not in the least because it's something that will be pretty important for debugging autopilot code later!).
+Seeing ourselves flying around on the map is pretty great, but right now we can only see "where we are", instead of seeing where we've come from. As it turns out, Leaflet supports drawing polygons, so let's also add some "flight tracking" to our web page (not in the least because it's something that will be pretty important for debugging autopilot code later!).
 
 First, we create a little `public/js/trail.js` class because you know how this works by now, new code gets its own file:
 
@@ -1810,7 +1810,7 @@ export class Trail {
 }
 ```
 
-Really all this does is wrap some of the functionality so that we can just create a `Trail` instance, and add points to it and it'll do the right thing. For instance, it's not going to do anything until there are two points to draw a line with. That's not code we want to constantly have to remember we need to write.
+Really all this does is wrap some of the administrative functionality for tracking position over time, so that we can just create a `Trail` instance, and add points to it and it'll do the right thing. For instance, it's not going to do anything until there are two points to draw a line with. That's not code we want to constantly have to remember we need to write.
 
 So with that class set up, let's update `plane.js` some more:
 
@@ -1823,7 +1823,8 @@ export class Plane {
   ...
 
   // A little helper function for tracking "the current trail", because we
-  // can restart flights as much as we want. Voluntarily, or because we crashed...
+  // can restart flights as much as we want. Voluntarily, or because we
+  // crashed, and those new flights should get their own trail:
   startNewTrail(location) {
     this.trail = new Trail(this.map, location);
   }
@@ -1836,7 +1837,8 @@ export class Plane {
     const now = Date.now();
     Questions.update(state);
 
-    // Check if we started a new flight because that requires immediately building a new flight trail:
+    // Check if we started a new flight because that requires
+    // immediately building a new flight trail:
     const startedFlying = !this.lastUpdate.flying && this.state.flying;
     if (startedFlying) this.startNewTrail();
     
@@ -1861,6 +1863,7 @@ export class Plane {
     const { PLANE_LATITUDE: lat2, PLANE_LONGITUDE: long2 } = this.lastUpdate.flightData;
     const d = getDistanceBetweenPoints(lat2, long2, lat, long);
     const kmps = (speed ?? 0) / 1944;
+
     // We'll call ourselves "teleported" if we moved at a speed of over
     // 5 kilometers per second (3.1 miles per second), which is roughly
     // equivalent to mach 14.5, which is a little over half the orbital
@@ -1890,7 +1893,7 @@ There's one thing our fancy marker isn't showing though, which is the current ro
 
 ![now with attitude](./attitude.png)
 
-This is a way to visualize whether the plane is pitching up, down, or is flying level, as well as showing whether we're turning, left, right, or flying straight. It's a critical part of the cockpit, and it would be very nice if we could see one at all times, too. So just like before, let's whip up a bit of HTML, SVG, CSS, and JS to make that happen.
+This is a way to visualize whether the plane is pitching up, down, or is flying level, as well as showing whether we're turning left, right, or flying straight. It's a critical part of the cockpit, and it would be very nice if we could see one at all times, too. So just like before, let's whip up a bit of HTML, SVG, CSS, and JS to make that happen.
 
 Thankfully, the attitude indicator is considerably less code than the airplane marker, so let's create a `public/attitude.html`:
 
@@ -1940,7 +1943,7 @@ Thankfully, the attitude indicator is considerably less code than the airplane m
 </div>
 ```
 
-With... okay, quite a _lot_ of CSS, so have a look [here]() if you're following along, I'll just highlight the important part here, which is (of course) the CSS variables section:
+With... okay, quite a _lot_ of CSS, so have a look [here](https://github.com/Pomax/are-we-flying/blob/main/public/css/attitude.css) if you're following along, I'll just highlight the important part here, which is (of course) the CSS variables section:
 
 ```css
 #attitude {
@@ -2147,217 +2150,222 @@ Now we can see what our plane is doing over time, which means we're ready to get
 </figure>
 Right. _Let's do this_...
 
-
-
-# --------- continue here ----------
-
-
-
 # Part three: writing an autopilot
 
 It's time. Let's write that autopilot.
 
 And while we could do this in the browser, we're going to be adding the main code to our API server, rather than our web page. Don't get me wrong: we _totally could_ write our autopilot in client-side JS, but we'd much rather not have to deal with the delay of network requests from the webpage (even if web sockets are must faster than GET/POST requests), and we definitely don't want to accidentally turn off the autopilot just because we closed a tab... we might be flying a virtual plane, but it'd be nice to keep it in the air instead of just plummeting out of the sky when we accidentally close our browser!
 
-So, we're going to accept autopilot _instructions_ from our web page, and then make those instructions trigger autopilot _logic_ over on the API server's side. To help with this, we're going to create an `Autopilot` class that will house all the logic, and we'll update our API server's web socket code so that we can send and receive autopilot messages.
+Explain browser toggles functions by calling server functions, server actually handles the AP logic.
 
-Let's do that in reverse, since the API server update isn't all too big:
+server.js update:
 
 ```javascript
-import { AutoPilot } from "./autopilot/autopilot.js";
-...
-
-// Set up our API and Autopilot:
-const api = new MSFS_API();
-const autopilot = new AutoPilot(api, async (params) => broadcast(`autopilot`, params));
+import { AutoPilot } from "../../api/autopilot/autopilot.js";
+import { AutopilotRouter } from "./autopilot-router.js";
 
 ...
 
-// Then update our websocket handler
-app.ws("/", function (socket) {
-  ...
-  socket.on("message", async (msg) => {
-    const { action, data } = JSON.parse(msg.toString("utf-8"));
+export class ServerClass {
+  #autopilot;
+
+  constructor() {
+    this.api = new APIWrapper(api, () => MSFS);
+
+    // Set up call handling for autopilot functionality by binding it to a private property.
+    this.#autopilot = new AutoPilot(api, async (params) =>
+      this.clients?.forEach((client) => client.onAutoPilot(params))
+    ));
+
+    // And then we expose an `.autopilot` property to clients that they can call:
+    const autopilot = (this.autopilot = new AutopilotRouter(this.#autopilot, (params) =>
+      this.clients?.forEach((c) => c.onAutoPilot(params))
+    ));
+    
     ...
-    if (action === `autopilot`) {
-      // Autopilot messages need to be further unpacked:
-      const { action, params } = data;
+  }
+  
+  // We update our register function to include the autopilot
+  // (the real one, not the server routing property)
+  #registerWithAPI(api, autopilot) {
+    api.on(SystemEvents.PAUSED, async () => {
+      // Make sure to pause the autopilot when the game is paused,
+      // otherwise it might try to make bigger and bigger corrections,
+      // and then we unpause, the plane will probably crash.
+      autopilot.setPaused(true);
+      this.clients.forEach((client) => client.pause());
+    });
 
-      // Autopilot instructions will use the "update" action:
-      if (action === `update`) {
-        await autopilot.setParameters(params);
-      }
-
-      // and regardless of what instruction was issued, always respond with "the current autopilot parameters"
-      broadcast(`autopilot`, autopilot.getAutoPilotParameters());
-    }
-  });
+    api.on(SystemEvents.UNPAUSED, async () => {
+      autopilot.setPaused(false);
+      this.clients.forEach((client) => client.unpause());
+    });
+    
+    // the other events don't need autopilot updates
+  }
+  
   ...
-});
-
-app.listen(PORT, () => {
-  ...
-    onConnect: () => {
-      console.log(`Connected to MSFS`);
-      // Since we now have an autopilot, we should also remember to pause it when the game's paused:
-      api.on(SystemEvents.PAUSED, () => autopilot.setPaused(true));
-      api.on(SystemEvents.UNPAUSED, () => autopilot.setPaused(false));
-      // And when we switch from "not in game" to "in game", reset the autopilot.
-      api.on(SystemEvents.SIM, (inGame) => { if (inGame === 1) { autopilot.reset(); }});
-      ...
-    },
-  ...
-});
-```
-
-Nothing too special, just a few tiny changes: we create an autopilot instance with an onChange handler so that any time the autopilot's parameters change (either because we told it to, or because the autopilot changed it own parameters) all clients will be notified of those changes. And then we add some code so that clients can send a web socket message with a payload that looks like:
-
-```javascript
-{
-  action: "autopilot",
-  data: {
-    action: "update",
-    params: {
-      ...
+  
+  async #checkFlying(client) {
+    ...
+    if (flying !== wasFlying) {
+      // If we just started flying, reset the autopilot:
+      if (flying) this.#autopilot.reset();
+      this.clients.forEach((client) => client.setFlying(flying));
+    } else if (client) {
+      client.setFlying(flying);
     }
   }
-}
+}  
 ```
 
-where the `params` object will contain key/value pairs for things like setting the altitude we want to fly, our heading, whether to auto-level the wings, etc.
-
-Moving on to the `Autopilot` class:
+Autopilot router:
 
 ```javascript
-import { State } from "./state.js";
+/**
+ * "route" handler for autopilot API calls from clients
+ */
+export class AutopilotRouter {
+  #autopilot;
+  #broadcastUpdate;
 
-const DEFAULT_AP_INTERVAL = 500; // in milliseconds
+  // ...
+  constructor(autopilot, broadcastUpdate) {
+    this.#autopilot = autopilot;
+    this.#broadcastUpdate = broadcastUpdate;
+  }
+
+  async getParameters(client) {
+    return this.#autopilot.getParameters();
+  }
+
+  async update(client, params) {
+    if (!client.authenticated) return false;
+    await this.#autopilot.setParameters(params);
+    this.#broadcastUpdate(this.#autopilot.getParameters());
+  }
+}
+
+```
+
+Autopilot: should we use the same kind of state object as in the client?
+
+```javascript
+import { State } from "./utils/state.js";
+
+const AUTOPILOT_INTERVAL = 500;
 
 export class AutoPilot {
   constructor(api, onChange = () => {}) {
     this.api = api;
     this.onChange = onChange;
-    this.AP_INTERVAL = REGULAR_AUTOPILOT;
+    this.AP_INTERVAL = AUTOPILOT_INTERVAL;
     this.reset();
+    this.watchForUpdates();
   }
 
   reset() {
-    this.paused = false;
-    this.crashed = false;
     this.prevState = new State();
     this.autoPilotEnabled = false;
-    this.modes = {
-      // We'll be filling this with all the various autopilot modes later
-    };
-    this.onChange(this.getAutoPilotParameters);
+    this.paused = false;
+    this.crashed = false;
+    this.modes = {} // more on this later
+    this.onChange(this.getParameters);
   }
 
-  // we want to make sure we don't run when the game is paused.
   setPaused(value) {
     this.paused = value;
   }
 
-  run() {
-    // We don't actually care whether the autopilot runs on an exact interval, since our AP won't be running
-    // every frame, but more like every several thousand frames. A regular old timeout works just fine.
-    setTimeout(() => this.runAutopilot(), this.AP_INTERVAL);
+  setCrashed(value) {
+    this.crashed = value;
   }
 
-  // Mostly for convenience, we wrap the API's get, set, and trigger functions
   async get(...names) {
+    if (!this.api.connected) return {};
     return this.api.get(...names);
   }
+
   async set(name, value) {
+    if (!this.api.connected) return;
     this.api.set(name, value);
   }
-  async trigger(name, value) {
-    this.api.trigger(name, value);
+
+  async trigger(name) {
+    if (!this.api.connected) return;
+    this.api.trigger(name);
   }
 
-  // Then the function that lets clients know what the current autopilot state is:
-  getAutoPilotParameters() {
+  getParameters() {
     const state = { MASTER: this.autoPilotEnabled };
-    Object.entries(this.modes).forEach(([key, value]) => (state[key] = value));
+    // Object.entries(this.modes).forEach(([key, value]) => {
+    //   state[key] = value;
+    // });
     return state;
   }
 
-  // And the "set" equivalent of that "get":
   async setParameters(params) {
-    // Is the AP getting turned on?
-    if (params.MASTER !== undefined) {
-      this.autoPilotEnabled = params.MASTER;
-      if (this.autoPilotEnabled) {
-        // When we turn on our own autopilot, we want to make make sure that the in-game autopilot
-        // gets turned off if it's running. Thing will go super wrong with two competing autopilots!
-        const { AUTOPILOT_MASTER: master } = await this.get(`AUTOPILOT_MASTER`);
-        if (master === 1) this.trigger(`AP_MASTER`);
-        // And, of course, start running our autopilot.
-        this.run();
-      }
-    }
-    // All other parameters get "normal" treatment, but make sure we don't send out
-    // parameter updates for every single change. We'll send a single change update
-    // once all parameters have been updated:
     Object.entries(params).forEach(([key, value]) =>
-      this.setTarget(key, value, false)
+      this.setTarget(key, value)
     );
-    this.onChange(this.getAutoPilotParameters());
   }
 
-  // Flip a value from true to false (or vice versa)
+  /*
   toggle(type) {
     const { modes } = this;
     if (modes[type] === undefined) return;
     this.setTarget(type, !modes[type]);
   }
 
-  // Set a parameter to a specific value:
-  setTarget(type, value, handleChange = true) {
+  setTarget(type, value) {
     const { modes } = this;
     if (modes[type] === undefined) return;
     const prev = modes[type];
     modes[type] = value;
-    if (handleChange) this.processChange(type, prev, value);
+    this.processChange(type, prev, value);
   }
 
-  // After a parameter has been updated, we get some control over "what happens now".
   async processChange(type, oldValue, newValue) {
-    // ...And we'll be filling this in more over the course of implementing our autopilot...
-    this.onChange(this.getAutoPilotParameters());
+    // ...
+    this.onChange(this.getParameters());
   }
+  */
 
-  // Of course, we can't forget the most important function:
+  run() {
+    // We don't actually care whether the autopilot runs on an
+    // exact interval, we just need it to run "regularly enough",
+    // so we don't need requestAnimationFrame or the like, a
+    // regular old timeout will work just fine.
+    setTimeout(() => this.runAutopilot(), this.AP_INTERVAL);
+  }
+  
   async runAutopilot() {
-    // This is our master autopilot entry point, grabbing the current
-    // state from MSFS, and forwarding it to the relevant AP handlers.
-
-    // But not if we're turned off.
+    // This is our master autopilot entry point,
+    // grabbing the current state from MSFS, and
+    // forwarding it to the relevant AP handlers.
+    if (this.crashed) return;
+    if (!this.api.connected) return;
     if (!this.autoPilotEnabled) return;
 
-    // If the autopilot is turned on, then regardless of whether there will be errors due to MSFS
-    // glitching, or the DLL-handling glitching, or values somehow having gone missing etc. we still
-    // want to make sure to schedule the next run call:
+    // If the autopilot is enabled, even if there
+    // are errors due to MSFS glitching, or the DLL
+    // handling glitching, or values somehow having
+    // gone missing etc. etc: schedule the next call
     this.run();
 
-    // Note that if the autopilot is paused, we halt execution of this function *after* scheduling
-    // the next call. That way, the game getting paused doesn't halt the autopilot code loop.
+    //  Are we flying, or paused/in menu/etc?
     if (this.paused) return;
 
-    // In order to do the job an autopilot needs to do, we're going to need to know the plane's current parameters.
     const data = await this.getCurrentData();
-
-    // We then pack that information as an easy-to-use data structure (which also takes care of automatically
-    // initializing "delta" values, i.e. how much things changed over time, as well as converting certain values
-    // from hard-to-use units to easy-to-use units)
     const state = new State(data, this.prevState);
-
-    // ...We'll be filling this in more over the course of implementing our autopilot, too...
-
+    
+    // ...
+    
     this.prevState = state;
   }
 
   async getCurrentData() {
-    // We'll go over what all of these do as we build out our autopilot
+    // TODO: this needs the same kind of conversion the client performs.
     return this.get(
       `AILERON_TRIM_PCT`,
       `AIRSPEED_TRUE`,
@@ -2380,13 +2388,10 @@ export class AutoPilot {
 }
 ```
 
-There's two things to note about this code: first, there's a `modes` variable that we'll be using the regulate our autopilot. As we build out our autopilot, we'll be adding entries to this list in order to control different aspects of the aeroplane's behaviour.
-
-Second, that `State` class is worth looking at. In order to make our life a little easier we use a special data object that we can pass the "raw" MSFS SimConnect values to, and have it turn that into the kind of numbers we can easily work with, taking care of unit version, tracking deltas over time, and all that lovely stuff:
+State code: this should not need to perform any conversions. 
 
 ```javascript
-const TAU = 2 * Math.PI;
-const degrees = (v) => (360 * v) / TAU;
+import { degrees } from "./utils.js";
 
 export class State {
   // Basic flight data
@@ -2409,7 +2414,8 @@ export class State {
   pitchTrimLimit = [10, -10];
   aileronTrim = 0;
 
-  // Value deltas ("per second"). These are automatically set if there is a previous state.
+  // Value deltas ("per second"). These are automatically
+  // set if there is a previous state.
   dSpeed = 0;
   dLift = 0;
   dBank = 0;
@@ -2418,7 +2424,6 @@ export class State {
   dV = 0;
   dVS = 0;
 
-  // Is this a tail dragger, which matters for takeoff and landing?
   isTailDragger = false;
 
   // Timestamp for this state. This value is automatically set.
@@ -2431,15 +2436,12 @@ export class State {
     this.speed = data.AIRSPEED_TRUE ?? this.speed;
     this.lift = data.PLANE_ALT_ABOVE_GROUND_MINUS_CG ?? this.lift;
 
-    // we want lat/long in decimal degrees, not radians.
     this.latitude = degrees(data.PLANE_LATITUDE ?? this.latitude);
     this.longitude = degrees(data.PLANE_LONGITUDE ?? this.longitude);
-
-    // heading stays radians, for maths purposes
+    // FIXME: should these always be in degrees, too?
+    // ANSWER: yes, as per the client code
     this.heading = data.PLANE_HEADING_DEGREES_MAGNETIC ?? this.heading;
     this.trueHeading = data.PLANE_HEADING_DEGREES_TRUE ?? this.trueHeading;
-
-    // but magnetic declination is in decimal degrees.
     this.declination = degrees(this.trueHeading - this.heading);
 
     this.bankAngle = data.PLANE_BANK_DEGREES ?? this.bankAngle;
@@ -2454,10 +2456,9 @@ export class State {
       data.ELEVATOR_TRIM_DOWN_LIMIT ?? -10,
     ];
     this.aileronTrim = data.AILERON_TRIM_PCT ?? this.aileronTrim;
-
     this.isTailDragger = data.IS_TAIL_DRAGGER ?? this.isTailDragger;
-
     this.callTime = Date.now();
+
     if (previous) {
       const interval = (this.callTime - previous.callTime) / 1000;
       // Derive all our deltas "per second"
@@ -2473,7 +2474,7 @@ export class State {
 }
 ```
 
-So that takes care of the initial code, let's figure out how to write actual autopilot code, and specifically, how an autopilot even operates.\
+This does nothing yet, but we'll be growing this code as we're adding more and more functionality to our autopilot. And because we'll be editing a bunch of code without wanting to constantly restart fights...
 
 ## Hot-reloading to make our dev lives easier
 
@@ -2597,6 +2598,8 @@ So let's start with the simplest of those systems: the autopilot equivalent of c
 
 ### LVL: level mode
 
+### --- add pictures of how to correct for not-level ---
+
 Implementing level mode is probably the easiest of all autopilot functions, where we're going to simply check "is the plane tilting left or right?" and if so, we move the **aileron trim**—a value that "biases" the plane to tilt left or right by adjusting the wing surfaces that tilt the plane—in the opposite direction. As long we do that a little bit at a time, and we do that for long enough, we'll eventually have the plane flying level.
 
 So let's write some code. First, we'll define a constants file for housing things like autopilot modes:
@@ -2708,6 +2711,8 @@ So we start by actually getting our current bank and bank acceleration values, a
 3. Finally, we update our trim, and then we wait for the autopilot to trigger this function again during the next run, letting us run through the same procedure, but with (hopefully!) slightly less wrong values. Provided that this function runs enough times, we'll converge on level flight, and that's exactly what we want.
 
 ### ALT: altitude hold
+
+### --- add pictures of how to correct for not-straight ---
 
 Next up: making the plane hold its vertical position. This requires updating the "elevator trim" (also known as pitch trim) rather than our aileron trim, by looking at the plane's vertical speed. That is, we're going to look at how fast the plane is moving up or down through the air, and then we try to correct for that by pitching the plane a little in the direction that counteracts that movement.
 
@@ -2833,6 +2838,8 @@ The only "cheating" is those `SMALL_TRIM` and `LARGE_TRIM` values, which aren't 
 ### Testing our code
 
 So let's do some testing! Let's get a few planes up in the air, manually trim them so they fly mostly straight ahead, and then turn on our own bespoke artisanal LVL mode! For this test, and every test we'll be doing for all the other modes we'll be implementing, we'll be using a cross section of the various planes in MSFS:
+
+#### --- add in-game pictures ---
 
 - The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), a fun little piston engine bush plane.
 - The [Cessna 310R](https://en.wikipedia.org/wiki/Cessna%5F310), a (very good looking) small twin turbo-prop plane.
