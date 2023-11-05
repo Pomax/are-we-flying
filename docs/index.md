@@ -138,7 +138,7 @@ So a tiny bit more code, but that's all we need to do in terms of setting up our
 
 Before we implement those though, let's verify that the code we wrote even works by implementing some tiny client and server classes with just enough code to show connections and function calls work.
 
-First, let's install our dependencies:
+First, let's install our dependencies: [dotenv](https://www.npmjs.com/package/dotenv), [open](https://www.npmjs.com/package/open), [socketless](https://www.npmjs.com/package/socketless), and [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper).
 
 ```javascript
 > npm i dotenv open socketless msfs-simconnect-api-wrapper
@@ -2567,7 +2567,7 @@ Let's make sure to test this before we move on. Let's:
 The important thing to realize is that the button doesn't turn red "when we clicked it" because we didn't write any code that adds an `active` class when we click a button. Instead _a lot more_ happens:
 
 1. we pressed the button,
-2. that doesn't add a class but instead calls`server.autopilot.update({ MASTER: true })`,
+2. that doesn't add a class but instead calls `server.autopilot.update({ MASTER: true })`,
 3. which makes the server-side autopilot code update its `MASTER` value,
 4. which then triggers an autopilot settings-change broadcast,
 5. which calls our client's `onAutoPilot` with the new settings,
@@ -2577,7 +2577,7 @@ The important thing to realize is that the button doesn't turn red "when we clic
 9. which passes it on to the `autopilot.update` function,
 10. and _that_, finally, sets an `active` class on the associated button.
 
-And that all happened so fast that as far as you can tell, you just clicked a button and it instantly changed color to show that it's active: that's a good sign! It looks like we'll be able to control our autopilot through the browser without things feeling sluggish or laggy!
+And that all happened so fast (even on a laptop from 2015, this takes only a few milliseconds) that as far as you can tell, you just clicked a button and it instantly changed color to show that it's active: that's a good sign! It looks like we'll be able to control our autopilot through the browser without things feeling sluggish or laggy!
 
 ## So how does an autopilot work?
 

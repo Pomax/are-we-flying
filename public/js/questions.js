@@ -48,9 +48,9 @@ export const Questions = {
     elements.usingAp.checked = state.flightData?.AUTOPILOT_MASTER;
     elements.planeCrashed.checked = state.crashed;
     elements.latitude.textContent =
-      state.flightData?.PLANE_LATITUDE.toFixed(6) ?? `-`;
+      state.flightData?.PLANE_LATITUDE?.toFixed(6) ?? `-`;
     elements.longitude.textContent =
-      state.flightData?.PLANE_LONGITUDE.toFixed(6) ?? `-`;
+      state.flightData?.PLANE_LONGITUDE?.toFixed(6) ?? `-`;
     // And we'll do this one separately because it's a more than just a checkmark:
     this.modelLoaded(state.flightModel?.TITLE);
   },
