@@ -258,7 +258,7 @@ let flying = false;
 
 // Then we define a function that lets us set up the connection to MSFS
 // so we don't need all that code in our server class constructor:
-function connectServerToAPI(server, onConnect) {
+function connectServerToAPI(onConnect) {
   api.connect({
     retries: Infinity,
     retryInterval: 5,
@@ -275,10 +275,13 @@ export class ServerClass {
     // finish writing this class. We bind this as `this.api` so that any
     // client/ will be able to call `this.server.api...` and have things work.
     this.api = new APIWrapper(api, () => MSFS);
-    connectServerToAPI(this, () => {
+    connectServerToAPI(() => {
       // When MSFS exists and we're connected, write that down:
       MSFS = true;
 
+      // Then register for a few basic MSFS events:
+      this.#registerWithAPI(api, autopilot);
+      
       // And then let every connected client (and there might be none,
       // or there might be a hundred!) know that we connected.
       this.clients.forEach((client) => client.onMSFS(MSFS));
@@ -287,6 +290,25 @@ export class ServerClass {
       // us whether or not a flight is happening:
       this.#poll();
     };
+  }
+  
+  /**
+   * Whenever the game pauses or unpauses, as well as whenever we
+   * crash or reset from a crash, let all connected clients know:
+   */
+  #registerWithAPI(api, autopilot) {
+    api.on(SystemEvents.PAUSED, async () => {
+      this.clients.forEach((client) => client.pause());
+    });
+    api.on(SystemEvents.UNPAUSED, async () => {
+      this.clients.forEach((client) => client.unpause());
+    });
+    api.on(SystemEvents.CRASHED, async () => {
+      this.clients.forEach((client) => client.crashed());
+    });
+    api.on(SystemEvents.CRASH_RESET, async () => {
+      this.clients.forEach((client) => client.crashReset());
+    });
   }
 
   /**
@@ -901,10 +923,10 @@ export class ClientClass {
     ...
     // Then, if we have a key, use that to authenticate when we have a connection to the server:
     if (flightOwnerKey) {
+      // And by setting a state value, the browser will be able to tell
+      // whether or not we're authenticated at the server as well:
       this.setState({
         authenticated: await this.server.authenticate(flightOwnerKey);
-        // And by setting a state value, the browser will be able to tell
-        // whether or not we're authenticated at the server as well.
       });
     }
   }
@@ -1058,7 +1080,59 @@ And now if we point our plane towards the ground and just let gravity do the res
 ...we crashed!
 ```
 
-Which means our crash event listener worked. So this is promising, we have a full loop, time to actually _use_ this for something!
+Which means our crash event listener worked. So this is promising, we have a full loop!
+
+## Hot-reloading to make our dev lives easier
+
+As a last bit of preparator dev work, we're going to be working on files in a way where it'll be super useful if we can just make changes, save the file, and then have the new code immediately swap in without having to shut down and restart our API or web server. This is actually relatively easy to do, although it comes with some caveats:
+
+```javascript
+import fs from "fs";
+import path from "path";
+
+export function addReloadWatcher(dir, filename, loadHandler) {
+  // step 1: don't run file-watching in production. Obviously.
+  if (process.env.NODE_ENV === `production`) return;
+  
+  // If we're not running in production, check this file for changes every second:
+  const filepath = path.join(dir, filename);
+  fs.watchFile(filepath, { interval: 1000 }, () => {
+    // If there was a change, re-import this file as an ES module, with a "cache busting" URL.
+    // Now, this *is* an explicit memory leak, because there is no "unloading" for modules, but
+    // we're not going to be watching files in production, and you definitely have enough RAM
+    // for what we're going to using it for =)
+    import(`file:///${filepath}?ts=${Date.now()}`).then((lib) => {
+      console.log(`RELOADING ${filepath}`);
+      loadHandler(lib);
+    });
+  });
+}
+```
+
+The first caveat being an explicit memory leak.
+
+The next being that we can no longer "just load something from a module", we need to be a little more clever about how we use this function:
+
+```javascript
+import url from "url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+import { addReloadWatcher } from "./reload-watcher.js";
+
+// normally you'd use `import { Something } from "./some-module.js"`,
+// but we can't update variables created that way. Instead, we need
+// to work in a slightly roundabout manner:
+import { Something: s } from "./some-module.js";
+
+// we now have an immutable variable called "s", which we can assign
+// to a *mutable* variable with the actual name we want to use:
+let Something = s;
+
+// We can then set up our reload watched to update that mutable variable
+// every time something changes in our module file:
+addReloadWatcher(__dirname, `/some-module.js`, (lib) => (Something = lib.Something));
+```
+
+We'll be making extensive use of this once we implement our autopilot in part three. But first...
 
 # Part two: visualizing flights
 
@@ -2245,7 +2319,8 @@ let autopilot = false;
 
 export class ServerClass {
   constructor() {
-    // Set up the autopilot instance.
+    // Set up the autopilot instance, with a callback that lets the 
+    // autopilot broadcast its settings whenever they change.
     autopilot = new AutoPilot(api, (params) =>
       this.#autopilotBroadcast(params)
     );
@@ -2334,7 +2409,24 @@ export class AutopilotRouter {
 }
 ```
 
-With the final bit being an update to our browser code so we can actually turn the autopilot on and off (even if that, in turn, does nothing yet!)
+Now, our server code is calling `client.onAutoPilot(params)` in the broadcast function, so we better make sure that exists:
+
+```javascript
+...
+export class ClientClass {  
+  ...
+  onAutoPilot(params) {
+    this.setState({ autopilot: params });
+  }
+  ...
+}
+```
+
+Nothing to it. 
+
+Of course, we want to be able to control this autopilot from the browser, so we'll need an update to our browser code that allows use to actually turn the autopilot on and off (even if that, right now, does nothing other than toggle a boolean yet!).
+
+First, let's create a little `public/autopilot.html` file:
 
 ```html
 <div class="controls">
@@ -2343,6 +2435,32 @@ With the final bit being an update to our browser code so we can actually turn t
   <!-- we're going to add *so* many options here, later! -->
 </div>
 ```
+
+Which we'll tie into our `index.html`:
+
+```html
+<!DOCTYPE html>
+<html lang="en-GB">
+  <head>
+    ...
+  </head>
+  <body>
+    ...
+    <div id="autopilot" data-description="Templated from autopilot.html"></div>
+  </body>
+</html>
+```
+
+Then we'll create a `public/css/autopilot.css` so we can see when our button has been pressed or not:
+
+```css
+#autopilot button.active {
+  background: red;
+  color: white;
+}
+```
+
+And then, we'll create a `public/js/autopilot.js` to load in this "partial" and hook up all the buttons... err... button. All the button.
 
 ```javascript
 const content = await fetch("autopilot.html").then((res) => res.text());
@@ -2363,6 +2481,8 @@ export class Autopilot {
     Object.keys(AP_OPTIONS).forEach((key) => {
       const e = document.querySelector(`#autopilot .${key}`);
       e.addEventListener(`click`, () => {
+        // We're going to use the fact whether or not there is an "active"
+        // class as indicator of whether the setting is active on the server.
         let value = e.classList.contains(`active`);
         server.autopilot.update({ [key]: !value });
       });
@@ -2375,11 +2495,15 @@ export class Autopilot {
     // based on the parameter name/value pairs we get sent.
     Object.entries(params).forEach(([key, value]) => {
       const e = document.querySelector(`#autopilot .${key}`);
+      // Set the element's "active" class based on whether or not
+      // the setting is true or false on the server side.
       e?.classList.toggle(`active`, !!value);
     });
   }
 }
 ```
+
+And then finally, of course, we load that in with the rest of our code in `plane.js`:
 
 ```javascript
 import { Autopilot } from "./autopilot.js";
@@ -2409,72 +2533,38 @@ export class Plane {
 }
 ```
 
-
-
-# --- continue from here ---
-
 The hot reloading section needs to come earlier, that should be part of our initial setup.
 
-## Hot-reloading to make our dev lives easier
+### Testing our new "autopilot"
 
-Since we'll be updating our autopilot code quite a bit over the course of the rest of this tutorial, let's make our lives a little easier and before we go on, make sure that any changes we make to our files just automatically "kick in" immediately rather than us having to restart everything. This is actually relatively easy to do:
+Let's make sure to test this before we move on. Let's:
 
-```javascript
-import fs from "fs";
-import path from "path";
+- start our API server
+- start our client web server (with the `--owner` and `--browser` flags)
+- we won't need to start MSFS for this one, as nothing we're doing relies on 
+- we should see our browser page with our autopilot button:
 
-export function addReloadWatcher(dir, filename, loadHandler) {
-  const filepath = path.join(dir, filename);
-  // check this file for changes every second.
-  fs.watchFile(filepath, { interval: 1000 }, () => {
-    // Import this file as an ES module, with a "cache busting" URL. This is an explicit memory leak,
-    // but we're not going to be watching files in production, and you definitely have enough RAM for
-    // what we're doing here =)
-    import(`file:///${filepath}?ts=${Date.now()}`).then((lib) => {
-      console.log(`RELOADING ${filepath}`);
-      loadHandler(lib);
-    });
-  });
-}
-```
+#### picture goes here
 
-And then we can add make our autopilot code add reload watchers for the files we're going to be writing:
+- and if we click it, we should see it turn red, because it now has an `active` class:
 
-```javascript
-import { addReloadWatcher } from "./reload-watcher.js";
+#### picture goes here
 
-// Make sure we know which directory this module lives in, since we want to watch file locations:
-import url from "url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+But not because "we clicked the button": we don't have any code in place to toggle classes on button clicks. Instead:
 
-...
+1. we pressed the button, which called `server.autopilot.update({ MASTER: true })`,
+2. which made the server-side autopilot code update its `MASTER` value,
+3. which then triggered an autopilot settings-change broadcast,
+4. which called our client's `onAutoPilot` with the new settings,
+5. which we used to update our client's `state.autopilot` value,
+6. which automatically gets copied over to the browser,
+7. which forwards the state to our `Plane` code
+8. which passes it on to the `autopilot.update` function,
+9. and _that_, finally, causes our button to get an `active` class set on it.
 
-// Since we want to be able to reload the State object, we change it from "a direct import" const
-// to a mutable variable that we can reassign any time the state.js file is updated:
-import { State as st } from "./state.js";
-let State = st;
+And that all happened so fast that it looked like the only thing that happened was that you clicked a button and it turned red. So that's a good sign: it looks like we'll be able to control our autopilot through the browser without things feeling sluggish or laggy!
 
-export class AutoPilot {
-  constructor(api, onChange = () => {}) {
-    this.api = api;
-    this.onChange = onChange;
-    this.AP_INTERVAL = REGULAR_AUTOPILOT;
-    this.reset();
-    this.watchForUpdates();
-  }
-
-  ...
-
-  watchForUpdates() {
-    // start watching for changes to state.js, and every time it updates, update our `State` variable:
-    addReloadWatcher(__dirname, `/state.js`, (lib) => (State = lib.State));
-  }
-
-  ...
-}
-```
-
-## How does an autopilot work?
+## So how does an autopilot work?
 
 At its core, an autopilot is a system that lets a plane fly "in a straight line". However, there are two kinds of "straight line" we need to think about, because we're not driving on a road, or gliding through water, we're flying through the air:
 

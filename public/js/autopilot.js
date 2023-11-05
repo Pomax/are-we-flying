@@ -41,7 +41,7 @@ export class Autopilot {
             value = document.querySelector(`#autopilot .heading`).value ?? 360;
           }
         }
-        console.log(`click`, key, value);
+        console.log(`click ${Date.now()}`, key, value);
         server.autopilot.update({ [key]: value });
       });
     });
@@ -72,6 +72,8 @@ export class Autopilot {
       document
         .querySelector(`#autopilot .${key}`)
         ?.classList.toggle(`active`, !!value);
+
+      console.log(`${Date.now()} ${key} => ${!!value}`);
 
       if (value && key === `ALT`) {
         const altitude = document.querySelector(`#autopilot .altitude`);
