@@ -12,6 +12,8 @@ const qss = [
   `using-ap`,
   `plane-crashed`,
   `specific-plane`,
+  `latitude`,
+  `longitude`,
 ];
 
 const vowels = [`a`, `i`, `u`, `e`, `o`, `A`, `I`, `U`, `E`, `O`];
@@ -39,12 +41,16 @@ export const Questions = {
     elements.serverOnline.checked = !state.offline;
     elements.msfsRunning.checked = state.MSFS;
     elements.inGame.checked = state.camera?.main < 9;
-    elements.poweredUp.checked = state.flightDat?.POWERED_UP;
+    elements.poweredUp.checked = state.flightData?.POWERED_UP;
     elements.enginesRunning.checked = state.flightData?.ENGINES_RUNNING;
     elements.inTheAir.checked =
       state.flightData && !state.flightData.SIM_ON_GROUND;
     elements.usingAp.checked = state.flightData?.AUTOPILOT_MASTER;
     elements.planeCrashed.checked = state.crashed;
+    elements.latitude.textContent =
+      state.flightData?.PLANE_LATITUDE.toFixed(6) ?? `-`;
+    elements.longitude.textContent =
+      state.flightData?.PLANE_LONGITUDE.toFixed(6) ?? `-`;
     // And we'll do this one separately because it's a more than just a checkmark:
     this.modelLoaded(state.flightModel?.TITLE);
   },

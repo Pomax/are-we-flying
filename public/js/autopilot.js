@@ -29,7 +29,7 @@ export class Autopilot {
 
     Object.keys(AP_DEFAULT).forEach((key) => {
       const e = document.querySelector(`#autopilot .${key}`);
-      e.addEventListener(`click`, () => {
+      e?.addEventListener(`click`, () => {
         e.classList.toggle(`active`);
         let value = e.classList.contains(`active`);
         if (value) {
@@ -41,14 +41,13 @@ export class Autopilot {
             value = document.querySelector(`#autopilot .heading`).value ?? 360;
           }
         }
-        console.log(`click ${Date.now()}`, key, value);
         server.autopilot.update({ [key]: value });
       });
     });
 
     document
       .querySelector(`#autopilot .altitude`)
-      .addEventListener(`change`, (evt) => {
+      ?.addEventListener(`change`, (evt) => {
         const { value } = evt.target;
         server.autopilot.update({ ALT: value });
         evt.target.blur();
@@ -56,7 +55,7 @@ export class Autopilot {
 
     document
       .querySelector(`#autopilot .heading`)
-      .addEventListener(`change`, (evt) => {
+      ?.addEventListener(`change`, (evt) => {
         const { value } = evt.target;
         server.autopilot.update({ HDG: value });
         evt.target.blur();
@@ -73,17 +72,15 @@ export class Autopilot {
         .querySelector(`#autopilot .${key}`)
         ?.classList.toggle(`active`, !!value);
 
-      console.log(`${Date.now()} ${key} => ${!!value}`);
-
       if (value && key === `ALT`) {
         const altitude = document.querySelector(`#autopilot .altitude`);
-        if (altitude === document.activeElement) return;
+        if (!altitude || altitude === document.activeElement) return;
         altitude.value = parseFloat(value).toFixed(1);
       }
 
       if (value && key === `HDG`) {
         const heading = document.querySelector(`#autopilot .heading`);
-        if (heading === document.activeElement) return;
+        if (!heading || heading === document.activeElement) return;
         heading.value = parseFloat(value).toFixed(1);
       }
     });
@@ -95,7 +92,8 @@ export class Autopilot {
   setCurrentAltitude(altitude) {
     const ALT = document.querySelector(`.ALT.active`);
     if (!ALT) {
-      document.querySelector(`#autopilot .altitude`).value = altitude;
+      const e = document.querySelector(`#autopilot .altitude`);
+      if (e) e.value = altitude;
     }
   }
 }

@@ -1142,7 +1142,7 @@ Before we try to automate flight by writing an autopilot, it helps if we can kno
 
 We know when we're connected to MSFS, so let's write a few functions that let us cascade through the various stages of the game before we get to "actually controlling a plane". Let's start with what we want that to look like:
 
-![Are we flying?](./questions.png)
+![image-20231105092322673](./questions.png)
 
 Nothing particularly fancy (although we can pretty much use any amount of CSS to turn it _into_ something fancy), but it lets us see where in the process of firing up MSFS, clicking through to the world map, and starting a flight we are. So let's update our HTML file to include these questions, and then we can update our JS to start answering them:
 
@@ -1157,6 +1157,7 @@ Nothing particularly fancy (although we can pretty much use any amount of CSS to
   <li>Do we have power? <input type="checkbox" disabled class="powered-up" /></li>
   <li>Are the engines running? <input type="checkbox" disabled class="engines-running" /></li>
   <li>Are we flying?? <input type="checkbox" disabled class="in-the-air" /></li>
+  <li><em>Where</em> are we flying? <span class="latitude">-</span>, <span class="longitude">-</span></li>  
   <li>Are we on the in-game autopilot? <input type="checkbox" disabled class="using-ap" /></li>
   <li>(... did we crash? <input type="checkbox" disabled class="plane-crashed" />)</li>
 </ul>
@@ -1182,6 +1183,8 @@ const qss = [
   `using-ap`,
   `plane-crashed`,
   `specific-plane`,
+  `latitude`,
+  `longitude`,
 ];
 
 // A bit of house-keeping 
@@ -1216,11 +1219,13 @@ export const Questions = {
     elements.serverOnline.checked = !state.offline;
     elements.msfsRunning.checked = state.MSFS;
     elements.inGame.checked = state.camera?.main < 9;
-    elements.poweredUp.checked = state.flightDat?.POWERED_UP;
+    elements.poweredUp.checked = state.flightData?.POWERED_UP;
     elements.enginesRunning.checked = state.flightData?.ENGINES_RUNNING;
     elements.inTheAir.checked = state.flightData && !state.flightData.SIM_ON_GROUND;
     elements.usingAp.checked = state.flightData?.AUTOPILOT_MASTER;
     elements.planeCrashed.checked = state.crashed;
+    elements.latitude.textContent = state.flightData?.PLANE_LATITUDE.toFixed(6) ?? `-`;
+    elements.longitude.textContent = state.flightData?.PLANE_LONGITUDE.toFixed(6) ?? `-`;
     this.modelLoaded(state.flightModel?.TITLE);
   },
 
@@ -1277,7 +1282,10 @@ Of course, we still only implemented the code that lets us answer the question l
 Step one: some HTML to make that work:
 
 ```html
-<div id="map" style="width: 1200px; height: 800px"></div>
+<div id="visualization">
+  <!-- We'll hook Leaflet into the following div -->
+  <div id="map" style="width: 1200px; height: 800px"></div>
+</div>
 ```
 
 And then let's write a `public/js/map.js` that we can import to take care of the map for us:
@@ -1969,7 +1977,16 @@ There's one thing our fancy marker isn't showing though, which is the current ro
 
 This is a way to visualize whether the plane is pitching up, down, or is flying level, as well as showing whether we're turning left, right, or flying straight. It's a critical part of the cockpit, and it would be very nice if we could see one at all times, too. So just like before, let's whip up a bit of HTML, SVG, CSS, and JS to make that happen.
 
-Thankfully, the attitude indicator is considerably less code than the airplane marker, so let's create a `public/attitude.html`:
+First an update to `index.html` so that there's a place for the attitude indictor:
+
+```html
+<div id="visualization">
+  <div id="map" style="width: 1200px; height: 800px"></div>
+  <div id="attitude" data-description="Templated from attitude.html"></div>
+</div>
+```
+
+And then the attitude indicator itself. Thankfully, this will be considerably less code than the airplane marker, so let's create a `public/attitude.html`:
 
 ```html
 <div id="attitude">
@@ -2542,27 +2559,25 @@ Let's make sure to test this before we move on. Let's:
 - start our API server
 - start our client web server (with the `--owner` and `--browser` flags)
 - we won't need to start MSFS for this one, as nothing we're doing relies on 
-- we should see our browser page with our autopilot button:
+- we should see our browser page with our autopilot button:<br>![image-20231105095108092](./image-20231105095108092.png)
 
-#### picture goes here
+- and if we click it, we should see it turn red, because it now has an `active` class:<br>![image-20231105095214329](./image-20231105095214329.png)
 
-- and if we click it, we should see it turn red, because it now has an `active` class:
 
-#### picture goes here
+The important thing to realize is that the button doesn't turn red "when we clicked it" because we didn't write any code that adds an `active` class when we click a button. Instead _a lot more_ happens:
 
-But not because "we clicked the button": we don't have any code in place to toggle classes on button clicks. Instead:
+1. we pressed the button,
+2. that doesn't add a class but instead calls`server.autopilot.update({ MASTER: true })`,
+3. which makes the server-side autopilot code update its `MASTER` value,
+4. which then triggers an autopilot settings-change broadcast,
+5. which calls our client's `onAutoPilot` with the new settings,
+6. which we use to update our client's `state.autopilot` value,
+7. which automatically gets copied over to the browser,
+8. which forwards the state to our `Plane` code
+9. which passes it on to the `autopilot.update` function,
+10. and _that_, finally, sets an `active` class on the associated button.
 
-1. we pressed the button, which called `server.autopilot.update({ MASTER: true })`,
-2. which made the server-side autopilot code update its `MASTER` value,
-3. which then triggered an autopilot settings-change broadcast,
-4. which called our client's `onAutoPilot` with the new settings,
-5. which we used to update our client's `state.autopilot` value,
-6. which automatically gets copied over to the browser,
-7. which forwards the state to our `Plane` code
-8. which passes it on to the `autopilot.update` function,
-9. and _that_, finally, causes our button to get an `active` class set on it.
-
-And that all happened so fast that it looked like the only thing that happened was that you clicked a button and it turned red. So that's a good sign: it looks like we'll be able to control our autopilot through the browser without things feeling sluggish or laggy!
+And that all happened so fast that as far as you can tell, you just clicked a button and it instantly changed color to show that it's active: that's a good sign! It looks like we'll be able to control our autopilot through the browser without things feeling sluggish or laggy!
 
 ## So how does an autopilot work?
 

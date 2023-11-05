@@ -12,7 +12,6 @@ import { WaypointOverlay } from "./waypoint-manager.js";
 
 const L = await waitFor(async () => window.L);
 const { abs, max, PI: π, sqrt } = Math;
-const setText = (qs, text) => (document.querySelector(qs).textContent = text);
 
 // Helper function: change sim var naming into something more manageable.
 function getVarData(flightData) {
@@ -189,8 +188,6 @@ export class Plane {
     // while you're not in game?)
     if (lat === undefined || long === undefined) return;
     if (abs(lat) < 0.1 && abs(long) < 0.1) return;
-    setText(`#lat`, lat.toFixed(5));
-    setText(`#long`, long.toFixed(5));
 
     // Did we teleport?
     const latLong = [lat, long];
