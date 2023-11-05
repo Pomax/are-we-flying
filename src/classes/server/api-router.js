@@ -5,7 +5,7 @@ import { AutoPilot } from "../../api/autopilot/autopilot.js";
 const resultCache = {};
 const eventTracker = {};
 
-export class APIWrapper {
+export class APIRouter {
   #api;
 
   /**

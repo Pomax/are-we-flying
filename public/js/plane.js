@@ -93,7 +93,6 @@ export class Plane {
   async setElevationProbe(value) {
     // remove the old probe line
     if (this.elevationProbe) this.elevationProbe.remove();
-    return;
 
     // then draw a new one, but only if there is a value to visualize
     if (!value) return;

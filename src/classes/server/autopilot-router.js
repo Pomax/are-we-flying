@@ -10,6 +10,7 @@ export class AutopilotRouter {
    */
   #autopilot;
 
+  // a broadcast function for when the AP state
   #broadcastUpdate;
 
   /**
@@ -37,11 +38,9 @@ export class AutopilotRouter {
    * @param {*} params
    */
   async update(client, params) {
-    if (!client.authenticated) {
-      return false;
-    }
-    await this.#autopilot.setParameters(params);
-    this.#broadcastUpdate(this.#autopilot.getParameters());
+    if (!client.authenticated) return false;
+    const updatedParameters = await this.#autopilot.setParameters(params);
+    this.#broadcastUpdate(updatedParameters);
   }
 
   /**

@@ -20,12 +20,14 @@ import { addReloadWatcher } from "./reload-watcher.js";
 import { flyLevel as fl } from "./fly-level.js";
 import { altitudeHold as ah } from "./altitude-hold.js";
 import { AutoTakeoff as ato } from "./auto-takeoff.js";
-import { State as st } from "./utils/state.js";
+import { AP_VARIABLES as apv } from "./utils/ap-variables.js";
+import { State as st } from "./utils/ap-state.js";
 import { WayPoints as wp } from "./waypoints/waypoints.js";
 
 let flyLevel = fl;
 let altitudeHold = ah;
 let AutoTakeoff = ato;
+let AP_VARIABLES = apv;
 let State = st;
 let WayPoints = wp;
 
@@ -63,7 +65,6 @@ export class AutoPilot {
   bootstrap() {
     // Set up values we need during the autopilot main loop
     this.paused = false;
-    this.crashed = false;
     this.resetTrim();
     this.prevState = new State();
     this.waypoints = new WayPoints(this);
@@ -77,7 +78,12 @@ export class AutoPilot {
   watchForUpdates() {
     addReloadWatcher(
       __dirname,
-      `/utils/state.js`,
+      `/utils/ap-variables.js`,
+      (lib) => (AP_VARIABLES = lib.AP_VARIABLES)
+    );
+    addReloadWatcher(
+      __dirname,
+      `/utils/ap-state.js`,
       (lib) => (State = lib.State)
     );
     addReloadWatcher(
@@ -140,14 +146,6 @@ export class AutoPilot {
     this.waypoints.resetWaypoints();
   }
 
-  run() {
-    // We don't actually care whether the autopilot runs on an
-    // exact interval, we just need it to run "regularly enough",
-    // so we don't need requestAnimationFramework. A regular
-    // old timeout works just fine.
-    setTimeout(() => this.runAutopilot(), this.AP_INTERVAL);
-  }
-
   async get(...names) {
     if (!this.api.connected) {
       return {};
@@ -191,7 +189,7 @@ export class AutoPilot {
         // make sure the in-game autopilot is not running.
         const { AUTOPILOT_MASTER: on } = await this.get(`AUTOPILOT_MASTER`);
         if (on === 1) this.trigger(`AP_MASTER`);
-        this.run();
+        this.runAutopilot();
       }
     }
     if (params.zero !== undefined) {
@@ -201,6 +199,7 @@ export class AutoPilot {
     Object.entries(params).forEach(([key, value]) =>
       this.setTarget(key, value)
     );
+    return this.getParameters();
   }
 
   toggle(type) {
@@ -255,7 +254,6 @@ export class AutoPilot {
     // This is our master autopilot entry point,
     // grabbing the current state from MSFS, and
     // forwarding it to the relevant AP handlers.
-    if (this.crashed) return;
     if (!this.api.connected) return;
     if (!this.autoPilotEnabled) return;
 
@@ -263,12 +261,12 @@ export class AutoPilot {
     // are errors due to MSFS glitching, or the DLL
     // handling glitching, or values somehow having
     // gone missing etc. etc: schedule the next call
-    this.run();
+    setTimeout(() => this.runAutopilot(), this.AP_INTERVAL);
 
     //  Are we flying, or paused/in menu/etc?
     if (this.paused) return;
 
-    const data = await this.getCurrentData();
+    const data = await this.get(...AP_VARIABLES);
     const state = new State(data, this.prevState);
 
     if (!this.modes[AUTO_TAKEOFF] && state.speed < 15) {
@@ -298,30 +296,5 @@ export class AutoPilot {
     }
 
     this.prevState = state;
-  }
-
-  /**
-   * All values relevant to autopiloting
-   * @returns
-   */
-  async getCurrentData() {
-    return this.get(
-      `AILERON_TRIM_PCT`,
-      `AIRSPEED_TRUE`,
-      `ELEVATOR_TRIM_DOWN_LIMIT`,
-      `ELEVATOR_TRIM_POSITION`,
-      `ELEVATOR_TRIM_UP_LIMIT`,
-      `INDICATED_ALTITUDE`,
-      `IS_TAIL_DRAGGER`,
-      `PLANE_ALT_ABOVE_GROUND_MINUS_CG`,
-      `PLANE_BANK_DEGREES`,
-      `PLANE_HEADING_DEGREES_MAGNETIC`,
-      `PLANE_HEADING_DEGREES_TRUE`,
-      `PLANE_LATITUDE`,
-      `PLANE_LONGITUDE`,
-      `SIM_ON_GROUND`,
-      `TURN_INDICATOR_RATE`,
-      `VERTICAL_SPEED`
-    );
   }
 }

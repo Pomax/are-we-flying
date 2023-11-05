@@ -67,7 +67,7 @@ export class Autopilot {
    * ...docs go here...
    */
   update(params) {
-    if (!params) return;
+    if (!params) params;
     Object.entries(params).forEach(([key, value]) => {
       document
         .querySelector(`#autopilot .${key}`)

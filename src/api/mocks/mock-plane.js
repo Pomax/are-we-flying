@@ -58,8 +58,12 @@ export class MockPlane {
     this.DESIGN_SPEED_CLIMB = 120;
     this.DESIGN_SPEED_VC = 280;
     this.DESIGN_SPEED_VS1 = 100;
+    this.DESIGN_SPEED_MIN_ROTATION = 100;
+    this.DESIGN_TAKEOFF_SPEED = 120;
+    this.IS_TAIL_DRAGGER = 0;
     this.NUMBER_OF_ENGINES = 1;
     this.STATIC_CG_TO_GROUND = 0;
+    this.TOTAL_WEIGHT = 3000;
 
     // "game" values
     this.CRASH_FLAG = 0;

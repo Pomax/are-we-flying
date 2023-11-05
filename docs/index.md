@@ -1428,7 +1428,7 @@ Nice!
 
 ...I mean... I guess it's nicer than note having a plane on the map, but this doesn't really tell us much, does it? How high are we flying? What's our airspeed? Which heading are we actually flying? I think we're going to need some more HTML.And some SVG. And probably some CSS variables. And a smattering of JS.
 
-### Improving our map
+### Improving our visualization
 
 Let's start by considering what we might want to visualize. We basically want all the information you'd get in a cockpit, but presented in marker form, so let's go for the traditional navigation marker: a compass, with information arranged in and around that. What if we had a nice compass ring around our plane, with heading indication, current speed, and current altitude (both above the ground and "as far as the barometer can tell"). What about something like... this?
 
@@ -1623,11 +1623,11 @@ And that'll do it. Let's fire up MSFS, load a plane into the world, and let's se
 
 ![A map with our marker on it](./marker-on-map.png)
 
-That's looking pretty good
+That's looking pretty good!
 
-> **"Oh, yeah that looks cool! But hold up... why are there _two_ compasses?"** - you, hopefully (again)
+**“Oh, yeah that looks cool! But hold up... why are there _two_ compasses?”** —you, hopefully (again)
 
-Yeah, so, here's a fun thing about our planet: you'd think magnetic lines run north to south, like those pictures of metal filings around a magnet... which they would, if the Earth was a bar-magnet-sized magnet. Instead, it's an _absolutely huge_ and highly imperfect magnet, so aif we look at a picture of "how wrong a magnet wrt true north/south anyewhere on the planet", things look like this:
+Yeah, so, here's a fun thing about our planet: you'd think magnetic lines run north to south, like those pictures of metal filings around a magnet... which they would, if the Earth was a bar-magnet-sized magnet. Instead, it's an _absolutely huge_ and highly imperfect magnet, so if we look at a picture of "how wrong a magnet wrt true north/south anywhere on the planet", things look like this:
 
 <figure style="width: 80%; margin: auto;">
     <a href="https://en.wikipedia.org/wiki/File:World_Magnetic_Declination_2015.pdf">
@@ -1690,7 +1690,7 @@ mapLayers.googleTerrain.addTo(map);
 ...
 ```
 
-And now our map looks looks _amazing_:
+And now our map looks looks **_amazing_**:
 
 ![Our map, now with terrain!](./map-with-terrain.png)
 
@@ -1764,7 +1764,7 @@ And we refresh our browser, we now have a handy-dandy scale marker in the lower 
 
 ![now with scale](./map-with-scale.png)
 
-Looking pretty good!
+And now we know how long it'll take us to get places, because 1 knot equals to 1NM per hour. If we're going at 120 knots, then we'll cover 1 nautical mile every thirty seconds.
 
 ## Recording our flight path
 
@@ -1887,7 +1887,7 @@ Relatively little code, but a profound improvement. Our map now shows the flight
 
 Alright, now we've got things we can post to Instagram!
 
-## Rolling the plane
+## Planes with attitude
 
 There's one thing our fancy marker isn't showing though, which is the current roll and pitch, which would be really nice to be able to see at a glance. So... let's build an [attitude indicator](https://en.wikipedia.org/wiki/Attitude_indicator), also sometimes called an "artificial horizon":
 
@@ -2009,7 +2009,7 @@ export class Plane {
 
 And done, that's our attitude indicator hooked up.
 
-## Plotting flight data
+## Doing science: plotting our flight telemetry
 
 Before we consider our page work done, though, let's add one more thing: science.
 
@@ -2156,102 +2156,15 @@ It's time. Let's write that autopilot.
 
 And while we could do this in the browser, we're going to be adding the main code to our API server, rather than our web page. Don't get me wrong: we _totally could_ write our autopilot in client-side JS, but we'd much rather not have to deal with the delay of network requests from the webpage (even if web sockets are must faster than GET/POST requests), and we definitely don't want to accidentally turn off the autopilot just because we closed a tab... we might be flying a virtual plane, but it'd be nice to keep it in the air instead of just plummeting out of the sky when we accidentally close our browser!
 
-Explain browser toggles functions by calling server functions, server actually handles the AP logic.
+## The code basics
 
-server.js update:
+In order to run an auto pilot, we're going to need to set up some code that actually "runs" the auto pilot, and then expose some of that functionality over the network, which requires (unsurprisingly) some new files, and some updates to old files.
 
-```javascript
-import { AutoPilot } from "../../api/autopilot/autopilot.js";
-import { AutopilotRouter } from "./autopilot-router.js";
-
-...
-
-export class ServerClass {
-  #autopilot;
-
-  constructor() {
-    this.api = new APIWrapper(api, () => MSFS);
-
-    // Set up call handling for autopilot functionality by binding it to a private property.
-    this.#autopilot = new AutoPilot(api, async (params) =>
-      this.clients?.forEach((client) => client.onAutoPilot(params))
-    ));
-
-    // And then we expose an `.autopilot` property to clients that they can call:
-    const autopilot = (this.autopilot = new AutopilotRouter(this.#autopilot, (params) =>
-      this.clients?.forEach((c) => c.onAutoPilot(params))
-    ));
-    
-    ...
-  }
-  
-  // We update our register function to include the autopilot
-  // (the real one, not the server routing property)
-  #registerWithAPI(api, autopilot) {
-    api.on(SystemEvents.PAUSED, async () => {
-      // Make sure to pause the autopilot when the game is paused,
-      // otherwise it might try to make bigger and bigger corrections,
-      // and then we unpause, the plane will probably crash.
-      autopilot.setPaused(true);
-      this.clients.forEach((client) => client.pause());
-    });
-
-    api.on(SystemEvents.UNPAUSED, async () => {
-      autopilot.setPaused(false);
-      this.clients.forEach((client) => client.unpause());
-    });
-    
-    // the other events don't need autopilot updates
-  }
-  
-  ...
-  
-  async #checkFlying(client) {
-    ...
-    if (flying !== wasFlying) {
-      // If we just started flying, reset the autopilot:
-      if (flying) this.#autopilot.reset();
-      this.clients.forEach((client) => client.setFlying(flying));
-    } else if (client) {
-      client.setFlying(flying);
-    }
-  }
-}  
-```
-
-Autopilot router:
+Let's start with the autopilot code itself, but without any specific autopilot code implemented, since we'll be doing that as we run through this chapter. We'll put this file in `src/api/autopilot/autopilot.js`:
 
 ```javascript
-/**
- * "route" handler for autopilot API calls from clients
- */
-export class AutopilotRouter {
-  #autopilot;
-  #broadcastUpdate;
-
-  // ...
-  constructor(autopilot, broadcastUpdate) {
-    this.#autopilot = autopilot;
-    this.#broadcastUpdate = broadcastUpdate;
-  }
-
-  async getParameters(client) {
-    return this.#autopilot.getParameters();
-  }
-
-  async update(client, params) {
-    if (!client.authenticated) return false;
-    await this.#autopilot.setParameters(params);
-    this.#broadcastUpdate(this.#autopilot.getParameters());
-  }
-}
-
-```
-
-Autopilot: should we use the same kind of state object as in the client?
-
-```javascript
-import { State } from "./utils/state.js";
+import { AP_VARIABLES } from "./utils/ap-variables.js";
+import { State } from "./utils/ap-state.js";
 
 const AUTOPILOT_INTERVAL = 500;
 
@@ -2268,17 +2181,12 @@ export class AutoPilot {
     this.prevState = new State();
     this.autoPilotEnabled = false;
     this.paused = false;
-    this.crashed = false;
     this.modes = {} // more on this later
     this.onChange(this.getParameters);
   }
 
   setPaused(value) {
     this.paused = value;
-  }
-
-  setCrashed(value) {
-    this.crashed = value;
   }
 
   async get(...names) {
@@ -2297,184 +2205,215 @@ export class AutoPilot {
   }
 
   getParameters() {
-    const state = { MASTER: this.autoPilotEnabled };
-    // Object.entries(this.modes).forEach(([key, value]) => {
-    //   state[key] = value;
-    // });
-    return state;
+    return { MASTER: this.autoPilotEnabled };
   }
 
   async setParameters(params) {
-    Object.entries(params).forEach(([key, value]) =>
-      this.setTarget(key, value)
-    );
+    // we'll fill this out as we implement AP functions through this chapter
   }
-
-  /*
-  toggle(type) {
-    const { modes } = this;
-    if (modes[type] === undefined) return;
-    this.setTarget(type, !modes[type]);
-  }
-
-  setTarget(type, value) {
-    const { modes } = this;
-    if (modes[type] === undefined) return;
-    const prev = modes[type];
-    modes[type] = value;
-    this.processChange(type, prev, value);
-  }
-
-  async processChange(type, oldValue, newValue) {
-    // ...
-    this.onChange(this.getParameters());
-  }
-  */
-
-  run() {
-    // We don't actually care whether the autopilot runs on an
-    // exact interval, we just need it to run "regularly enough",
-    // so we don't need requestAnimationFrame or the like, a
-    // regular old timeout will work just fine.
-    setTimeout(() => this.runAutopilot(), this.AP_INTERVAL);
-  }
-  
+ 
   async runAutopilot() {
-    // This is our master autopilot entry point,
-    // grabbing the current state from MSFS, and
-    // forwarding it to the relevant AP handlers.
-    if (this.crashed) return;
     if (!this.api.connected) return;
     if (!this.autoPilotEnabled) return;
-
-    // If the autopilot is enabled, even if there
-    // are errors due to MSFS glitching, or the DLL
-    // handling glitching, or values somehow having
-    // gone missing etc. etc: schedule the next call
-    this.run();
-
-    //  Are we flying, or paused/in menu/etc?
+    setTimeout(() => this.runAutopilot(), this.AP_INTERVAL);
     if (this.paused) return;
 
-    const data = await this.getCurrentData();
+    const data = await this.get(...AP_VARIABLES);
     const state = new State(data, this.prevState);
     
-    // ...
+    // ...correct the flight as needed here...
     
     this.prevState = state;
   }
-
-  async getCurrentData() {
-    // TODO: this needs the same kind of conversion the client performs.
-    return this.get(
-      `AILERON_TRIM_PCT`,
-      `AIRSPEED_TRUE`,
-      `ELEVATOR_TRIM_DOWN_LIMIT`,
-      `ELEVATOR_TRIM_POSITION`,
-      `ELEVATOR_TRIM_UP_LIMIT`,
-      `INDICATED_ALTITUDE`,
-      `IS_TAIL_DRAGGER`,
-      `PLANE_ALT_ABOVE_GROUND_MINUS_CG`,
-      `PLANE_BANK_DEGREES`,
-      `PLANE_HEADING_DEGREES_MAGNETIC`,
-      `PLANE_HEADING_DEGREES_TRUE`,
-      `PLANE_LATITUDE`,
-      `PLANE_LONGITUDE`,
-      `SIM_ON_GROUND`,
-      `TURN_INDICATOR_RATE`,
-      `VERTICAL_SPEED`
-    );
-  }
 }
 ```
 
-State code: this should not need to perform any conversions. 
+This relies on [ap-variables.js]() and [ap-state.js]() files, which I won't be listing here mostly because there isn't really anything surprising in them. The variables file is a list of variables, and the state file is similar to the state concept we saw before, for the client, but with an extra bit of code that binds several "delta" functions so we don't just know "our speed" but also "how much our speed changed, per second", for a handful of variables.
+
+Now, in order for the client to trigger autopilot functionality, we'll need to update our `server.js` too:
 
 ```javascript
-import { degrees } from "./utils.js";
+import { AutoPilot } from "../../api/autopilot/autopilot.js";
+import { AutopilotRouter } from "./autopilot-router.js";
 
-export class State {
-  // Basic flight data
-  onGround = true;
-  altitude = 0;
-  speed = 0;
-  lift = 0;
+...
 
-  // Basic nagivation data
-  latitude = 0;
-  longitude = 0;
-  heading = 0; // based on the magnetic compass
-  trueHeading = 0; // based on GPS
+// There can only be one autopilot, so we track it outside our server class:
+let MSFS = false;
+let flying = false;
+let autopilot = false;
 
-  // Extended flight data
-  bankAngle = 0;
-  turnRate = 0;
-  verticalSpeed = 0;
-  pitchTrim = 0;
-  pitchTrimLimit = [10, -10];
-  aileronTrim = 0;
+export class ServerClass {
+  constructor() {
+    // Set up the autopilot instance.
+    autopilot = new AutoPilot(api, (params) =>
+      this.#autopilotBroadcast(params)
+    );
+    this.#setupRouting();
+    connectServerToAPI(() => this.#onMSFSConnect());
+  }
 
-  // Value deltas ("per second"). These are automatically
-  // set if there is a previous state.
-  dSpeed = 0;
-  dLift = 0;
-  dBank = 0;
-  dTurn = 0;
-  dHeading = 0;
-  dV = 0;
-  dVS = 0;
+  // This simply notifies all connected clients of the new autopilot parameters.
+  async #autopilotBroadcast(params) {
+    this.clients.forEach((client) => client.onAutoPilot(params));
+  }
+   
+  // And in order for clients to be able to call autopilot functions,
+  // we add a function routing object as "this.autopilot":
+  #setupRouting() {
+    this.api = new APIRouter(api, () => MSFS);
 
-  isTailDragger = false;
+    // All clients will now be able to call server.autopilot.[...]
+    this.autopilot = new AutopilotRouter(autopilot, (params) =>
+      this.clients.forEach((client) => client.onAutoPilot(params))
+    );
+  }
 
-  // Timestamp for this state. This value is automatically set.
-  callTime = 0;
+  // We also need to update our API registration, because when the game is
+  // paused, we don't want the autopilot to just "keep going". If it does,
+  // it might try to force increasingly severe corrections while the plane
+  // "does nothing" so that by the time we unpause, the plane crashes.
+  #registerWithAPI(api, autopilot) {
+    api.on(SystemEvents.PAUSED, () => {
+      autopilot.setPaused(true);
+      this.clients.forEach((client) => client.pause());
+    });
 
-  // derived values if there is a previous state
-  constructor(data = {}, previous) {
-    this.onGround = data.SIM_ON_GROUND ?? this.onGround;
-    this.altitude = data.INDICATED_ALTITUDE ?? this.altitude;
-    this.speed = data.AIRSPEED_TRUE ?? this.speed;
-    this.lift = data.PLANE_ALT_ABOVE_GROUND_MINUS_CG ?? this.lift;
-
-    this.latitude = degrees(data.PLANE_LATITUDE ?? this.latitude);
-    this.longitude = degrees(data.PLANE_LONGITUDE ?? this.longitude);
-    // FIXME: should these always be in degrees, too?
-    // ANSWER: yes, as per the client code
-    this.heading = data.PLANE_HEADING_DEGREES_MAGNETIC ?? this.heading;
-    this.trueHeading = data.PLANE_HEADING_DEGREES_TRUE ?? this.trueHeading;
-    this.declination = degrees(this.trueHeading - this.heading);
-
-    this.bankAngle = data.PLANE_BANK_DEGREES ?? this.bankAngle;
-    this.turnRate = data.TURN_INDICATOR_RATE ?? this.turnRate;
-
-    // VS is in feet per second, and we want feet per minute.
-    this.verticalSpeed = 60 * (data.VERTICAL_SPEED ?? this.verticalSpeed);
-
-    this.pitchTrim = data.ELEVATOR_TRIM_POSITION ?? this.pitchTrim;
-    this.pitchTrimLimit = [
-      data.ELEVATOR_TRIM_UP_LIMIT ?? 10,
-      data.ELEVATOR_TRIM_DOWN_LIMIT ?? -10,
-    ];
-    this.aileronTrim = data.AILERON_TRIM_PCT ?? this.aileronTrim;
-    this.isTailDragger = data.IS_TAIL_DRAGGER ?? this.isTailDragger;
-    this.callTime = Date.now();
-
-    if (previous) {
-      const interval = (this.callTime - previous.callTime) / 1000;
-      // Derive all our deltas "per second"
-      this.dSpeed = (this.speed - previous.speed) / interval;
-      this.dLift = (this.lift - previous.lift) / interval;
-      this.dBank = (this.bankAngle - previous.bankAngle) / interval;
-      this.dTurn = (this.turnRate - previous.turnRate) / interval;
-      this.dHeading = (this.heading - previous.heading) / interval;
-      this.dV = (this.speed - previous.speed) / interval;
-      this.dVS = (this.verticalSpeed - previous.verticalSpeed) / interval;
+    api.on(SystemEvents.UNPAUSED, () => {
+      autopilot.setPaused(false);
+      this.clients.forEach((client) => client.unpause());
+    });
+    
+    ...
+    
+    // the rest of the calls won't need autopilot updates
+  }
+  
+  // And we need to update the checkFlying function so that
+  // every time we start a new flight, we reset the autopilot:
+  async #checkFlying(client) {
+    ...
+    if (flying !== wasFlying) {
+      if (flying) this.#autopilot.reset();
+      this.clients.forEach((client) => client.setFlying(flying));
+    } else if (client) {
+      client.setFlying(flying);
     }
+  }
+}  
+```
+
+With the associated (tiny) autopilot function router code:
+
+```javascript
+/**
+ * "route" handler for autopilot API calls from clients
+ */
+export class AutopilotRouter {
+  #autopilot;
+  #broadcastUpdate;
+
+  // ...
+  constructor(autopilot, broadcastUpdate) {
+    this.#autopilot = autopilot;
+    this.#broadcastUpdate = broadcastUpdate;
+  }
+
+  // this will be exposed as this.server.autopilot.getParameters() on the client side.
+  async getParameters(client) {
+    return this.#autopilot.getParameters();
+  }
+
+  // this will be exposed as this.server.autopilot.update({ ... }) on the client side.
+  async update(client, params) {
+    // This should only be callable by authenticated clients =)
+    if (!client.authenticated) return false;
+    const updatedParameters = await this.#autopilot.setParameters(params);
+    this.#broadcastUpdate(updatedParameters);
   }
 }
 ```
 
-This does nothing yet, but we'll be growing this code as we're adding more and more functionality to our autopilot. And because we'll be editing a bunch of code without wanting to constantly restart fights...
+With the final bit being an update to our browser code so we can actually turn the autopilot on and off (even if that, in turn, does nothing yet!)
+
+```html
+<div class="controls">
+  <link rel="stylesheet" href="/css/autopilot.css" />
+  <button class="MASTER">AP</button>
+  <!-- we're going to add *so* many options here, later! -->
+</div>
+```
+
+```javascript
+const content = await fetch("autopilot.html").then((res) => res.text());
+const autopilot = document.getElementById(`autopilot`);
+autopilot.innerHTML = content;
+
+export const AP_OPTIONS = {
+  MASTER: false
+};
+
+export class Autopilot {
+  constructor(owner) {
+    this.owner = owner;
+    const server = (this.server = owner.server);
+    // We're going to add more buttons later, so this code will
+    // simply let us add options to AP_OPTIONS without having to
+    // add any more code here.
+    Object.keys(AP_OPTIONS).forEach((key) => {
+      const e = document.querySelector(`#autopilot .${key}`);
+      e.addEventListener(`click`, () => {
+        let value = e.classList.contains(`active`);
+        server.autopilot.update({ [key]: !value });
+      });
+    });
+  }
+
+  update(params) {
+    if (!params) return;
+    // Much like above, this code will simply activate buttons
+    // based on the parameter name/value pairs we get sent.
+    Object.entries(params).forEach(([key, value]) => {
+      const e = document.querySelector(`#autopilot .${key}`);
+      e?.classList.toggle(`active`, !!value);
+    });
+  }
+}
+```
+
+```javascript
+import { Autopilot } from "./autopilot.js";
+...
+export class Plane {
+  constructor(server, map = defaultMap, location = Duncan, heading = 135) {
+    console.log(`building plane`);
+    this.server = server;
+    this.autopilot = new Autopilot(this);
+    ...
+  }
+
+  // update our autopilot UI during the update cycle now, too:
+  async updateState(state) {
+    this.state = state;
+    const now = Date.now();
+
+    ...
+
+    // reasonably straight-forward:
+    if (state.autopilot) {
+      this.autopilot.update(state.autopilot);
+    }
+
+    this.lastUpdate = { time: now, ...state };
+  }
+}
+```
+
+
+
+# --- continue from here ---
+
+The hot reloading section needs to come earlier, that should be part of our initial setup.
 
 ## Hot-reloading to make our dev lives easier
 

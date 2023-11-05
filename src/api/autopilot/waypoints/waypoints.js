@@ -5,7 +5,6 @@ import {
 } from "../utils/constants.js";
 
 import {
-  degrees,
   dist,
   getHeadingFromTo,
   getDistanceBetweenPoints,
@@ -123,7 +122,7 @@ export class WayPoints {
     // if we're in auto-takeoff, waypoints should not be active yet
     if (modes[AUTO_TAKEOFF]) return;
 
-    let heading = modes[HEADING_MODE] || degrees(state.heading);
+    let heading = modes[HEADING_MODE] || state.heading;
 
     const { latitude: cy, longitude: cx, speed, declination } = state;
     const { currentWaypoint: p1 } = this;

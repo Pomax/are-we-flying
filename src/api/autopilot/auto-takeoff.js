@@ -3,20 +3,18 @@ import {
   HEADING_MODE,
   LEVEL_FLIGHT,
   FEET_PER_METER,
-  TERRAIN_FOLLOW,
   ALTITUDE_HOLD,
   FPS_IN_KNOTS,
 } from "./utils/constants.js";
 import {
-  degrees,
   constrain,
   constrainMap,
   getCompassDiff,
   getPointAtDistance,
   dist,
-  radians,
 } from "./utils/utils.js";
 import { changeThrottle } from "./utils/controls.js";
+import { AutoPilot } from "./autopilot.js";
 
 const { abs } = Math;
 
@@ -34,7 +32,7 @@ export class AutoTakeoff {
 
   /**
    *
-   * @param {*} owner
+   * @param {AutoPilot} autopilot
    */
   constructor(autopilot, original) {
     this.autopilot = autopilot;
@@ -58,7 +56,6 @@ export class AutoTakeoff {
    * @param {*} state
    */
   async run(state) {
-
     // EXPERIMENTAL FOR ROTATION
     if (!this.trimStep) {
       let trimLimit = state.pitchTrimLimit[0];
@@ -67,25 +64,17 @@ export class AutoTakeoff {
     }
 
     // constants
-    const { api } = this;
     const {
       TOTAL_WEIGHT: totalWeight,
       DESIGN_SPEED_VS1: vs1,
       NUMBER_OF_ENGINES: engineCount,
-      TITLE: title,
-    } = await api.get(
-      `TOTAL_WEIGHT`,
-      `DESIGN_SPEED_VS1`,
-      `DESIGN_SPEED_MIN_ROTATION`,
-      `NUMBER_OF_ENGINES`,
-      `TITLE`
-    );
+    } = state;
 
     // variables: these have the wrong unit, so we need to fix them
     let {
       DESIGN_SPEED_MIN_ROTATION: minRotate,
       DESIGN_TAKEOFF_SPEED: takeoffSpeed,
-    } = await api.get(`DESIGN_SPEED_MIN_ROTATION`, `DESIGN_TAKEOFF_SPEED`);
+    } = state
     minRotate *= FPS_IN_KNOTS;
     takeoffSpeed *= FPS_IN_KNOTS;
     if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
@@ -107,8 +96,8 @@ export class AutoTakeoff {
       pitchTrim,
     } = state;
 
-    const heading = degrees(state.heading);
-    const trueHeading = degrees(state.trueHeading);
+    const heading = state.heading;
+    const trueHeading = state.trueHeading;
 
     // Mystery value: this shouldn't really be used =(
     const vs12 = vs1 ** 2;
@@ -320,18 +309,18 @@ export class AutoTakeoff {
     // FIXME: this goes "wrong" for the Kodiak 100, which immediately banks left on take-off
     // FIXME: this does "nothing" for the Cessna 172, unless we add the static drift correction.
 
-    console.log({
-      STAGE: `auto-rudder`,
-      drift,
-      limit,
-      driftCorrection,
-      staticDriftCorrection: this.staticDriftCorrection,
-      diff,
-      stallFactor,
-      speedFactor,
-      tailFactor,
-      rudder,
-    });
+    // console.log({
+    //   STAGE: `auto-rudder`,
+    //   drift,
+    //   limit,
+    //   driftCorrection,
+    //   staticDriftCorrection: this.staticDriftCorrection,
+    //   diff,
+    //   stallFactor,
+    //   speedFactor,
+    //   tailFactor,
+    //   rudder,
+    // });
 
     this.lastDrift = drift;
 
@@ -358,7 +347,7 @@ export class AutoTakeoff {
     pitchTrim,
     isTailDragger
   ) {
-    const { api, autopilot, trimStep} = this;
+    const { autopilot, trimStep } = this;
     const rotateSpeed = minRotate + 5;
 
     // Are we in a rotation situation?
@@ -374,7 +363,7 @@ export class AutoTakeoff {
         // Are we climbing fast enough?
         if (vs > 1000) {
           console.log(`VS too high, trim down`);
-          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim - trimStep/10);
+          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim - trimStep / 10);
         }
 
         // Are we high enough up? Switch to autopilot
@@ -387,7 +376,7 @@ export class AutoTakeoff {
           console.log(`need more positive rate (dlift: ${dLift}), trim up`);
           this.trimStep += 0.01;
 
-          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep/10);
+          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep / 10);
         }
 
         // Ensure that the wing leveler is turned on

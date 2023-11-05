@@ -1,11 +1,14 @@
 const { ceil } = Math;
-import { degrees, getPointAtDistance } from "./utils/utils.js";
+import { getPointAtDistance } from "./utils/utils.js";
 import {
   ALTITUDE_HOLD,
   FEET_PER_METER,
   KMS_PER_KNOT,
 } from "./utils/constants.js";
-import { ALOS_VOID_VALUE, NO_ALOS_DATA_VALUE } from "../../elevation/alos-constants.js";
+import {
+  ALOS_VOID_VALUE,
+  NO_ALOS_DATA_VALUE,
+} from "../../elevation/alos-constants.js";
 
 const minutes = 2;
 
@@ -22,7 +25,7 @@ export async function followTerrain(autopilot, state, altitude = 500) {
     lat,
     long,
     distance,
-    degrees(trueHeading)
+    trueHeading
   );
   const coarseLookup = true;
   const maxValue = autopilot.alos.getHighestPointBetween(

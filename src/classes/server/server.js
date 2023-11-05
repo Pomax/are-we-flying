@@ -3,65 +3,82 @@ const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../../.env` });
 
+// API and autopilot
 import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
-import { APIWrapper } from "./api-wrapper.js";
 import { AutoPilot } from "../../api/autopilot/autopilot.js";
+
+// routers
+import { APIRouter } from "./api-router.js";
 import { AutopilotRouter } from "./autopilot-router.js";
 
 const { FLIGHT_OWNER_KEY } = process.env;
 
+// Mock (if needed)
 import { MOCK_API } from "../../api/mocks/mock-api.js";
 const MOCKED = process.argv.includes(`--mock`);
 const api = MOCKED ? new MOCK_API() : new MSFS_API();
+
+// globals
 let flying = false;
 let MSFS = false;
-
-function connectServerToAPI(server, onConnect) {
-  api.connect({
-    autoReconnect: true,
-    retries: Infinity,
-    retryInterval: 5,
-    onConnect,
-    onRetry: (_, s) =>
-      console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
-  });
-}
+let autopilot = false;
 
 /**
  * Our server-side API
  */
 export class ServerClass {
-  #autopilot;
   clients = [];
 
   /**
    * ...docs go here...
    */
   constructor() {
-    // Set up call handling for API calls
-    this.api = new APIWrapper(api, () => MSFS);
-
-    // Set up call handling for autopilot functionality
-    const autopilot = (this.#autopilot = new AutoPilot(api, async (params) =>
-      this.clients?.forEach((client) => client.onAutoPilot(params))
-    ));
-
-    if (MOCKED) {
-      api.setAutopilot(autopilot);
-    }
-
-    this.autopilot = new AutopilotRouter(this.#autopilot, (params) =>
-      this.clients?.forEach((c) => c.onAutoPilot(params))
+    // Set up the autopilot instance.
+    autopilot = new AutoPilot(api, (params) =>
+      this.#autopilotBroadcast(params)
     );
 
+    // If we're running a mock, feed the autopilot to the
+    // mocked API because it'll need it to run a fake flight.
+    if (MOCKED) api.setAutopilot(autopilot);
+
+    // Add "function routing" for the api and autopilot
+    this.#setupRouting();
+
     // Then wait for MSFS to come online
-    connectServerToAPI(this, () => {
-      MSFS = true;
-      console.log(`Connected to MSFS, binding.`);
-      this.#registerWithAPI(api, autopilot);
-      this.clients.forEach((client) => client.onMSFS(MSFS));
-      this.#poll();
-    });
+    connectServerToAPI(() => this.#onMSFSConnect());
+  }
+
+  /**
+   * ...docs go here...
+   * @param {*} params
+   */
+  async #autopilotBroadcast(params) {
+    this.clients.forEach((client) => client.onAutoPilot(params));
+  }
+
+  /**
+   * ...docs go here...
+   */
+  #onMSFSConnect() {
+    MSFS = true;
+    console.log(`Connected to MSFS.`);
+    this.#registerWithAPI(api, autopilot);
+    this.clients.forEach((client) => client.onMSFS(MSFS));
+    this.#poll();
+  }
+
+  /**
+   * ...docs go here...
+   */
+  #setupRouting() {
+    // All clients will now be able to call server.api.[...]
+    this.api = new APIRouter(api, () => MSFS);
+
+    // All clients will now be able to call server.autopilot.[...]
+    this.autopilot = new AutopilotRouter(autopilot, (params) =>
+      this.clients.forEach((c) => c.onAutoPilot(params))
+    );
   }
 
   /**
@@ -150,7 +167,7 @@ export class ServerClass {
     flying = 2 <= camera && camera < 9 && (onGround === 0 || load !== 0);
 
     if (flying !== wasFlying) {
-      if (flying) this.#autopilot.reset();
+      if (flying) autopilot.reset();
       this.clients.forEach((client) => client.setFlying(flying));
     } else if (client) {
       client.setFlying(flying);
@@ -166,4 +183,15 @@ export class ServerClass {
     console.log(`authenticating client`);
     return (client.authenticated = true);
   }
+}
+
+function connectServerToAPI(onConnect) {
+  api.connect({
+    autoReconnect: true,
+    retries: Infinity,
+    retryInterval: 5,
+    onConnect,
+    onRetry: (_, s) =>
+      console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
+  });
 }

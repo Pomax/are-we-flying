@@ -1,12 +1,13 @@
 import {
   exceeds,
-  degrees,
   radians,
   constrainMap,
   getCompassDiff,
 } from "./utils/utils.js";
 
 import { AUTO_TAKEOFF, HEADING_MODE } from "./utils/constants.js";
+import { AutoPilot } from "./autopilot.js";
+import { State } from "./utils/ap-state.js";
 
 const { abs } = Math;
 const DEFAULT_TARGET_BANK = 0;
@@ -23,7 +24,7 @@ const DEFAULT_MAX_TURN_RATE = 3;
  * autopilot's LVL function, this should eventually level us out.
  *
  * trim adjustments: positive numbers tip us to the right, negative to the left.
- *
+ *.get(
  * @param {*} autopilot
  * @param {*} state
  */
@@ -31,7 +32,7 @@ export async function flyLevel(autopilot, state) {
   const { trim } = autopilot;
 
   // Our bank/roll information:
-  const bank = degrees(state.bankAngle);
+  const bank = state.bankAngle;
   const maxBank = constrainMap(state.speed, 50, 200, 10, 30);
   const dBank = state.dBank;
   const maxdBank = 0.01;
@@ -43,7 +44,7 @@ export async function flyLevel(autopilot, state) {
   const s5 = step / 5;
 
   // Our "how much are we off" information:
-  const turnRate = degrees(state.turnRate);
+  const turnRate = state.turnRate;
   const targetData = getTargetBankAndTurnRate(autopilot, state, maxBank);
   const { targetBank, maxTurnRate } = targetData;
   const diff = targetBank - bank;
@@ -60,16 +61,16 @@ export async function flyLevel(autopilot, state) {
   if (!isNaN(update)) {
     trim.x += update;
 
-    console.log({
-      STAGE: `fly level`,
-      bank,
-      maxBank,
-      targetBank,
-      diff,
-      dBank,
-      overshoot,
-      trim: trim.x,
-    });
+    // console.log({
+    //   STAGE: `fly level`,
+    //   bank,
+    //   maxBank,
+    //   targetBank,
+    //   diff,
+    //   dBank,
+    //   overshoot,
+    //   trim: trim.x,
+    // });
 
     autopilot.set("AILERON_TRIM_PCT", trim.x);
   }
@@ -88,7 +89,7 @@ export async function flyLevel(autopilot, state) {
  * @returns
  */
 function getTargetBankAndTurnRate(autopilot, state, maxBank) {
-  const heading = degrees(state.heading);
+  const heading = state.heading;
 
   let targetBank = DEFAULT_TARGET_BANK;
   let maxTurnRate = DEFAULT_MAX_TURN_RATE;
@@ -102,6 +103,7 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
   // bank angle we want to allow, with the target bank closer to zero
   // the closer we already are to our target heading.
   let flightHeading = autopilot.modes[HEADING_MODE];
+
   if (flightHeading) {
     const hDiff = getCompassDiff(heading, flightHeading);
     targetBank = constrainMap(hDiff, -30, 30, maxBank, -maxBank);
@@ -117,9 +119,8 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
  * field is pretty non-uniform. As such, every time this runs,
  * we'll need to check  what heading we actually need to fly.
  *
- * @param {*} autopilot
- * @param {*} state
- * @param {*} waypoint
+ * @param {AutoPilot} autopilot
+ * @param {State} state
  * @returns
  */
 function updateHeadingFromWaypoint(autopilot, state) {

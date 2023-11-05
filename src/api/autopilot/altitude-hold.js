@@ -7,6 +7,7 @@ import {
   KNOT_IN_FPS,
   TERRAIN_FOLLOW,
 } from "./utils/constants.js";
+import { State } from "./utils/ap-state.js";
 
 const { abs, round } = Math;
 const DEFAULT_TARGET_VS = 0;
@@ -53,7 +54,7 @@ export async function altitudeHold(autopilot, state) {
   // We can't trim past +/- 100% of the trim range.
   if ((trim.y * 10) / Math.PI < -100) trim.y = -Math.PI / 20;
   if ((trim.y * 10) / Math.PI > 100) trim.y = Math.PI / 20;
-  console.log(trim.y);
+  // console.log(trim.y);
 
   autopilot.set("ELEVATOR_TRIM_POSITION", trim.y);
 }
@@ -92,27 +93,19 @@ async function getTargetVS(autopilot, state, maxVS) {
   // Safety: if we're close to our stall speed, and we need to climb,
   // CLIMB LESS FAST. Simple rule, but really important.
   if (targetVS > 0) {
-    const { DESIGN_SPEED_CLIMB: dsc, DESIGN_SPEED_VS1: dsvs1 } =
-      await autopilot.api.get(`DESIGN_SPEED_CLIMB`, `DESIGN_SPEED_VS1`);
+    const { DESIGN_SPEED_CLIMB: dsc, DESIGN_SPEED_VS1: dsvs1 } = state;
     targetVS = constrainMap(state.speed, dsvs1, dsc, targetVS / 2, targetVS);
   }
 
   return targetVS;
 }
 
-const ATT_PROPERTIES = [
-  `DESIGN_SPEED_CLIMB`,
-  `DESIGN_SPEED_VC`,
-  `NUMBER_OF_ENGINES`,
-  `OVERSPEED_WARNING`,
-];
-
 /**
  * Check our air speed: if we're descending we can easily end up over-speeding and
  * damaging the plane, whereas if we're flying up, we need max throttle, and in
  * level flight we want to cruise at "our rated cruise speed".
  *
- * @param {*} state
+ * @param {State} state
  * @param {*} api
  * @param {*} altDiff
  */
@@ -125,7 +118,7 @@ async function autoThrottle(state, api, altDiff, targetVS) {
     DESIGN_SPEED_VC: vc,
     NUMBER_OF_ENGINES: engineCount,
     OVERSPEED_WARNING: overSpeed,
-  } = await api.get(...ATT_PROPERTIES);
+  } = state;
 
   // we want these values in knots, not feet per second
   const cruiseSpeed = round(vc / KNOT_IN_FPS);
