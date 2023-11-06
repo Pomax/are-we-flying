@@ -225,13 +225,12 @@ export class AutoPilot {
       this.AP_INTERVAL = newValue ? FAST_AUTOPILOT : REGULAR_AUTOPILOT;
     }
 
-    if (type === LEVEL_FLIGHT) {
-      if (newValue === true) {
-        const { AILERON_TRIM_PCT: x } = await this.get("AILERON_TRIM_PCT");
-        // console.log(`Engaging level mode, trim=${x}`);
-        this.trim.x = x;
-      }
+    if (type === LEVEL_FLIGHT && newValue === true) {
+      const { AILERON_TRIM_PCT: x } = await this.get("AILERON_TRIM_PCT");
+      // console.log(`Engaging level mode, trim=${x}`);
+      this.trim.x = x;
     }
+
     if (type === ALTITUDE_HOLD) {
       const { ELEVATOR_TRIM_POSITION: y } = await this.get(
         "ELEVATOR_TRIM_POSITION"
