@@ -1132,7 +1132,27 @@ let Something = s;
 addReloadWatcher(__dirname, `/some-module.js`, (lib) => (Something = lib.Something));
 ```
 
-We'll be making extensive use of this once we implement our autopilot in part three. But first...
+We'll be making extensive use of this once we implement our autopilot in part three. In fact, we can go one step further, and update objects that are already "running" to the updated class:
+
+```javascript
+import { Something: s } from "./some/dir/with/some-module.js";
+let Something = s;
+let instance = new Something();
+
+// We can then set up our reload watched to update that mutable variable
+// every time something changes in our module file:
+addReloadWatcher(`${__dirname}/some/dir/with`, `some-module.js`, (lib) => {
+  Something = lib.Something;
+  if (instance) {
+    // This swaps the old prototype for the new code, without affecting
+    // any of the properties that were set on our instance. Something that
+    // is particularly useful for autopilot updates *while* we're flying:
+    Object.setPrototypeOf(instance, Something.prototype);
+  }
+});
+```
+
+
 
 # Part two: visualizing flights
 
@@ -2330,6 +2350,8 @@ This relies on [ap-variables.js]() and [ap-state.js]() files, which I won't be l
 Now, in order for the client to trigger autopilot functionality, we'll need to update our `server.js` too:
 
 ```javascript
+...
+
 import { AutoPilot } from "../../api/autopilot/autopilot.js";
 import { AutopilotRouter } from "./autopilot-router.js";
 
@@ -2558,6 +2580,32 @@ export class Plane {
 
 The hot reloading section needs to come earlier, that should be part of our initial setup.
 
+### Swapping in new code as we update our autopilot
+
+Of course, with all that done, it's probably a good idea to apply the "hot reload" pattern we looked at in part two so that we can update our autopilot code without having to restart our server, so let's quickly update our `server.js`:
+
+```javascript
+import url from "url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+import dotenv from "dotenv";
+dotenv.config({ path: `${__dirname}/../../../.env` });
+
+import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
+
+// Set up our code to allow hot-reloading our autopilot code:
+import { addReloadWatcher } from "../../api/autopilot/reload-watcher.js";
+import { AutoPilot as ap } from "../../api/autopilot/autopilot.js";
+let AutoPilot = ap;
+addReloadWatcher(`${__dirname}/../../api/autopilot/`, `autopilot.js`, (lib) => {
+  AutoPilot = lib.AutoPilot;
+  if (autopilot) {
+    Object.setPrototypeOf(autopilot, AutoPilot.prototype);
+  }
+});
+
+...
+```
+
 ### Testing our new "autopilot"
 
 Let's make sure to test this before we move on. Let's:
@@ -2655,17 +2703,16 @@ Implementing level mode is probably the easiest of all autopilot functions, wher
 So let's implement that. Let's create an `api/autopilot/fly-level.js` file and get to coding:
 
 ```javascript
-import { constrainMap, radians } from "./utils.js";
+import { radians, constrainMap } from "./utils/utils.js";
 
-// How much is the bank angle allowed to change per iteration?
-const MAX_D_BANK = radians(1.0);
-
-// Since we want to fly level, we want to target a bank of 0 degrees.
+// In order to fly level, our target bank angle is going to be zero.
 const DEFAULT_TARGET_BANK = 0;
 
-// We'll use two different correction values that we can interpolate between:
-const SMALL_STEP = radians(1.0);
-const BIG_STEP = 2 * SMALL_STEP;
+// And in preparation for the future, we'll want to put some
+// safeties in place so that if we *do* need to turn to get to
+// our target, we don't do so too fast, or too much.
+const DEFAULT_MAX_BANK = 30;
+const DEFAULT_MAX_TURN_RATE = 3;
 
 // Then, our actual "fly level" function, which is we're going to keep very "dumb":
 // each time we call it, it gets to make a recommendation, without any kind of 
@@ -2679,16 +2726,16 @@ export async function flyLevel(autopilot, state) {
   // Get our current bank/roll information:
   const bank = state.bankAngle;
   const dBank = state.dBank;
-  
+
   // While not strictly necessary, we'll restrict how much we're allowed
   // to (counter) bank based on how fast we're goinging. A hard bank at
   // low speed is a good way to crash a plane.
-  const maxBank = constrainMap(state.speed, 50, 200, 10, 30);
+  const maxBank = constrainMap(state.speed, 50, 200, 10, DEFAULT_MAX_BANK);
 
   // How big should our corrections be, at most?
-  const step = constrainMap(state.speed, 50, 150, SMALL_STEP, BIG_STEP);
+  const step = constrainMap(state.speed, 50, 150, radians(1), radians(5));
 
-  // Get the current "how much are we off by?" information:
+  // And "how much are we off by?"
   const targetBank = DEFAULT_TARGET_BANK;
   const diff = targetBank - bank;
 
@@ -2699,11 +2746,12 @@ export async function flyLevel(autopilot, state) {
   // the more we're banking, the more we correct, although if we're banking
   // more than "max bank", correct based off the max bank value instead.
   update -= constrainMap(diff, -maxBank, maxBank, -step, step);
-  
+
   // Also, counter-correct based on the current change in bank angle,
   // so that we don't en up jerking the plane around.
-  update += constrainMap(dBank, -MAX_D_BANK, MAX_D_BANK, -step/2, step/2);
-  
+  const maxDBank = DEFAULT_MAX_TURN_RATE;
+  update += constrainMap(dBank, -maxDBank, maxDBank, -step / 2, step / 2);
+
   // Update the trim vector, and then tell MSFS what the new value should be:
   trim.x += update;
   autopilot.set("AILERON_TRIM_PCT", trim.x);
@@ -2719,8 +2767,8 @@ We then implement our wing leveling code by solving two problems at the same tim
 
 So we start by actually getting our current bank and bank acceleration values, and defining our maximum allowed values and then:
 
-1. We correct our bank: if we're banking a lot, we want to correct a lot, and if we're banking a little, we want to correct just a little, but we always want to correct by at least a tiny amount. Which is exactly what we wrote `constrainMap` to do for us.
-2. Then, we correct our bank acceleration by trimming opposite to the direction we're accelerating in. This will undo some of our bank correction, but as long as we use a smaller step size the code will "prioritize" zeroing our bank angle over our bank acceleration.
+1. We correct our bank: if we're banking a lot, we want to correct a lot, and if we're banking a little, we want to correct just a little, and if we're perfectly level, we don't want to correct at all. Which is exactly what we wrote `constrainMap` to do for us.
+2. Then, we correct our bank acceleration by trimming opposite to the direction that our bank is accelerating in. This will undo some of our bank correction, but as long as we use a smaller step size than for our bank correction, the code will "prioritize" zeroing our bank angle over our bank acceleration.
 3. Finally, we update our trim, and then we wait for the autopilot to trigger this function again during the next run, letting us run through the same procedure, but with (hopefully!) slightly less wrong values. Provided that this function runs enough times, we'll converge on level flight, and that's exactly what we want.
 
 Although we do still need to update the autopilot code so that we can turn this feature on and off. First, we'll define a constants file for housing things like autopilot modes in `api/autopilot/utils/constants.js`:
@@ -2737,8 +2785,7 @@ Then, we update the autopilot code to make use of this new constant, and we'll a
 // Import our new constant...
 import { LEVEL_FLIGHT } from "./utils/constants.js";
 
-// ...and import the "fly level" code using our hot-reload
-// technique descript at the end of "part two", above.
+// ...and import the "fly level" code using our hot-reload technique
 import url from "url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import { addReloadWatcher } from "./reload-watcher.js";
@@ -2750,7 +2797,7 @@ addReloadWatcher(__dirname, `fly-level.js`, (lib) => (flyLevel = lib.flyLevel));
 export class Autopilot {
   constructor(...) {
     ...
-    // Next up, we add "fly level" by first adding it to our list of modes:
+    // Next up, we add "fly level" as an autopilot mode:
     this.modes = {
       [LEVEL_FLIGHT]: false,
     }
@@ -2783,9 +2830,9 @@ export class Autopilot {
   // Set a specific mode to some specific value:
   setTarget(type, value) {
     const { modes } = this;
-    // If we don't know the mode we're being told to change, just ignore it.
+    // If we don't know the mode we're being told to change, we ignore it.
     if (modes[type] === undefined) return;
-    // Otherwise, update the value and then trigger a "what to do after" call:
+    // Otherwise, we update the value and then trigger a "what to do after" call:
     const prev = modes[type];
     modes[type] = value;
     this.onParameterChange(type, prev, value);
@@ -2799,9 +2846,10 @@ export class Autopilot {
       if (newValue === true) {
         // when we turn on flight levelling, we want to make sure that the
         // trim vector has the right value in it before we start updating it,
-        // or things might get really dangerous, really fast.
-        const { AILERON_TRIM_PCT: x } = await this.get("AILERON_TRIM_PCT");
-        this.trim.x = x;
+        // or things might get really dangerous, really fast. Most planes
+        // need a non-zero trim value to fly level "manually", so if we
+        // leave the trim set to zero, we *could* even damage a plane!
+        this.trim.x = (await this.get("AILERON_TRIM_PCT")).AILERON_TRIM_PCT;
       }
     }
   }
@@ -2826,7 +2874,7 @@ Now, we could test this immediately, but we've only implemented half of an auto 
 
 <img src="./holding-altitude.png" alt="image-20231105212055349" style="zoom:67%;" />
 
-Next up: making the plane hold its vertical position. This requires updating the "elevator trim" (also known as pitch trim) rather than our aileron trim, by looking at the plane's vertical speed. That is, we're going to look at how fast the plane is moving up or down through the air, and then we try to correct for that by pitching the plane a little in the direction that counteracts that movement.
+Next up: making the plane hold its vertical position. This requires updating the "elevator trim" (also known as pitch trim) rather than our aileron trim, by looking at the plane's vertical speed. That is, we're going to look at how fast the plane is moving up or down through the air, and then we're going to try to get that value to zero by pitching the plane a little in the direction that counteracts the vertical movement.
 
 Let's add a new constant:
 
@@ -2850,6 +2898,7 @@ addReloadWatcher(__dirname, `altitude-hold.js` (lib) => (altitudeHold = lib.alti
 export class Autopilot {
   constructor(...) {
     ...
+    // And we'll add our new autopilot mode.
     this.modes = {
       [LEVEL_FLIGHT]: false,
       [ALTITUDE_HOLD]: false,
@@ -2875,7 +2924,7 @@ export class Autopilot {
     const data = await this.get(...AP_VARIABLES);
     const state = new State(data, this.prevState);
 
-    // And now we have *two* modes 
+    // And now we have *two* autopilot functions!
     if (this.modes[LEVEL_FLIGHT]) flyLevel(this, state);
     if (this.modes[ALTITUDE_HOLD]) altitudeHold(this, state);
 
@@ -2885,6 +2934,10 @@ export class Autopilot {
 ```
 
 Well okay, we do still need to actually write our  `altitudeHold` function, so let's create an `api/autopilot/altitude-hold.js`:
+
+# --- continue from here ---
+
+
 
 ```javascript
 import { ALTITUDE_HOLD } from "./utils/constants.js";
