@@ -60,14 +60,14 @@ export function initCharts() {
       },
     },
     vspeed: {
-      limit: 1500,
+      limit: 100,
       colors,
       axes: {
         minor: {
-          interval: 100,
+          interval: 1,
         },
         major: {
-          interval: 500,
+          interval: 10,
           strokeWidth: 2,
         },
       },

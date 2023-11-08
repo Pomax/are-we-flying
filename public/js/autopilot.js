@@ -41,6 +41,7 @@ export class Autopilot {
             value = document.querySelector(`#autopilot .heading`).value ?? 360;
           }
         }
+        console.log(`sending`, { [key]: value })
         server.autopilot.update({ [key]: value });
       });
     });

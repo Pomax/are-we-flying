@@ -27,13 +27,19 @@ export class WayPoints {
     addReloadWatcher(__dirname, `waypoint.js`, (lib) => {
       Waypoint = lib.Waypoint;
       const { points } = this;
-      points.forEach((p, pos) => (points[pos] = new Waypoint(0, 0, 0, 0, 0, p)));
+      points.forEach(
+        (p, pos) => (points[pos] = new Waypoint(0, 0, 0, 0, 0, p))
+      );
     });
   }
 
   reset() {
     this.points = [];
     this.currentWaypoint = undefined;
+  }
+
+  get length() {
+    return this.points.length;
   }
 
   // make sure that if someone asks for all waypoints, they don't get a reference to the actual array.

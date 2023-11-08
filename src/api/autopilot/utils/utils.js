@@ -7,9 +7,9 @@ export function dist(x1, y1, x2, y2) {
   return sqrt(dx ** 2 + dy ** 2);
 }
 
-export function exceeds(v1, v2) {
-  if (v1 < -v2 || v1 > v2) {
-    return v1 - v2;
+export function exceeds(value, limit) {
+  if (value < -limit || value > limit) {
+    return value - limit;
   }
   return 0;
 }
@@ -42,17 +42,17 @@ export function constrainMap(
   de,
   ts,
   te,
-  lm = false,
-  LM = false,
+  lowerLimit = false,
+  upperLimit = false,
   lutFn = (v) => v
 ) {
   const val = lutFn(constrain(map(v, ds, de, ts, te), ts, te));
-  if (lm === false || LM === false) return val;
-  if (val < lm) return val;
-  if (val > LM) return val;
-  const mid = (lm + LM) / 2;
-  if (val > lm && val <= mid) return lm;
-  if (val < LM && val >= mid) return LM;
+  if (lowerLimit === false || upperLimit === false) return val;
+  if (val < lowerLimit) return val;
+  if (val > upperLimit) return val;
+  const mid = (lowerLimit + upperLimit) / 2;
+  if (val > lowerLimit && val <= mid) return lowerLimit;
+  if (val < upperLimit && val >= mid) return upperLimit;
   return val;
 }
 

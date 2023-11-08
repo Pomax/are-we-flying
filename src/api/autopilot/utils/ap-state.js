@@ -1,4 +1,5 @@
 import { degrees } from "./utils.js";
+import { KNOT_IN_FPS } from "./constants.js";
 import { AP_VARIABLES } from "./ap-variables.js";
 
 export class State {
@@ -33,6 +34,18 @@ export class State {
   dHeading = 0;
   dV = 0;
   dVS = 0;
+
+  // model properties
+  model = {
+    climbSpeed: 0,
+    minRotation: 0,
+    vc: 0,
+    vs1: 0,
+    takeoffSpeed: 0,
+    numberOfEngines: 0,
+    overSpeed: 0,
+    weight: 0,
+  };
 
   // Timestamp for this state. This value is automatically set.
   callTime = 0;
@@ -87,6 +100,18 @@ export class State {
     ];
     this.aileronTrim = 100 * data.AILERON_TRIM_PCT;
     this.rudderTrim = 100 * data.RUDDER_TRIM_PCT;
+
+    // model data
+    this.model = {
+      climbSpeed: data.DESIGN_SPEED_CLIMB / KNOT_IN_FPS,
+      minRotation: data.DESIGN_SPEED_MIN_ROTATION,
+      vc: data.DESIGN_SPEED_VC / KNOT_IN_FPS,
+      vs1: data.DESIGN_SPEED_VS1,
+      takeoffSpeed: data.DESIGN_TAKEOFF_SPEED,
+      numberOfEngines: data.NUMBER_OF_ENGINES,
+      overSpeed: data.OVERSPEED_WARNING,
+      weight: data.TOTAL_WEIGHT,
+    };
 
     // derive "delta per second" values if there is a previous state
     this.buildDeltas(previous);

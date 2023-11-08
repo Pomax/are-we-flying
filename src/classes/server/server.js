@@ -3,9 +3,20 @@ const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../../.env` });
 
-// API and autopilot
+// API and Autopilot
 import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
-import { AutoPilot } from "../../api/autopilot/autopilot.js";
+
+// we'll make the autopilot hot-reloadable
+import { addReloadWatcher } from "../../api/autopilot/reload-watcher.js";
+
+import { AutoPilot as ap } from "../../api/autopilot/autopilot.js";
+let AutoPilot = ap;
+addReloadWatcher(`${__dirname}/../../api/autopilot/`, `autopilot.js`, (lib) => {
+  AutoPilot = lib.AutoPilot;
+  if (autopilot) {
+    Object.setPrototypeOf(autopilot, AutoPilot.prototype);
+  }
+});
 
 // routers
 import { APIRouter } from "./api-router.js";
@@ -137,7 +148,7 @@ export class ServerClass {
    */
   async #checkFlying(client) {
     if (!MSFS) return;
-    console.log(`are we flying?`);
+    // console.log(`are we flying?`);
     const data = await this.api.get(
       client,
       `CAMERA_STATE`,

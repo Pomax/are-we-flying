@@ -180,6 +180,7 @@ export class AutoPilot {
   }
 
   async setParameters(params) {
+    console.log(`received params`, params);
     if (params.ATO === true) {
       params.MASTER = true;
     }
@@ -203,16 +204,19 @@ export class AutoPilot {
   }
 
   toggle(type) {
+    console.log(`toggle`);
     const { modes } = this;
     if (modes[type] === undefined) return;
     this.setTarget(type, !modes[type]);
   }
 
   setTarget(type, value) {
+    console.log(`setTarget`);
     const { modes } = this;
     if (modes[type] === undefined) return;
     const prev = modes[type];
     modes[type] = value;
+    console.log(`changing ${type} from ${prev} to ${value}`)
     this.processChange(type, prev, value);
   }
 

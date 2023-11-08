@@ -12,6 +12,7 @@ import { State } from "./utils/ap-state.js";
 const { abs } = Math;
 const DEFAULT_TARGET_BANK = 0;
 const DEFAULT_MAX_TURN_RATE = 3;
+const DEFAULT_MAX_BANK = 30;
 
 /**
  * In order to fly in the direction we should be going, our goal is to end up
@@ -33,9 +34,10 @@ export async function flyLevel(autopilot, state) {
 
   // Our bank/roll information:
   const bank = state.bankAngle;
-  const maxBank = constrainMap(state.speed, 50, 200, 10, 30);
+  const maxBank = constrainMap(state.speed, 50, 200, 10, DEFAULT_MAX_BANK);
+
   const dBank = state.dBank;
-  const maxdBank = 0.01;
+  const maxdBank = DEFAULT_MAX_TURN_RATE;
 
   // How big our corrections are going to be:
   const step = constrainMap(state.speed, 50, 150, radians(1), radians(5)); // kodiak wants 5 instead of 2???!?!?
@@ -103,6 +105,7 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
   // bank angle we want to allow, with the target bank closer to zero
   // the closer we already are to our target heading.
   let flightHeading = autopilot.modes[HEADING_MODE];
+  console.log(`flightHeading: ${flightHeading}`);
 
   if (flightHeading) {
     const hDiff = getCompassDiff(heading, flightHeading);
@@ -127,6 +130,8 @@ function updateHeadingFromWaypoint(autopilot, state) {
   if (autopilot.modes[AUTO_TAKEOFF]) return;
 
   const { waypoints } = autopilot;
+  if (waypoints.length === 0) return;
+
   const waypointHeading = waypoints.getHeading(state);
   if (waypointHeading) {
     autopilot.setTarget(HEADING_MODE, waypointHeading);
