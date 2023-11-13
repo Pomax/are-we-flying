@@ -41,7 +41,7 @@ export class Autopilot {
             value = document.querySelector(`#autopilot .heading`).value ?? 360;
           }
         }
-        console.log(`sending`, { [key]: value })
+        console.log(`sending`, { [key]: value });
         server.autopilot.update({ [key]: value });
       });
     });
@@ -67,7 +67,7 @@ export class Autopilot {
    * ...docs go here...
    */
   update(params) {
-    if (!params) params;
+    if (!params) params = AP_DEFAULT;
     Object.entries(params).forEach(([key, value]) => {
       document
         .querySelector(`#autopilot .${key}`)
@@ -95,6 +95,17 @@ export class Autopilot {
     if (!ALT) {
       const e = document.querySelector(`#autopilot .altitude`);
       if (e) e.value = altitude;
+    }
+  }
+
+  /**
+   * ...docs go here...
+   */
+  setCurrentHeading(heading) {
+    const HDG = document.querySelector(`.HDG.active`);
+    if (!HDG) {
+      const e = document.querySelector(`#autopilot .heading`);
+      if (e) e.value = heading;
     }
   }
 }

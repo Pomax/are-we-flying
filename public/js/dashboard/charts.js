@@ -1,10 +1,10 @@
 import { setupGraph } from "./svg-graph.js";
 
 class Chart {
-  constructor(chartables, colors) {
+  constructor(chartables, colors, container = document.body) {
     this.charts = Object.fromEntries(
       Object.entries(chartables).map(([label, props]) => {
-        const chart = setupGraph(document.body, 600, 400, colors.background);
+        const chart = setupGraph(container, 600, 400, colors.background);
         chart.setProperties({ label, ...props });
         chart.start();
         return [label, (value) => chart.addValue(label, value)];
@@ -20,7 +20,7 @@ class Chart {
   }
 }
 
-export function initCharts() {
+export function initCharts(container) {
   const colors = {
     background: `#444`,
     plot: `#0F0F`,
@@ -64,10 +64,10 @@ export function initCharts() {
       colors,
       axes: {
         minor: {
-          interval: 1,
+          interval: 10,
         },
         major: {
-          interval: 10,
+          interval: 50,
           strokeWidth: 2,
         },
       },
@@ -124,7 +124,7 @@ export function initCharts() {
       },
     },
     dvs: {
-      limit: 2,
+      limit: 1,
       colors,
       axes: {
         minor: {
@@ -188,5 +188,5 @@ export function initCharts() {
     },
   };
 
-  return new Chart(chartables, colors);
+  return new Chart(chartables, colors, container);
 }

@@ -60,3 +60,4 @@ cause: path projection, so the first waypoint needs "the plane's current positio
 - [x] hot reloading for fly-level, altitude-hold, and auto-takeoff (should we document this?)
 
 - [ ] autopilot "zero" update, to reset trim
+

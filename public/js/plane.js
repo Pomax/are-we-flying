@@ -64,7 +64,7 @@ export class Plane {
       },
     };
     this.addPlaneIconToMap(map, location, heading);
-    this.charts = initCharts();
+    this.charts = initCharts(document.querySelector(`#science`));
   }
 
   /**
@@ -215,8 +215,7 @@ export class Plane {
     this.planeIcon?.classList.toggle(`paused`, paused);
     const pic = getAirplaneSrc(flightModel.TITLE);
     [...planeIcon.querySelectorAll(`img`)].forEach(
-      // (img) => (img.src = `planes/${pic}`)
-      (img) => (img.src = `planes/vertigo.png`)
+      (img) => (img.src = `planes/${pic}`)
     );
     this.planeIcon.classList.toggle(`crashed`, crashed);
     this.updateMarker(planeIcon, varData);
@@ -236,7 +235,6 @@ export class Plane {
     const { heading, speed, trueHeading } = varData;
     const palt = paag - cg;
 
-    this.autopilot.setCurrentAltitude(palt);
     css.setProperty(`--altitude`, max(palt, 0));
     css.setProperty(`--sqrt-alt`, sqrt(max(palt, 0)));
     css.setProperty(`--speed`, speed | 0);
@@ -248,6 +246,11 @@ export class Plane {
       (galt | 0) === 0 ? `${alt | 0}'` : `${palt | 0}' (${alt | 0}')`;
     planeIcon.querySelector(`.alt`).textContent = altitudeText;
     planeIcon.querySelector(`.speed`).textContent = `${speed | 0}kts`;
+
+    // Update the autopilot fields with the current live value,
+    // if the autopilot is not currently engaged.
+    this.autopilot.setCurrentAltitude(palt);
+    this.autopilot.setCurrentHeading(heading);
   }
 
   /**
@@ -257,11 +260,15 @@ export class Plane {
     const { alt, bank, galt, pitch, speed, heading } = varData;
     const { vspeed, trim, aTrim, turnRate } = varData;
 
+    const dvs =
+      (vspeed - this.lastUpdate.flightData.VERTICAL_SPEED) /
+      (now - this.lastUpdate.time);
+
     this.charts.update({
       ground: galt,
       altitude: alt,
       vspeed: vspeed,
-      dvs: (vspeed - this.lastUpdate.vspeed) / (now - this.lastUpdate.time),
+      dvs: dvs,
       speed: speed,
       pitch: pitch,
       trim: trim,

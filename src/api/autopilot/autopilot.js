@@ -15,17 +15,18 @@ import { degrees } from "./utils/utils.js";
 import { followTerrain } from "./terrain-follow.js";
 import { ALOSInterface } from "../../elevation/alos-interface.js";
 
-// allow hot-reloading of flyLevel and altitudeHold code
-import { addReloadWatcher } from "./reload-watcher.js";
+// allow hot-reloading of flyLevel and altitudeHold code,
+// with the functions (re)bound in the AutoPilot instance.
+import { watch } from "./reload-watcher.js";
 import { flyLevel as fl } from "./fly-level.js";
 import { altitudeHold as ah } from "./altitude-hold.js";
+
+// allow hot-reloading of these classes with global binding.
 import { AutoTakeoff as ato } from "./auto-takeoff.js";
 import { AP_VARIABLES as apv } from "./utils/ap-variables.js";
 import { State as st } from "./utils/ap-state.js";
 import { WayPoints as wp } from "./waypoints/waypoints.js";
 
-let flyLevel = fl;
-let altitudeHold = ah;
 let AutoTakeoff = ato;
 let AP_VARIABLES = apv;
 let State = st;
@@ -33,6 +34,8 @@ let WayPoints = wp;
 
 const FAST_AUTOPILOT = 200;
 const REGULAR_AUTOPILOT = 500;
+
+export const LOAD_TIME = Date.now();
 
 export class AutoPilot {
   constructor(api, onChange = () => {}) {
@@ -45,6 +48,7 @@ export class AutoPilot {
   }
 
   reset() {
+    console.log(`resetting autopilot`);
     this.bootstrap();
     this.autoPilotEnabled = false;
     this.autoTakeoff = false;
@@ -52,7 +56,7 @@ export class AutoPilot {
       [LEVEL_FLIGHT]: false,
       [HEADING_MODE]: false,
       [ALTITUDE_HOLD]: false,
-      [AUTO_THROTTLE]: true,
+      [AUTO_THROTTLE]: false,
       [TERRAIN_FOLLOW]: false,
       [AUTO_TAKEOFF]: false,
       // we're going to ignore these two for now.
@@ -68,6 +72,10 @@ export class AutoPilot {
     this.resetTrim();
     this.prevState = new State();
     this.waypoints = new WayPoints(this);
+
+    // operators
+    this.flyLevel = fl;
+    this.altitudeHold = ah;
   }
 
   resetTrim() {
@@ -76,32 +84,24 @@ export class AutoPilot {
 
   // Hot-reload watching
   watchForUpdates() {
-    addReloadWatcher(
-      __dirname,
-      `/utils/ap-variables.js`,
-      (lib) => (AP_VARIABLES = lib.AP_VARIABLES)
-    );
-    addReloadWatcher(
-      __dirname,
-      `/utils/ap-state.js`,
-      (lib) => (State = lib.State)
-    );
-    addReloadWatcher(
-      __dirname,
-      `fly-level.js`,
-      (lib) => (flyLevel = lib.flyLevel)
-    );
-    addReloadWatcher(
-      __dirname,
-      `altitude-hold.js`,
-      (lib) => (altitudeHold = lib.altitudeHold)
-    );
-    addReloadWatcher(__dirname, `auto-takeoff.js`, (lib) => {
-      AutoTakeoff = lib.AutoTakeoff;
+    watch(`${__dirname}/utils/ap-variables.js`, (module) => {
+      AP_VARIABLES = module.AP_VARIABLES;
+    });
+    watch(`${__dirname}/utils/ap-state.js`, (module) => {
+      State = module.State;
+    });
+    watch(`${__dirname}fly-level.js`, (module) => {
+      this.flyLevel = module.flyLevel;
+    });
+    watch(`${__dirname}altitude-hold.js`, (module) => {
+      this.altitudeHold = module.altitudeHold;
+    });
+    watch(`${__dirname}auto-takeoff.js`, (module) => {
+      AutoTakeoff = module.AutoTakeoff;
       this.autoTakeoff = new AutoTakeoff(this, this.autoTakeoff);
     });
-    addReloadWatcher(__dirname, `waypoints/waypoints.js`, (lib) => {
-      WayPoints = lib.WayPoints;
+    watch(`${__dirname}waypoints/waypoints.js`, (module) => {
+      WayPoints = module.WayPoints;
       this.waypoints = new WayPoints(this, this.waypoints);
     });
   }
@@ -204,19 +204,18 @@ export class AutoPilot {
   }
 
   toggle(type) {
-    console.log(`toggle`);
     const { modes } = this;
     if (modes[type] === undefined) return;
     this.setTarget(type, !modes[type]);
   }
 
   setTarget(type, value) {
-    console.log(`setTarget`);
     const { modes } = this;
     if (modes[type] === undefined) return;
     const prev = modes[type];
+    if (prev === value) return;
     modes[type] = value;
-    console.log(`changing ${type} from ${prev} to ${value}`)
+    console.log(`changing ${type} from ${prev} to ${value}`);
     this.processChange(type, prev, value);
   }
 
@@ -285,7 +284,7 @@ export class AutoPilot {
 
     // Do we need to level the wings / fly a specific heading?
     if (this.modes[LEVEL_FLIGHT]) {
-      flyLevel(this, state);
+      this.flyLevel(this, state);
     }
 
     // Do we need to hold our altitude / fly a specific altitude?
@@ -295,7 +294,8 @@ export class AutoPilot {
         // altitude is set before running the ALT pass.
         followTerrain(this, state);
       }
-      altitudeHold(this, state);
+
+      this.altitudeHold(this, state);
     }
 
     this.prevState = state;

@@ -18,6 +18,8 @@ import { AutoPilot } from "./autopilot.js";
 
 const { abs } = Math;
 
+export const LOAD_TIME = Date.now();
+
 /**
  * Naive magic lies here
  */

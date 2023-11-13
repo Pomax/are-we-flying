@@ -1,13 +1,19 @@
 import fs from "fs";
-import path from "path";
 
-export function addReloadWatcher(dir, filename, loadHandler) {
-  const filepath = path.join(dir, filename);
-  // check this file for changes every second.
-  fs.watchFile(filepath, { interval: 1000 }, () => {
-    import(`file:///${filepath}?ts=${Date.now()}`).then((lib) => {
-      console.log(`RELOADING ${filepath}`);
-      loadHandler(lib);
-    });
+export function watch(filePath, onChange) {
+  if (process.env.NODE_ENV === `production`) return;
+
+  const callStack = new Error().stack
+    .split(`\n`)
+    .slice(2)
+    .map((v) => v.trim().replace(`at `, `  `))
+    .join(`\n`);
+
+  fs.watchFile(filePath, { interval: 1000 }, async () => {
+    console.log(`RELOADING ${filePath}`);
+    const module = await import(`file:///${filePath}?ts=${Date.now()}`);
+    if (module.LOAD_TIME) console.log(`  module.LOAD_TIME:${module.LOAD_TIME}`);
+    console.log(callStack);
+    onChange(module);
   });
 }

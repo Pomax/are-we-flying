@@ -7,29 +7,19 @@ dotenv.config({ path: `${__dirname}/../../../.env` });
 import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
 
 // we'll make the autopilot hot-reloadable
-import { addReloadWatcher } from "../../api/autopilot/reload-watcher.js";
-
+import { watch } from "../../api/autopilot/reload-watcher.js";
 import { AutoPilot as ap } from "../../api/autopilot/autopilot.js";
 let AutoPilot = ap;
-addReloadWatcher(`${__dirname}/../../api/autopilot/`, `autopilot.js`, (lib) => {
-  AutoPilot = lib.AutoPilot;
-  if (autopilot) {
-    Object.setPrototypeOf(autopilot, AutoPilot.prototype);
-  }
-});
 
 // routers
 import { APIRouter } from "./api-router.js";
 import { AutopilotRouter } from "./autopilot-router.js";
 
+const MOCKED = process.argv.includes(`--mock`);
 const { FLIGHT_OWNER_KEY } = process.env;
 
-// Mock (if needed)
-import { MOCK_API } from "../../api/mocks/mock-api.js";
-const MOCKED = process.argv.includes(`--mock`);
-const api = MOCKED ? new MOCK_API() : new MSFS_API();
-
 // globals
+let api = false;
 let flying = false;
 let MSFS = false;
 let autopilot = false;
@@ -44,6 +34,26 @@ export class ServerClass {
    * ...docs go here...
    */
   constructor() {
+    this.init();
+  }
+
+  async init() {
+    watch(`${__dirname}../../api/autopilot/`, `autopilot.js`, (lib) => {
+      AutoPilot = lib.AutoPilot;
+      if (autopilot) {
+        Object.setPrototypeOf(autopilot, AutoPilot.prototype);
+      }
+    });
+
+    // Mock (if needed)
+    if (MOCKED) {
+      const lib = await import("../../api/mocks/mock-api.js");
+      const { MOCK_API } = lib;
+      api = new MOCK_API();
+    } else {
+      api = new MSFS_API();
+    }
+
     // Set up the autopilot instance.
     autopilot = new AutoPilot(api, (params) =>
       this.#autopilotBroadcast(params)
@@ -178,7 +188,7 @@ export class ServerClass {
     flying = 2 <= camera && camera < 9 && (onGround === 0 || load !== 0);
 
     if (flying !== wasFlying) {
-      if (flying) autopilot.reset();
+      autopilot.reset();
       this.clients.forEach((client) => client.setFlying(flying));
     } else if (client) {
       client.setFlying(flying);

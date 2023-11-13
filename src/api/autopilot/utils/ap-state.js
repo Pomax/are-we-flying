@@ -2,6 +2,8 @@ import { degrees } from "./utils.js";
 import { KNOT_IN_FPS } from "./constants.js";
 import { AP_VARIABLES } from "./ap-variables.js";
 
+export const LOAD_TIME = Date.now();
+
 export class State {
   // Basic flight data
   onGround = true;
@@ -9,6 +11,7 @@ export class State {
   altitude = 0;
   speed = 0;
   lift = 0;
+  pitch = 0;
 
   // Basic navigation data
   latitude = 0;
@@ -29,6 +32,7 @@ export class State {
   // set if there is a previous state.
   dSpeed = 0;
   dLift = 0;
+  dPitch = 0;
   dBank = 0;
   dTurn = 0;
   dHeading = 0;
@@ -78,6 +82,7 @@ export class State {
     // degrees
     this.latitude = degrees(data.PLANE_LATITUDE);
     this.longitude = degrees(data.PLANE_LONGITUDE);
+    this.pitch = degrees(data.PLANE_PITCH_DEGREES);
     this.heading = degrees(data.PLANE_HEADING_DEGREES_MAGNETIC);
     this.trueHeading = degrees(data.PLANE_HEADING_DEGREES_TRUE);
     this.declination = this.trueHeading - this.heading;
@@ -122,6 +127,7 @@ export class State {
     const s = (this.callTime - previous.callTime) / 1000;
     this.dSpeed = (this.speed - previous.speed) / s;
     this.dLift = (this.lift - previous.lift) / s;
+    this.dPitch = (this.pitch - previous.pitch) / s;
     this.dBank = (this.bankAngle - previous.bankAngle) / s;
     this.dTurn = (this.turnRate - previous.turnRate) / s;
     this.dHeading = (this.heading - previous.heading) / s;

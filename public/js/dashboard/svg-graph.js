@@ -87,6 +87,7 @@ class SVGChart {
       x: 10,
       y: 10,
     });
+    text.setAttribute(`shape-rendering`, `crispEdges`);
     text.textContent = label;
     row.appendChild(text);
     this.legend.appendChild(row);

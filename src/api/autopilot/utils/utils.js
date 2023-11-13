@@ -183,3 +183,7 @@ export function pathIntersection(x1, y1, x2, y2, cx, cy, r) {
   // console.log(`t1:`, t1);
   return f(t1, x1, y1, dx, dy);
 }
+
+export function nf(v) {
+  return (v<0? ``: ` `) + v.toFixed(5);
+}

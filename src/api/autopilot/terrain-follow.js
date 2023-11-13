@@ -17,6 +17,15 @@ function getDistanceGivenSpeed(speed) {
   return speed * KMS_PER_KNOT * 60 * minutes;
 }
 
+export const LOAD_TIME = Date.now();
+
+/**
+ * ...
+ *
+ * @param {*} autopilot
+ * @param {*} state
+ * @param {*} altitude
+ */
 export async function followTerrain(autopilot, state, altitude = 500) {
   const { latitude: lat, longitude: long, trueHeading } = state;
 

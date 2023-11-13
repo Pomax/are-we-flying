@@ -35,11 +35,23 @@
       load: <input type="file" name="load" />
     </div>
 
-    <div id="viz">
-      <div id="map" style="width: 1200px; height: 800px"></div>
-      <div id="attitude" data-description="Templated from attitude.html"></div>
+    <div style="display: flex; flex-direction: row">
+      <div class="pane">
+        <div id="viz">
+          <div id="map" style="width: 1200px; height: 800px"></div>
+          <div
+            id="attitude"
+            data-description="Templated from attitude.html"
+          ></div>
+        </div>
+        <div
+          id="autopilot"
+          data-description="Templated from autopilot.html"
+        ></div>
+      </div>
+      <div id="science" class="pane" style="width: 40%">
+        <!-- charts -->
+      </div>
     </div>
-
-    <div id="autopilot" data-description="Templated from autopilot.html"></div>
   </body>
 </html>

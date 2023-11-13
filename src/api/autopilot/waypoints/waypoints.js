@@ -13,23 +13,23 @@ import {
 
 import url from "url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-import { addReloadWatcher } from "../reload-watcher.js";
+import { watch } from "../reload-watcher.js";
 import { Waypoint as wp } from "./waypoint.js";
 let Waypoint = wp;
 
 const { abs } = Math;
+
+export const LOAD_TIME = Date.now();
 
 export class WayPoints {
   constructor(autopilot, original) {
     this.autopilot = autopilot;
     this.reset();
     if (original) Object.assign(this, original);
-    addReloadWatcher(__dirname, `waypoint.js`, (lib) => {
+    watch(`${__dirname}waypoint.js`, (lib) => {
       Waypoint = lib.Waypoint;
       const { points } = this;
-      points.forEach(
-        (p, pos) => (points[pos] = new Waypoint(0, 0, 0, 0, 0, p))
-      );
+      points.forEach((p) => Object.setPrototypeOf(p, Waypoint.prototype));
     });
   }
 
@@ -38,8 +38,10 @@ export class WayPoints {
     this.currentWaypoint = undefined;
   }
 
-  get length() {
-    return this.points.length;
+  hasActive() {
+    if (this.points.length === 0) return false;
+    if (!this.currentWaypoint) return false;
+    return true;
   }
 
   // make sure that if someone asks for all waypoints, they don't get a reference to the actual array.

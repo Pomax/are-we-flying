@@ -64,7 +64,7 @@ void safifyWaypoints() {
 
 void draw() {
   clear();
-  background(250, 245, 230);
+  background(250, 235, 200);
 
   noFill();
 

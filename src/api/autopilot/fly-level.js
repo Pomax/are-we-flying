@@ -14,6 +14,10 @@ const DEFAULT_TARGET_BANK = 0;
 const DEFAULT_MAX_TURN_RATE = 3;
 const DEFAULT_MAX_BANK = 30;
 
+const RUN_SIMPLE_VERSION = true;
+
+export const LOAD_TIME = Date.now();
+
 /**
  * In order to fly in the direction we should be going, our goal is to end up
  * in a situation where our bank (i.e. roll) as well as the speed at which our
@@ -55,27 +59,24 @@ export async function flyLevel(autopilot, state) {
   let update = 0;
   update -= constrainMap(diff, -maxBank, maxBank, -s1, s1);
   update += constrainMap(dBank, -maxdBank, maxdBank, -s2, s2);
-  const overshoot = exceeds(turnRate, maxTurnRate);
-  if (overshoot !== 0) {
-    update -= constrainMap(overshoot, -maxTurnRate, maxTurnRate, -s5, s5);
+
+  if (!RUN_SIMPLE_VERSION) {
+    const overshoot = exceeds(turnRate, maxTurnRate);
+    if (overshoot !== 0) {
+      update -= constrainMap(overshoot, -maxTurnRate, maxTurnRate, -s5, s5);
+    }
   }
 
-  if (!isNaN(update)) {
-    trim.x += update;
-
-    // console.log({
-    //   STAGE: `fly level`,
-    //   bank,
-    //   maxBank,
-    //   targetBank,
-    //   diff,
-    //   dBank,
-    //   overshoot,
-    //   trim: trim.x,
-    // });
-
-    autopilot.set("AILERON_TRIM_PCT", trim.x);
+  if (isNaN(update)) {
+    console.warn(`fly-level update was NaN`);
+    console.warn({ bank, dBank, turnRate });
+    console.warn({ targetBank, maxTurnRate, diff });
+    console.warn({ s1, s2, update, trim: trim.x });
+    return;
   }
+
+  trim.x += update;
+  autopilot.set("AILERON_TRIM_PCT", trim.x);
 }
 
 /**
@@ -97,7 +98,9 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
   let maxTurnRate = DEFAULT_MAX_TURN_RATE;
 
   // Are we flying using waypoints?
-  updateHeadingFromWaypoint(autopilot, state);
+  // if (!RUN_SIMPLE_VERSION) {
+    updateHeadingFromWaypoint(autopilot, state);
+  // }
 
   // If there is an autopilot flight heading set (either because the
   // user set one, or because of the previous waypoint logic) then we
@@ -105,7 +108,6 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
   // bank angle we want to allow, with the target bank closer to zero
   // the closer we already are to our target heading.
   let flightHeading = autopilot.modes[HEADING_MODE];
-  console.log(`flightHeading: ${flightHeading}`);
 
   if (flightHeading) {
     const hDiff = getCompassDiff(heading, flightHeading);
