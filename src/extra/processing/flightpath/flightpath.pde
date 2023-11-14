@@ -9,15 +9,26 @@ double targetRatio = 0.33;
 double permissibleOvershoot = 0;
 
 void setup() {
-  size(1200, 800);
+  frameRate(144);
+  size(1200, 900);
   waypoints = new ArrayList<Point>();
   flightpath = new ArrayList<Point>();
   reset();
-  placeWayPoint(200, 200);
+  //placeWayPoint(200, 200);
   placeWayPoint(533, 166);
   placeWayPoint(530, 264);
-  placeWayPoint(150, 254);
-  frameRate(144);
+  placeWayPoint(150, 354);
+  placeWayPoint(1070, 589);
+  placeWayPoint(218, 481);
+  placeWayPoint(950, 654);
+  placeWayPoint(348, 578);
+  placeWayPoint(658, 688);
+  placeWayPoint(490, 684);
+  placeWayPoint(770, 108);
+  placeWayPoint(1068, 115);
+  placeWayPoint(1071, 757);
+  placeWayPoint(795, 791);
+  placeWayPoint(86, 676);
 }
 
 void reset() {
@@ -63,8 +74,7 @@ void safifyWaypoints() {
 }
 
 void draw() {
-  clear();
-  background(250, 235, 200);
+  background(250, 235, 210);
 
   noFill();
 
@@ -130,13 +140,21 @@ void updateHeading() {
 
   if (i1 != null) {
     target = i1;
-    fill(255, 0, 0); // leading intersection = RED
+    // leading intersection = RED
+    color RED = color(255, 0, 0);
+    fill(RED);
+    stroke(RED);
     i1.draw();
+    line(airplane, i1);
   }
 
   if (i2 != null) {
     Point pr2 = airplane.project(p2, p3);
-    fill(0, 255, 0); // projection onto the next segment = GREEN
+    // projection onto the next segment = GREEN
+    color GREEN = color(0, 255, 0);
+    fill(GREEN);
+    stroke(GREEN);
+    line(airplane, pr2);
     pr2.draw();
     boolean tooCloseToP2 = dist(airplane.x, airplane.y, p2.x, p2.y) < airplane.r;
     boolean tooCloseToSegment = dist(airplane, pr2) <= airplane.r * (1 - permissibleOvershoot);
@@ -152,6 +170,7 @@ void updateHeading() {
     if (i1 == null && i2 == null) {
       p1 = waypoints.get(waypoints.size()-2);
       p2 = waypoints.get(waypoints.size()-1);
+      // no. this needs to be a target.
       airplane.heading = atan2(p2.y - p1.y, p2.x - p1.x);
       currentPointIndex++;
       return;
