@@ -1,14 +1,14 @@
 const { ceil } = Math;
-import { getPointAtDistance } from "./utils/utils.js";
+import { getPointAtDistance } from "../utils.js";
 import {
   ALTITUDE_HOLD,
   FEET_PER_METER,
   KMS_PER_KNOT,
-} from "./utils/constants.js";
+} from "../constants.js";
 import {
   ALOS_VOID_VALUE,
   NO_ALOS_DATA_VALUE,
-} from "../../elevation/alos-constants.js";
+} from "../elevation/alos-constants.js";
 
 const minutes = 2;
 

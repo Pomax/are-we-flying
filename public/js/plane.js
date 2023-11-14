@@ -13,34 +13,6 @@ import { WaypointOverlay } from "./waypoint-manager.js";
 const L = await waitFor(async () => window.L);
 const { abs, max, PI: π, sqrt } = Math;
 
-// Helper function: change sim var naming into something more manageable.
-function getVarData(flightData) {
-  const {
-    AILERON_TRIM_PCT: aTrim,
-    AIRSPEED_INDICATED: speed,
-    AUTOPILOT_HEADING_LOCK_DIR: bug,
-    ELEVATOR_TRIM_POSITION: trim,
-    GROUND_ALTITUDE: galt,
-    INDICATED_ALTITUDE: alt,
-    PLANE_ALT_ABOVE_GROUND: paag,
-    PLANE_BANK_DEGREES: bank,
-    PLANE_HEADING_DEGREES_MAGNETIC: heading,
-    PLANE_HEADING_DEGREES_TRUE: trueHeading,
-    PLANE_LATITUDE: lat,
-    PLANE_LONGITUDE: long,
-    PLANE_PITCH_DEGREES: pitch,
-    STATIC_CG_TO_GROUND: cg,
-    TURN_INDICATOR_RATE: turnRate,
-    VERTICAL_SPEED: vspeed,
-  } = flightData;
-  return {
-    ...{ lat, long },
-    ...{ alt, bank, bug, cg, galt, paag },
-    ...{ heading, pitch, speed, trueHeading },
-    ...{ vspeed, trim, aTrim, turnRate },
-  };
-}
-
 /**
  * ...docs go here...
  */
@@ -80,7 +52,7 @@ export class Plane {
    * ...docs go here...
    * @param {*} data
    */
-  async manageWaypoints(waypoints) {
+  async manageWaypoints(waypoints = []) {
     this.waypoints.manage(waypoints);
   }
 
@@ -89,7 +61,7 @@ export class Plane {
    * @param {*} value
    * @returns
    */
-  async setElevationProbe(value) {
+  async setElevationProbe(value = false) {
     // remove the old probe line
     if (this.elevationProbe) this.elevationProbe.remove();
 
@@ -144,13 +116,11 @@ export class Plane {
     // Check if we started a new flight because that requires
     // immediately building a new flight trail.
     const startedFlying = !this.lastUpdate.flying && this.state.flying;
-    if (startedFlying) {
-      this.startNewTrail();
-      // this.lastUpdate.flying = true;
-    }
+    if (startedFlying) this.startNewTrail();
 
-    // And then debounce any real UI updates to once per secondish
-    if (now - this.lastUpdate.time < 995) return;
+    // Make sure that even if we receive multiple updates per
+    // second, we only process "the latest update" once per second:
+    if (debounceState(this, state)) return;
 
     // Update plane visualisation
     const { flightData } = state;
@@ -163,12 +133,10 @@ export class Plane {
     );
 
     // Update the autopilot
-    if (state.autopilot) {
-      const { waypoints, elevation, ...params } = state.autopilot;
-      this.autopilot.update(params);
-      this.manageWaypoints(waypoints);
-      this.setElevationProbe(elevation);
-    }
+    const { waypoints, elevation, ...params } = state.autopilot ?? {};
+    this.autopilot.update(params);
+    this.manageWaypoints(waypoints);
+    this.setElevationProbe(elevation);
 
     // Cache and wait for the next state
     this.lastUpdate = { time: now, ...state };
@@ -279,4 +247,59 @@ export class Plane {
       "aileron trim": aTrim,
     });
   }
+}
+
+// State update debounce functionality
+const debounceState = (() => {
+  const DEBOUNCE_INTERVAL = 900;
+
+  let lastDebounceTime = Date.now();
+  let lastDebounceState = undefined;
+  let debounceTimeout = undefined;
+
+  return function debounceState(receiver, state) {
+    const now = Date.now();
+    // If enough time has passed, allow this content to get processed:
+    if (now - lastDebounceTime > DEBOUNCE_INTERVAL) {
+      lastDebounceState = undefined;
+      clearTimeout(debounceTimeout);
+      return false;
+    }
+    // If not, store it, and schedule a future update.
+    debounceTimeout = setTimeout(() => {
+      if (lastDebounceState) {
+        receiver.updateState(lastDebounceState);
+        lastDebounceState = undefined;
+      }
+    });
+    lastDebounceState = state;
+  };
+})();
+
+// Helper function: change sim var naming into something more manageable.
+function getVarData(flightData) {
+  const {
+    AILERON_TRIM_PCT: aTrim,
+    AIRSPEED_INDICATED: speed,
+    AUTOPILOT_HEADING_LOCK_DIR: bug,
+    ELEVATOR_TRIM_POSITION: trim,
+    GROUND_ALTITUDE: galt,
+    INDICATED_ALTITUDE: alt,
+    PLANE_ALT_ABOVE_GROUND: paag,
+    PLANE_BANK_DEGREES: bank,
+    PLANE_HEADING_DEGREES_MAGNETIC: heading,
+    PLANE_HEADING_DEGREES_TRUE: trueHeading,
+    PLANE_LATITUDE: lat,
+    PLANE_LONGITUDE: long,
+    PLANE_PITCH_DEGREES: pitch,
+    STATIC_CG_TO_GROUND: cg,
+    TURN_INDICATOR_RATE: turnRate,
+    VERTICAL_SPEED: vspeed,
+  } = flightData;
+  return {
+    ...{ lat, long },
+    ...{ alt, bank, bug, cg, galt, paag },
+    ...{ heading, pitch, speed, trueHeading },
+    ...{ vspeed, trim, aTrim, turnRate },
+  };
 }

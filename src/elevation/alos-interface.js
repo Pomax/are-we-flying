@@ -8,7 +8,7 @@ import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../.env` });
 const DATA_FOLDER = process.env.DATA_FOLDER;
 
-import { getDistanceBetweenPoints } from "../api/autopilot/utils/utils.js";
+import { getDistanceBetweenPoints } from "../utils.js";
 import {
   SEA_LEVEL,
   ALOS_VOID_VALUE,

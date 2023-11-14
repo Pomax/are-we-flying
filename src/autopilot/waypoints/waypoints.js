@@ -2,18 +2,18 @@ import {
   KMS_PER_KNOT,
   AUTO_TAKEOFF,
   HEADING_MODE,
-} from "../utils/constants.js";
+} from "../../constants.js";
 
 import {
   dist,
   getHeadingFromTo,
   getDistanceBetweenPoints,
   pathIntersection,
-} from "../utils/utils.js";
+} from "../../utils.js";
 
 import url from "url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-import { watch } from "../reload-watcher.js";
+import { watch } from "../../reload-watcher.js";
 import { Waypoint as wp } from "./waypoint.js";
 let Waypoint = wp;
 

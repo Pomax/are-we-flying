@@ -1,4 +1,4 @@
-import { AutoPilot } from "../../api/autopilot/autopilot.js";
+import { AutoPilot } from "../../autopilot/autopilot.js";
 import { FlightInformation } from "./flight-information.js";
 
 const RECONNECT_TIMEOUT_IN_MS = 5000;
@@ -26,8 +26,21 @@ export class ClientClass {
    * attempt
    */
   init() {
+    this.#resetState();
     setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
-    this.setState({ offline: true });
+  }
+
+  #resetState() {
+    this.setState({
+      autopilot: null,
+      crashed: false,
+      flightData: false,
+      flightModel: false,
+      flying: false,
+      MSFS: false,
+      offline: true,
+      paused: true,
+    });
   }
 
   /**
@@ -37,11 +50,11 @@ export class ClientClass {
   async #tryReconnect() {
     if (this.server) {
       clearTimeout(this.#reconnection);
-      this.setState({ offline: !this.server });
       console.log(`reconnected`);
       return;
     }
     console.log(`trying to reconnect to the server...`);
+    this.#resetState();
     this.reconnect();
     this.#reconnection = setTimeout(
       () => this.#tryReconnect(),
@@ -61,13 +74,7 @@ export class ClientClass {
     this.setState({
       autopilot:
         this.state.autopilot ?? (await this.server.autopilot.getParameters()),
-      crashed: this.state.crashed ?? false,
-      flightData: this.state.flightData ?? false,
-      flightModel: this.state.flightModel ?? false,
-      flying: this.state.flying ?? false,
-      MSFS: this.state.MSFS ?? false,
       offline: false,
-      paused: this.state.paused ?? false,
     });
     if (fok) {
       this.setState({
@@ -170,7 +177,7 @@ export class ClientClass {
     this.setState({ flying });
     if (flying && !wasFlying) {
       console.log(`starting a new flight...`);
-      this.setState({ crashed: false, MSFS: true });
+      this.setState({ crashed: false, MSFS: true, paused: false });
       this.#flightInfo = new FlightInformation(this.server.api);
       this.setState(await this.#flightInfo.update());
       this.#poll();

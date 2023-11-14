@@ -1,17 +1,16 @@
 import * as geomag from "geomag";
 import {
-  constrain,
+  constrainMap,
   degrees,
   getPointAtDistance,
   radians,
-} from "../autopilot/utils/utils.js";
-import { FEET_PER_METER } from "../autopilot/utils/constants.js";
+} from "../../../utils.js";
+import { FEET_PER_METER } from "../../../constants.js";
 import {
   ALOSInterface,
   NO_ALOS_DATA_VALUE,
   DATA_FOLDER,
-} from "../../elevation/alos-interface.js";
-import { constrainMap } from "../autopilot/utils/utils.js";
+} from "../../../elevation/alos-interface.js";
 
 const { abs, sign } = Math;
 

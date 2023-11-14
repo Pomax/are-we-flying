@@ -67,7 +67,7 @@ export class Autopilot {
    * ...docs go here...
    */
   update(params) {
-    if (!params) params = AP_DEFAULT;
+    if (params.MASTER === undefined) params = AP_DEFAULT;
     Object.entries(params).forEach(([key, value]) => {
       document
         .querySelector(`#autopilot .${key}`)

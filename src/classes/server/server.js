@@ -7,13 +7,13 @@ dotenv.config({ path: `${__dirname}/../../../.env` });
 import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
 
 // we'll make the autopilot hot-reloadable
-import { watch } from "../../api/autopilot/reload-watcher.js";
-import { AutoPilot as ap } from "../../api/autopilot/autopilot.js";
+import { watch } from "../../reload-watcher.js";
+import { AutoPilot as ap } from "../../autopilot/autopilot.js";
 let AutoPilot = ap;
 
 // routers
-import { APIRouter } from "./api-router.js";
-import { AutopilotRouter } from "./autopilot-router.js";
+import { APIRouter } from "./routers/api-router.js";
+import { AutopilotRouter } from "./routers/autopilot-router.js";
 
 const MOCKED = process.argv.includes(`--mock`);
 const { FLIGHT_OWNER_KEY } = process.env;
@@ -38,7 +38,7 @@ export class ServerClass {
   }
 
   async init() {
-    watch(`${__dirname}../../api/autopilot/`, `autopilot.js`, (lib) => {
+    watch(`${__dirname}../../autopilot/`, `autopilot.js`, (lib) => {
       AutoPilot = lib.AutoPilot;
       if (autopilot) {
         Object.setPrototypeOf(autopilot, AutoPilot.prototype);
@@ -47,7 +47,7 @@ export class ServerClass {
 
     // Mock (if needed)
     if (MOCKED) {
-      const lib = await import("../../api/mocks/mock-api.js");
+      const lib = await import("./mocks/mock-api.js");
       const { MOCK_API } = lib;
       api = new MOCK_API();
     } else {

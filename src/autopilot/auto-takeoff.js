@@ -5,14 +5,14 @@ import {
   FEET_PER_METER,
   ALTITUDE_HOLD,
   FPS_IN_KNOTS,
-} from "./utils/constants.js";
+} from "../constants.js";
 import {
   constrain,
   constrainMap,
   getCompassDiff,
   getPointAtDistance,
   dist,
-} from "./utils/utils.js";
+} from "../utils.js";
 import { changeThrottle } from "./utils/controls.js";
 import { AutoPilot } from "./autopilot.js";
 
@@ -76,7 +76,7 @@ export class AutoTakeoff {
     let {
       DESIGN_SPEED_MIN_ROTATION: minRotate,
       DESIGN_TAKEOFF_SPEED: takeoffSpeed,
-    } = state
+    } = state;
     minRotate *= FPS_IN_KNOTS;
     takeoffSpeed *= FPS_IN_KNOTS;
     if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;

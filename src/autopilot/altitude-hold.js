@@ -1,10 +1,4 @@
-import {
-  radians,
-  constrain,
-  constrainMap,
-  exceeds,
-  nf,
-} from "./utils/utils.js";
+import { radians, constrain, constrainMap, exceeds, nf } from "../utils.js";
 import { changeThrottle } from "./utils/controls.js";
 import {
   ALTITUDE_HOLD,
@@ -13,19 +7,25 @@ import {
   KNOT_IN_FPS,
   TERRAIN_FOLLOW,
   FPS_IN_KNOTS,
-} from "./utils/constants.js";
+} from "../constants.js";
 
 const { abs, round, sign } = Math;
 const DEFAULT_TARGET_VS = 0;
 const DEFAULT_MAX_dVS = 100;
 const DEFAULT_MAX_VS = 1000;
+const DELTA_PITCH_LIMIT = 2;
 
 // Test constants
-const EMERGENCY_PROTECTION = true;
-const DAMPEN_CLOSE_TO_ZERO = true;
-const TARGET_TO_HOLD = true;
-const SMOOTH_RAMP_UP = true;
-const STALL_PROTECTION = true;
+const FEATURES = {
+  EMERGENCY_PROTECTION: true,
+  DAMPEN_CLOSE_TO_ZERO: true,
+  TARGET_TO_HOLD: true,
+  SMOOTH_RAMP_UP: true,
+  STALL_PROTECTION: false, // should this be linked to auto-throttle?
+  SKIP_TINY_UPDATES: true,
+  BOOST_SMALL_CORRECTIONS: true,
+  LIMIT_TRIM_TO_100: true,
+};
 
 // The elevator trim uses a super weird unit, where +/- 100% maps
 // to "pi divided by 10", i.e. +/- 0.31415[...], so we need to
@@ -47,15 +47,19 @@ export async function altitudeHold(autopilot, state) {
 
   // Quick check: are we pitching *way* out of control?
   const { dPitch } = state;
-  const dPitchLimit = 2;
+  const dPitchLimit = DELTA_PITCH_LIMIT;
   const pitchExcess = exceeds(dPitch, dPitchLimit);
-  if (pitchExcess !== 0) {
+  if (FEATURES.EMERGENCY_PROTECTION && pitchExcess !== 0) {
     console.log(`--bad, excess: ${pitchExcess}`);
     const MF = constrainMap(speed, 50, 200, 20, 100);
-    trim.y += constrainMap(pitchExcess, -MF, MF, -MF * trimStep, MF * trimStep);
-    if (EMERGENCY_PROTECTION) {
-      return autopilot.set("ELEVATOR_TRIM_POSITION", trim.y);
-    }
+    trim.pitch += constrainMap(
+      pitchExcess,
+      -MF,
+      MF,
+      -MF * trimStep,
+      MF * trimStep
+    );
+    return autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
   }
 
   // What are our VS parameters?
@@ -67,9 +71,7 @@ export async function altitudeHold(autopilot, state) {
     DEFAULT_MAX_VS / 10,
     DEFAULT_MAX_VS
   );
-  let { targetVS } = TARGET_TO_HOLD
-    ? await getTargetVS(autopilot, state, maxVS)
-    : { targetVS: DEFAULT_TARGET_VS };
+  let { targetVS } = await getTargetVS(autopilot, state, maxVS);
   const diff = targetVS - VS;
 
   // Nudge us towards the correct vertical speed
@@ -80,36 +82,53 @@ export async function altitudeHold(autopilot, state) {
   const maxdVS = constrainMap(abs(diff), 0, 100, 0, DEFAULT_MAX_dVS);
   update -= constrainMap(dVS, -maxdVS, maxdVS, -trimStep / 2, trimStep / 2);
 
-  // Do some console stats
-  console.log(
-    `dPitch = ${nf(dPitch)}, maxVS: ${nf(maxVS)}, targetVS: ${nf(
-      targetVS
-    )}, VS: ${nf(VS)}, dVS: ${nf(dVS)}`
-  );
-
-  if (DAMPEN_CLOSE_TO_ZERO) {
+  if (FEATURES.DAMPEN_CLOSE_TO_ZERO) {
     // Scale the effect of our nudge so that the closer we are to our
     // target, the less we actually adjust the trim. This is essentially
     // a "dampening" to prevent oscillating, where we over-correct, then
     // over-correct the other way in response, then over-correct in response
     // to THAT, and so on and so on.
     const aDiff = abs(diff);
-    // if (aDiff < 100) {update /= 2;
+    // if (aDiff < 100) update /= 2;
     // if (aDiff < 20) update /= 2;
-    if (aDiff < 200) {
-      update = constrainMap(aDiff, 5, 200, update / 10, update);
+    if (aDiff < 100) {
+      if (aDiff < 80) {
+        update = constrainMap(aDiff, 5, 80, update / 10, update / 2);
+      } else {
+        update = constrainMap(aDiff, 80, 100, update / 2, update);
+      }
     }
   }
 
   if (!isNaN(update)) {
-    trim.y += update;
+    const updateMagnitude = update / trimStep;
+
+    // Do some console stats
+    console.log(
+      `dPitch = ${nf(dPitch)}, maxVS: ${nf(maxVS)}, targetVS: ${nf(
+        targetVS
+      )}, VS: ${nf(VS)}, dVS: ${nf(dVS)}, update: ${nf(updateMagnitude)}`
+    );
+
+    // Skip tiny updates if we're already moving in the right direction
+    if (FEATURES.SKIP_TINY_UPDATES) {
+      if (sign(targetVS) === sign(VS) && abs(updateMagnitude) < 0.001) return;
+    }
+
+    // Boost small updates if we're moving in the wrong direction
+    if (FEATURES.BOOST_SMALL_CORRECTIONS) {
+      if (sign(targetVS) !== sign(VS) && abs(updateMagnitude) < 0.01)
+        update *= 2;
+    }
+
+    trim.pitch += update;
 
     // // We can't trim past +/- 100% of the trim range.
-    // if ((trim.y * 10) / Math.PI < -100) trim.y = -Math.PI / 20;
-    // if ((trim.y * 10) / Math.PI > 100) trim.y = Math.PI / 20;
-    trim.y = constrain(trim.y, -Math.PI / 20, Math.PI / 20);
+    if (FEATURES.LIMIT_TRIM_TO_100) {
+      trim.pitch = constrain(trim.pitch, -Math.PI / 20, Math.PI / 20);
+    }
 
-    autopilot.set("ELEVATOR_TRIM_POSITION", trim.y);
+    autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
   }
 }
 
@@ -126,6 +145,12 @@ export async function altitudeHold(autopilot, state) {
  * @returns
  */
 async function getTargetVS(autopilot, state, maxVS) {
+  if (!FEATURES.TARGET_TO_HOLD) {
+    return {
+      targetVS: DEFAULT_TARGET_VS,
+    };
+  }
+
   const { altitude: currentAltitude, verticalSpeed: VS, speed } = state;
   let targetVS = DEFAULT_TARGET_VS;
   let altDiff = undefined;
@@ -142,7 +167,7 @@ async function getTargetVS(autopilot, state, maxVS) {
     const direction = sign(altDiff);
     const plateau = 200;
 
-    if (SMOOTH_RAMP_UP) {
+    if (FEATURES.SMOOTH_RAMP_UP) {
       // If we're more than 200 feet away from our target, ramp
       // our target up to maxVS, and keep it there.
       if (abs(altDiff) > plateau) {
@@ -176,7 +201,7 @@ async function getTargetVS(autopilot, state, maxVS) {
     }
   }
 
-  if (STALL_PROTECTION) {
+  if (FEATURES.STALL_PROTECTION) {
     // And of course: if we're close to our stall speed, and we need to
     // climb, *CLIMB LESS FAST*. A simple rule, but really important.
     if (targetVS > 0) {

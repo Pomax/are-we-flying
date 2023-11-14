@@ -10,14 +10,14 @@ import {
   INVERTED_FLIGHT,
   LEVEL_FLIGHT,
   TERRAIN_FOLLOW,
-} from "./utils/constants.js";
-import { degrees } from "./utils/utils.js";
+} from "../constants.js";
+import { degrees } from "../utils.js";
 import { followTerrain } from "./terrain-follow.js";
-import { ALOSInterface } from "../../elevation/alos-interface.js";
+import { ALOSInterface } from "../elevation/alos-interface.js";
 
 // allow hot-reloading of flyLevel and altitudeHold code,
 // with the functions (re)bound in the AutoPilot instance.
-import { watch } from "./reload-watcher.js";
+import { watch } from "../reload-watcher.js";
 import { flyLevel as fl } from "./fly-level.js";
 import { altitudeHold as ah } from "./altitude-hold.js";
 
@@ -79,7 +79,11 @@ export class AutoPilot {
   }
 
   resetTrim() {
-    this.trim = { x: 0, y: 0, z: 0 };
+    this.trim = {
+      pitch: 0,
+      roll: 0,
+      yaw: 0,
+    };
   }
 
   // Hot-reload watching
@@ -223,23 +227,23 @@ export class AutoPilot {
     if (type === AUTO_TAKEOFF) {
       if (oldValue === false && newValue === true) {
         this.autoTakeoff = new AutoTakeoff(this);
-        this.trim = { x: 0, y: 0, z: 0 };
+        this.resetTrim();
       }
       this.AP_INTERVAL = newValue ? FAST_AUTOPILOT : REGULAR_AUTOPILOT;
     }
 
     if (type === LEVEL_FLIGHT && newValue === true) {
-      const { AILERON_TRIM_PCT: x } = await this.get("AILERON_TRIM_PCT");
+      const { AILERON_TRIM_PCT: roll } = await this.get("AILERON_TRIM_PCT");
       // console.log(`Engaging level mode, trim=${x}`);
-      this.trim.x = x;
+      this.trim.roll = roll;
     }
 
     if (type === ALTITUDE_HOLD) {
-      const { ELEVATOR_TRIM_POSITION: y } = await this.get(
+      const { ELEVATOR_TRIM_POSITION: pitch } = await this.get(
         "ELEVATOR_TRIM_POSITION"
       );
       // console.log(`Engaging altitude hold at ${newValue} feet, trim=${y}`);
-      this.trim.y = y;
+      this.trim.pitch = pitch;
     }
 
     if (type === HEADING_MODE) {

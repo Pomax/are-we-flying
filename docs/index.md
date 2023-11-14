@@ -1093,7 +1093,7 @@ export function watch(filePath, onChange) {
   // Step 1: don't run file-watching in production. Obviously.
   if (process.env.NODE_ENV === `production`) return;
 
-  // Next, get the current callstack, so we can report on
+  // Next, get the current call stack, so we can report on
   // that when a file change warrants an update.
   const callStack = new Error().stack
     .split(`\n`)
@@ -1103,24 +1103,31 @@ export function watch(filePath, onChange) {
 
   // If we're not running in production, check this file for changes every second:
   fs.watchFile(filePath, { interval: 1000 }, async () => {
-    // If there was a change, re-import this file as an ES module, with a "cache busting" URL.
-    // Now, this *is* an explicit memory leak, because there is no "unloading" for modules, but
-    // we're not going to be watching files in production, and you definitely have enough RAM
-    // for what we're going to using it for =)
-    console.log(`RELOADING ${filePath}`);
+    console.log(`RELOADING ${filePath} AT ${DATE.now()}`);
+
+    // If there was a change, re-import this file as an ES module, with a 
+    // "cache busting" URL that includes the current time stamp. Modules are
+    // cached based on their exact URL, so adding a query argument that we
+    // can vary means we we "reimport" the code:
     const module = await import(`file:///${filePath}?ts=${Date.now()}`);
-    if (module.LOAD_TIME) {
-      console.log(`  module.LOAD_TIME:${module.LOAD_TIME}`);
-    }
+
+    // To confirm to ourselves that a module was fully loaded as a "new module" we
+    // check whether it has a `LOAD_TIME` constant that it set during load, and log
+    // what that value is. Because it should be very close to our reload time.
+    if (module.LOAD_TIME) console.log(`  module.LOAD_TIME:${module.LOAD_TIME}`);
+    
+    // Then we log the stack so we know where this reload was set up in our code:
     console.log(callStack);
+    
+    // And then we run whatever code needs to run now that the module's been reloaded.
     onChange(module);
   });
 }
 ```
 
-The first caveat being an explicit memory leak.
+The first caveat being an explicit memory leak. There is no mechanism for "unloading" modules that were previously loaded, so every save-and-reload will cause a new file to be loaded in. Of course, our files are tiny compared to how much memory we have: this is going to be a non-issue, but it's still good to know about.
 
-The next being that we can no longer "just load something from a module", we need to be a little more clever about how we use this function:
+The second caveat is that we can no longer "just import something from a module", because we can't update imports, they're effectively `const` values. Instead, we need to be a little more clever about how we import things:
 
 ```javascript
 import url from "url";
@@ -2280,7 +2287,9 @@ And while we could do this in the browser, we're going to be adding the main cod
 
 In order to run an auto pilot, we're going to need to set up some code that actually "runs" the auto pilot, and then expose some of that functionality over the network, which requires (unsurprisingly) some new files, and some updates to old files.
 
-Let's start with the autopilot code itself, but without any specific autopilot code implemented, since we'll be doing that as we run through this chapter. We'll put this file in `src/api/autopilot/autopilot.js`:
+### The server side of our autopilot
+
+Let's start with the autopilot code itself, but without any specific piloting logic implemented, since we'll be doing that as we run through this chapter. We'll put this file in `src/autopilot/autopilot.js`:
 
 ```javascript
 import { AP_VARIABLES } from "./utils/ap-variables.js";
@@ -2361,18 +2370,17 @@ Now, in order for the client to trigger autopilot functionality, we'll need to u
 ```javascript
 ...
 
-import { AutoPilot } from "../../api/autopilot/autopilot.js";
-import { AutopilotRouter } from "./autopilot-router.js";
+import { AutoPilot } from "../../autopilot/autopilot.js";
+import { AutopilotRouter } from "./routers/autopilot-router.js";
 
 ...
 
-// There can only be one autopilot, so we track it outside our server class:
 let MSFS = false;
 let flying = false;
 let autopilot = false;
 
 export class ServerClass {
-  constructor() {
+  init() {
     // Set up the autopilot instance, with a callback that lets the
     // autopilot broadcast its settings whenever they change.
     autopilot = new AutoPilot(api, (params) =>
@@ -2432,7 +2440,7 @@ export class ServerClass {
 }
 ```
 
-With the associated (tiny) autopilot function router code:
+With the associated (small) autopilot function router code:
 
 ```javascript
 /**
@@ -2477,6 +2485,34 @@ export class ClientClass {
 ```
 
 Nothing to it.
+
+#### Swapping in new code as we update our autopilot
+
+Of course, with all that done, it's probably a good idea to apply the "hot reload" pattern we looked at in part two so that we can update our autopilot code without having to restart our server, so let's quickly update our `server.js`:
+
+```javascript
+import url from "url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+import dotenv from "dotenv";
+dotenv.config({ path: `${__dirname}/../../../.env` });
+
+import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
+
+// Set up our code to allow hot-reloading our autopilot code:
+import { watch } from "../../api/autopilot/reload-watcher.js";
+import { AutoPilot as ap } from "../../api/autopilot/autopilot.js";
+let AutoPilot = ap;
+watch(`${__dirname}../../api/autopilot/`, `autopilot.js`, (lib) => {
+  AutoPilot = lib.AutoPilot;
+  if (autopilot) {
+    Object.setPrototypeOf(autopilot, AutoPilot.prototype);
+  }
+});
+
+...
+```
+
+### The client-side of our autopilot
 
 Of course, we want to be able to control this autopilot from the browser, so we'll need an update to our browser code that allows use to actually turn the autopilot on and off (even if that, right now, does nothing other than toggle a boolean yet!).
 
@@ -2589,33 +2625,7 @@ export class Plane {
 
 The hot reloading section needs to come earlier, that should be part of our initial setup.
 
-### Swapping in new code as we update our autopilot
-
-Of course, with all that done, it's probably a good idea to apply the "hot reload" pattern we looked at in part two so that we can update our autopilot code without having to restart our server, so let's quickly update our `server.js`:
-
-```javascript
-import url from "url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-import dotenv from "dotenv";
-dotenv.config({ path: `${__dirname}/../../../.env` });
-
-import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
-
-// Set up our code to allow hot-reloading our autopilot code:
-import { watch } from "../../api/autopilot/reload-watcher.js";
-import { AutoPilot as ap } from "../../api/autopilot/autopilot.js";
-let AutoPilot = ap;
-watch(`${__dirname}../../api/autopilot/`, `autopilot.js`, (lib) => {
-  AutoPilot = lib.AutoPilot;
-  if (autopilot) {
-    Object.setPrototypeOf(autopilot, AutoPilot.prototype);
-  }
-});
-
-...
-```
-
-### Testing our new "autopilot"
+### Testing our "autopilot" code
 
 Let's make sure to test this before we move on. Let's:
 
@@ -2642,7 +2652,7 @@ The important thing to realize is that the button doesn't turn red "when we clic
 
 And that all happened so fast (even on a laptop from 2015, this takes only a few milliseconds) that as far as you can tell, you just clicked a button and it instantly changed color to show that it's active: that's a good sign! It looks like we'll be able to control our autopilot through the browser without things feeling sluggish or laggy!
 
-## So how does an autopilot work?
+## So how does an autopilot actually work?
 
 At its core, an autopilot is a system that lets a plane fly "in a straight line". However, there are two kinds of "straight line" we need to think about, because we're not driving on a road, or gliding through water, we're flying through the air:
 
@@ -2659,7 +2669,7 @@ Instead, we're going to implement our autopilot as a _*reactionary*_ system: it 
 
 Of course, a real autopilot does this kind of monitoring and correcting on a continuous basis. Something we don't really have the luxury of doing by using JavaScript: in order not to overload both Node.js and MSFS, and in order for us to be able to look at any log data flying by when we need to do console log debugging, let's pick go with running our autopilot twice per second. And despite how coarse that sounds, we'll be able to make our autopilot work at this interval length. And the main reason we'll be able to do that is because the following function:
 
-### The backbone of our Autopilot code: constrain-mapping
+### The backbone of our autopilot code: constrain-mapping
 
 Before we do anything else, let's first look at what is probably _the_ single most important function in our autopilot: `constrainMap`. This function takes a value, relative to some interval `[a,b]`, and maps it to the corresponding value in a different interval `[c,d]`, such that `a` maps to `c`, `b` maps to `d`, and anything in between `a` and `b` is some new value between `c` and `d`. This is nothing special, that's just numerical mapping, but the critical part here is that in addition to the standard mapping, we also make sure that any value less than `a` _still maps to `c`_ and any value greater than `b` _still maps to `d`_:
 
@@ -2709,78 +2719,81 @@ So let's start with the simplest of those systems: the autopilot equivalent of c
 
 Implementing level mode is probably the easiest of all autopilot functions, where we're going to simply check "is the plane tilting left or right?" and if so, we move the **aileron trim**—a value that "biases" the plane to tilt left or right by adjusting the wing surfaces that tilt the plane—in the opposite direction. As long we do that a little bit at a time, and we do that for long enough, we'll eventually have the plane flying level.
 
-So let's implement that. Let's create an `api/autopilot/fly-level.js` file and get to coding:
+So let's implement that. Let's create an `api/autopilot/fly-level.js` file with some scaffolding:
 
 ```javascript
-import { radians, constrainMap } from "./utils/utils.js";
+import { radians, constrainMap } from "../utils.js";
 
-// In order to fly level, our target bank angle is going to be zero.
+// Some initial constants: we want to level the wings, so we want a bank of zero degrees:
 const DEFAULT_TARGET_BANK = 0;
-
-// And in preparation for the future, we'll want to put some
-// safeties in place so that if we *do* need to turn to get to
-// our target, we don't do so too fast, or too much.
+// And if we do need to turn, we don't want to turn more than 30
+// degrees; the universally "safe" bank angle.
 const DEFAULT_MAX_BANK = 30;
+
+// And we also don't want our bank to change more than 3 degrees per second.
 const DEFAULT_MAX_TURN_RATE = 3;
 
-// Then, our actual "fly level" function, which is we're going to keep very "dumb":
+// Now, we have no features yet, but we'll be adding those as we go, so we can
+// quickly and easily compare how our code behaves when we turn a feature on or off!
+const FEATURES = {};
+
+// Then, our actual "fly level" function, which  we're going to keep very "dumb":
 // each time we call it, it gets to make a recommendation, without any kind of
 // history tracking or future predictions. This keeps the code simple, and allows
-// us to hot-reload the code without that ever messing up some kind of "data tracking".
+// us to hot-reload the code without ever messing up some kind of "data tracking".
 export async function flyLevel(autopilot, state) {
   // in order to make this work, we'll extend the autopilot with a "trim vector"
-  // that lets us update x-, y-, and z- trim values on an ongoing basis.
+  // that lets us update pitch, roll, and yaw trim values on an ongoing basis.
   const { trim } = autopilot;
 
   // Get our current bank/roll information:
-  const bank = state.bankAngle;
-  const dBank = state.dBank;
+  const { bankAngle: bank, dBank, speed } = state;
 
-  // While not strictly necessary, we'll restrict how much we're allowed
-  // to (counter) bank based on how fast we're goinging. A hard bank at
-  // low speed is a good way to crash a plane.
-  const maxBank = constrainMap(state.speed, 50, 200, 10, DEFAULT_MAX_BANK);
+  // While not strictly necessary yet, we'll restrict how much we're allowed
+  // to (counter) bank based on how fast we're going. A hard bank at low
+  // speed is a good way to crash a plane.
+  const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
 
   // How big should our corrections be, at most?
-  const step = constrainMap(state.speed, 50, 150, radians(1), radians(5));
+  const step = constrainMap(speed, 50, 150, radians(1), radians(5));
 
   // And "how much are we off by?"
   const targetBank = DEFAULT_TARGET_BANK;
   const diff = targetBank - bank;
 
-  // Then we're going to change our trim based on how much we're off by.
+  // Then, we determine a trim update, based on how much we're off by:
   let update = 0;
 
   // As our main correction, we're basing it directly off our bank difference:
   // the more we're banking, the more we correct, although if we're banking
   // more than "max bank", correct based off the max bank value instead.
   update -= constrainMap(diff, -maxBank, maxBank, -step, step);
-
+  
   // Also, counter-correct based on the current change in bank angle,
   // so that we don't en up jerking the plane around.
   const maxDBank = DEFAULT_MAX_TURN_RATE;
   update += constrainMap(dBank, -maxDBank, maxDBank, -step / 2, step / 2);
 
   // Update the trim vector, and then tell MSFS what the new value should be:
-  trim.x += update;
-  autopilot.set("AILERON_TRIM_PCT", trim.x);
+  trim.roll += update;
+  autopilot.set("AILERON_TRIM_PCT", trim.roll);
 }
 ```
 
-If we remove all the comments, we just implement a flight leveler in less than 20 lines of code. That's pretty good! ...but let's run through it in text rather than just code anyway, so we understand what's happening here:
+If we remove all the comments, we just implemented a flight leveler in less than 20 lines of code. That's pretty good! ...but let's run through it in text rather than just code anyway, so we understand what's happening here:
 
 We then implement our wing leveling code by solving two problems at the same time:
 
 1. we want to get to a situation where our **bank angle** (the angle of the wings with respect to level flight) is zero, and
 2. we want to get to a situation where our **bank acceleration** (how fast the bank angle changes per second) is also zero.
 
-So we start by actually getting our current bank and bank acceleration values, and defining our maximum allowed values and then:
+So we start by getting our current bank and bank acceleration values, and defining our maximum allowed values for those, then:
 
-1. We correct our bank: if we're banking a lot, we want to correct a lot, and if we're banking a little, we want to correct just a little, and if we're perfectly level, we don't want to correct at all. Which is exactly what we wrote `constrainMap` to do for us.
-2. Then, we correct our bank acceleration by trimming opposite to the direction that our bank is accelerating in. This will undo some of our bank correction, but as long as we use a smaller step size than for our bank correction, the code will "prioritize" zeroing our bank angle over our bank acceleration.
+1. We correct our bank in our first `update += ...`: if we're banking a lot, we want to correct a lot, and if we're banking a little, we want to correct just a little, and if we're perfectly level, we don't want to correct at all. Which is exactly what we wrote `constrainMap` to do for us.
+2. Then, we correct our bank acceleration in the next `update -= ...`, by trimming opposite to the direction that our bank is accelerating in. This will undo some of our bank correction, but as long as we use a smaller step size than for our bank correction, the code will "prioritize" zeroing our bank angle over our bank acceleration.
 3. Finally, we update our trim, and then we wait for the autopilot to trigger this function again during the next run, letting us run through the same procedure, but with (hopefully!) slightly less wrong values. Provided that this function runs enough times, we'll converge on level flight, and that's exactly what we want.
 
-Although we do still need to update the autopilot code so that we can turn this feature on and off. First, we'll define a constants file for housing things like autopilot modes in `api/autopilot/utils/constants.js`:
+Although we do still need to update the autopilot code so that we can turn this feature on and off. First, we'll define a constants file for housing things like autopilot modes in `autopilot/utils/constants.js`:
 
 ```javascript
 export const LEVEL_FLIGHT = `LVL`;
@@ -2791,14 +2804,14 @@ Big change, very exiting.
 Then, we update the autopilot code to make use of this new constant, and we'll add that  `trim` vector for tracking how much we need to trim in each direction:
 
 ```javascript
+import url from "url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+
 // Import our new constant...
 import { LEVEL_FLIGHT } from "./utils/constants.js";
 
-// ...and import the "fly level" code using our hot-reload technique
-import url from "url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+// ...and import the "fly level" code using our hot-reloading technique
 import { watch } from "./reload-watcher.js";
-
 import { flyLevel as fl } from "./fly-level.js";
 let flyLevel = fl;
 watch(`${__dirname}fly-level.js`, (lib) => (flyLevel = lib.flyLevel));
@@ -2806,12 +2819,20 @@ watch(`${__dirname}fly-level.js`, (lib) => (flyLevel = lib.flyLevel));
 export class Autopilot {
   constructor(...) {
     ...
-    // Next up, we add "fly level" as an autopilot mode:
+    // Next up, we explicitly add a "fly level" autopilot mode:
     this.modes = {
       [LEVEL_FLIGHT]: false,
     }
-    // And we set up that trim vector:
-    this.trim = { x: 0, y: 0, z: 0 };
+    // And we set up that trim vector:    
+    this.resetTrim();
+  }
+  
+  resetTrim() {
+    this.trim = {
+      pitch: 0, // we'll use this for our "altitude hold" code, coming up.
+      roll: 0, // and we'll use this for our "fly level" code.
+      yaw: 0, // whether we'll use this... we'll see. If we do, it'll be for rudder work.
+    };
   }
 
   async setParameters(params) {
@@ -2819,19 +2840,19 @@ export class Autopilot {
       this.autoPilotEnabled = !!params.MASTER;
       if (this.autoPilotEnabled) {
         // Now that we're actually going to do things that the in-game auto
-        // pilot might also be doing, it's super important that we check the
-        // in-game auto pilot, and turn it off if it's on:
+        // pilot might *also* be doing, it's super important that we check
+        // the in-game auto pilot setting, and turn it off if it's on:
         const { AUTOPILOT_MASTER: on } = await this.get(`AUTOPILOT_MASTER`);
         if (on === 1) this.trigger(`AP_MASTER`);
-        // Then we can start running our own autopilot.
+        // Only then we can start running our own autopilot.
         this.runAutopilot();
       }
     }
-    // Update everything that we're being told to update...
+    // Update everything that we're being told to update:
     Object.entries(params).forEach(([key, value]) =>
       this.setTarget(key, value)
     );
-    // ... and then trigger the broadcast function that sends
+    // And then trigger the broadcast function that sends
     // the new auto pilot state to all connected clients:
     this.onChange(this.getAutoPilotParameters());
   }
@@ -2849,6 +2870,7 @@ export class Autopilot {
 
   // And then our "what to do after" code:
   async onParameterChange(type, oldValue, newValue) {
+    // We currently only have one mode, so...
     if (type === LEVEL_FLIGHT) {
       // Let's make sure we can see this mode getting turned on and off:
       console.log(`${newValue ? `E`: `Dise`}ngaging level mode`);
@@ -2858,7 +2880,7 @@ export class Autopilot {
         // or things might get really dangerous, really fast. Most planes
         // need a non-zero trim value to fly level "manually", so if we
         // leave the trim set to zero, we *could* even damage a plane!
-        this.trim.x = (await this.get("AILERON_TRIM_PCT")).AILERON_TRIM_PCT;
+        this.trim.roll = (await this.get("AILERON_TRIM_PCT")).AILERON_TRIM_PCT;
       }
     }
   }
@@ -2885,17 +2907,17 @@ Now, we could test this immediately, but we've only implemented half of an auto 
 
 Next up: making the plane hold its vertical position. This requires updating the "elevator trim" (also known as pitch trim) rather than our aileron trim, by looking at the plane's vertical speed. That is, we're going to look at how fast the plane is moving up or down through the air, and then we're going to try to get that value to zero by pitching the plane a little in the direction that counteracts the vertical movement.
 
-Let's add a new constant:
+Let's add a new constant to our `constants.js` file:
 
 ```javascript
 export const LEVEL_FLIGHT = `LVL`;
 export const ALTITUDE_HOLD = `ALT`;
 ```
 
-And then add a new mode to our autopilot:
+And then let's add this new mode to our autopilot, too:
 
 ```javascript
-import { LEVEL_FLIGHT, VERTICAL_HOLD } from "./utils/constants.js";
+import { LEVEL_FLIGHT, ALTITUDE_HOLD } from "./utils/constants.js";
 
 ...
 
@@ -2907,7 +2929,7 @@ watch(`${__dirname}altitude-hold.js` (lib) => (altitudeHold = lib.altitudeHold))
 export class Autopilot {
   constructor(...) {
     ...
-    // And we'll add our new autopilot mode.
+    // Naturally, add our new autopilot mode:
     this.modes = {
       [LEVEL_FLIGHT]: false,
       [ALTITUDE_HOLD]: false,
@@ -2919,19 +2941,21 @@ export class Autopilot {
     if (type === LEVEL_FLIGHT) {
       ...
     }
+
+    // We now have two modes!
     if (type === ALTITUDE_HOLD) {
-      console.log(`Engaging altitude hold at ${newValue} feet`);
+      console.log(`${newValue ? `E`: `Dise`}ngaging altitude hold`);
       // Just like before, we want to start our automated trim relative
       // to whatever trim the user already set, not relative to zero.
-      const { ELEVATOR_TRIM_POSITION: y } = await this.get("ELEVATOR_TRIM_POSITION");
-      this.trim.y = y;
+      const { ELEVATOR_TRIM_POSITION: pitch } = await this.get("ELEVATOR_TRIM_POSITION");
+      this.trim.pitch = pitch;
     }
   }
 
   async runAutopilot() {
     ...
 
-    // And now we have *two* autopilot functions!
+    // And now we can run two autopilot functions!
     if (this.modes[LEVEL_FLIGHT]) flyLevel(this, state);
     if (this.modes[ALTITUDE_HOLD]) altitudeHold(this, state);
 
@@ -2940,12 +2964,10 @@ export class Autopilot {
 }
 ```
 
-Well okay, we do still need to actually write our  `altitudeHold` function, so let's create an `api/autopilot/altitude-hold.js`:
+Well okay, we do still need to actually write our  `altitudeHold` function, so let's create an `autopilot/altitude-hold.js`:
 
 ```javascript
-import { ALTITUDE_HOLD } from "./utils/constants.js";
-import { radians, constrain, constrainMap } from "./utils/utils.js";
-
+import { radians, constrainMap } from "./utils/utils.js";
 const { abs } = Math;
 
 // Our default vertical speed target, if we want to hold our current
@@ -2968,25 +2990,41 @@ const DEFAULT_MAX_dVS = 100;
 const SMALL_TRIM = radians(0.001);
 const LARGE_TRIM = radians(0.035);
 
+// Similar to the flyLevel code, we have no features yet, but we'll
+// be adding those as we go, so we can quickly and easily compare
+// how our code behaves when we turn a feature on or off.
+const FEATURES = {};
+
+// Then, our actual "hold altitude" function, which we're going to
+// keep as dumb" as the "fly level" code: each time we call it, it
+// gets to make a recommendation, without any kind of history tracking
+// or future predictions. This keeps the code simple, and allows us
+// to hot-reload the code.
 export async function altitudeHold(autopilot, state) {
-  // Each plane has different min/max pitch trim values, so how big should our trim steps be?
+  // Each plane has different min/max pitch trim values, so
+  // let's find out what our current plane's values are:
   const { trim } = autopilot;
   let trimLimit = state.pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
+  
+  // And then determine a "lower end" and "upper end" trim step:
   const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
   const trimStep = 10 * small;
 
-  // What are our current vertical speed parameters?
+  // Next: what are our current vertical speed parameters?
   const { verticalSpeed: VS, dVS } = state;
   const maxVS = DEFAULT_MAX_VS;
 
-  // And what should those parameters be, instead, if want to maintain our altitude?
+  // And what should those parameters be instead, if want to maintain our altitude?
   let { targetVS } = await getTargetVS(autopilot, state, maxVS);
   const diff = targetVS - VS;
 
+  // Just like in the flyLevel code, we first determine an update
+  // to our trim, and then apply that only once we're done figuring out
+  // all the increments and decrements that should involve:
   let update = 0;
 
-  // Just like before: update the trim to nudge us towards the correct vertical speed:
+  // Set our update to trim towards the correct vertical speed:
   update += constrainMap(diff, -maxVS, maxVS, -trimStep, trimStep);
 
   // And if we're accelerating too much, counter-act that a little:
@@ -2994,7 +3032,8 @@ export async function altitudeHold(autopilot, state) {
   update -= constrainMap(dVS, -maxdVS, maxdVS, -trimStep / 2, trimStep / 2);
 
   // Finally, apply the new trim value:
-  autopilot.set("ELEVATOR_TRIM_POSITION", trim.y);
+  trim.pitch += update;
+  autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
 }
 
 // This function determines what our target vertical speed should
@@ -3010,10 +3049,10 @@ async function getTargetVS(autopilot, state, maxVS) {
 }
 ```
 
-Let's go over this code, too.
+So that's a little more code than `flyLevel`, but not much more, still being less than 30 lines of code if we remove comments. So, let's go over this code, too.
 
-- Again because we added a trim vector to our autopilot, we can use its `y` component for our up/down trimming.
-- And again, because some planes have explicit aileron trim controls, we want to make sure we don't "overwrite" any existing trim setting when we engage the autopilot, so we make sure to copy over the trim value into `trim.y` when the user turns altitude hold on.
+- Again, because we added a trim vector to our autopilot, we can use its `pitch` component for our up/down trimming.
+- And again, because some planes have explicit aileron trim controls, we want to make sure we don't "overwrite" any existing trim setting when we engage the autopilot, so we make sure to copy over the trim value into `trim.pitch` when the user turns altitude hold on.
 - Again, we implement our altitude hold as solving two problems at the same time :
   1. We want to get to a situation where our **vertical speed** (how much we're flying up or down) is zero, and
   2. we want to get to a situation where our **vertical acceleration** is also zero.
@@ -3030,9 +3069,9 @@ In order to see how well our code works, we'll be flying around a bit in The [De
 
 ![image-20231105214745162](./beaver-shot.png)
 
-And our order of operations will be to spawn the plane at cruise altitude above the ocean in fair weather, have it stabilize itself on the in-game autopilot as a substitute for manually trimming the plane, and then switch to our own autopilot (which will turn off the in-game one) to see how well that holds up. And then we're going to compare our "before" and "after" graphs to see what we can learn:
+And our order of operations will be to spawn the plane at cruise altitude in above the middle of the pacific ocean in fair weather, have it stabilize itself on the in-game autopilot as a substitute for manually trimming the plane, and then switch to our own autopilot (which will turn off the in-game one) to see how well that holds up. And then we're going to compare our "before" and "after" graphs to see what we can learn:
 
-![image-20231108121545533](./image-20231108121545533.png)
+![image-20231113160900193](./image-20231113160900193.png)
 
 After the initial spawn-in behaviour, with the in-game autopilot pulling the plane into a stable path, we reload the browser to clear our graphs, and then we turn on our autopilot with both "fly level" and "hold altitude" turned on. And then... uh... well, as you can see, while our vertical speed oscillates around zero, which is what we want, it also oscillates by **a lot** around zero, which is *not* what we want. That would be a really uncomfortable flight. To counteract that, let's do some fixing.
 
@@ -3040,43 +3079,64 @@ After the initial spawn-in behaviour, with the in-game autopilot pulling the pla
 
 ### A better altitude hold
 
-In order to reduce our oscillations, we're going to reduce the effect of our update, the closer we are to our target vertical speed, and we could get fancy with all kinds of maths functions, but instead we're going to keep things rather dumb but easily serviceable, by implementing a step-wise reduction: if we're within 100fpm of our target vertical speed, take the update and halve it. Within 50fpm? Halve it again. And if we're withing 10fpm, halve it one final time:
+In order to reduce our oscillations, we're going to reduce the effect of our update, the closer we are to our target vertical speed, and we could get fancy with all kinds of maths functions, but instead we're going to keep things rather dumb but easily serviceable, by implementing a step-wise reduction: if we're within 100fpm of our target vertical speed (which should be most of the time!), take the update and halve it. And if we're within 20 fpm of our target speed (which should _hopefully_ be most of the time?)  we halve it again. Let's add the following code while both the sim and our code are running:
 
 ```javascript
 ...
-
-const maxdVS = constrainMap(abs(diff), 0, 100, 0, DEFAULT_MAX_dVS);
-update -= constrainMap(dVS, -maxdVS, maxdVS, -trimStep / 2, trimStep / 2);
-
-const aDiff = abs(diff);
-if (aDiff < 100) update /= 2;
-if (aDiff < 50) update /= 2;
-if (aDiff < 10) update /= 2;
-trim.y += update
+const FEATURES = {
+  DAMPEN_CLOSE_TO_ZERO: true,
+};
 
 ...
+
+export async function altitudeHold(autopilot, state) {
+  ...
+  
+  const maxdVS = constrainMap(abs(diff), 0, 100, 0, DEFAULT_MAX_dVS);
+  update -= constrainMap(dVS, -maxdVS, maxdVS, -trimStep / 2, trimStep / 2);
+
+  // By making this a "feature" we can toggle it on and off as we please to play around with tweaks:
+  if (DAMPEN_CLOSE_TO_ZERO) {
+    const aDiff = abs(diff);
+    if (aDiff < 100) update /= 2;
+    if (aDiff < 20) update /= 2;
+  }
+  
+  trim.pitch += update
+  ...
+}
 ```
 
-Adding this to our code and saving will reload our `altitudeHold` function with those updates without us having to interrupt the flight, and we can immediately see the difference that makes, with a brief spike because the behaviour has changed, and then some **drastically** better behaviour (ignoring the second spike, because it's hard to perfectly control the wind in MSFS):
+If we save, this will hot-reload our code so that it immediately kicks in without us having to interrupt the flight, and we can immediately see the difference that makes, with a brief spike because the behaviour has changed, and then some **drastically** better behaviour (ignoring the second spike, because it's hard to perfectly control the wind in MSFS):
 
-![image-20231108122155198](./image-20231108122155198.png)
+![image-20231113161509477](./image-20231113161509477.png)
 
-Clearly, we've significantly cut down by how much we're oscillating, which is good, but if you look at the graph our vertical speed is now perpetually less than zero... we're crashing. Just _extremely_ slowly. And we'd prefer not to crash, we much rather hold our altitude. Which requires actually telling our code _which altitude we want to hold_. Something that's surprisingly easy to add:
+Clearly, we've significantly cut down by how much we're oscillating, which is good! But if you look at the graph our vertical speed is now perpetually "more than zero"... not a lot, but we're definitely drifting, which isn't _quite_ the same as holding altitude... So we probably need to tell our autopilot _which altitude we want to hold_. Something that's surprisingly easy to add:
 
 ```javascript
+...
+
+const FEATURES = {
+  DAMPEN_CLOSE_TO_ZERO: true,
+  TARGET_TO_HOLD: true,
+};
+
 // Instead of trying to aim for a target VS of zero, let's base our target VS
 // on how close we are to a *specific* target altitude to hold:
 async function getTargetVS(autopilot, state, maxVS) {
   let targetVS = DEFAULT_TARGET_VS;
   let altDiff = undefined;
 
-  // Get our hold-altitude from our autopilot mode:
-  const targetAltitude = autopilot.modes[ALTITUDE_HOLD];
-  if (targetAltitude) {
-    // And then if we're above that altitude, set a target VS that's negative,
-    // and if we're below that altitude, set a target VS that's positive:
-    altDiff = targetAltitude - state.altitude;
-    targetVS = constrainMap(altDiff, -200, 200, -maxVS, maxVS);
+  // next feature!
+  if (TARGET_TO_HOLD) {
+    // Get our hold-altitude from our autopilot mode:
+    const targetAltitude = autopilot.modes[ALTITUDE_HOLD];
+    if (targetAltitude) {
+      // And then if we're above that altitude, set a target VS that's negative,
+      // and if we're below that altitude, set a target VS that's positive:
+      altDiff = targetAltitude - state.altitude;
+      targetVS = constrainMap(altDiff, -200, 200, -maxVS, maxVS);
+    }
   }
 
   return { targetVS, altDiff };
@@ -3159,15 +3219,116 @@ export class Autopilot {
 }
 ```
 
-With that, saving our file and watching the new behaviour gives us a fairly big and laggy spike as the new code kicks in and I scramble to make sure the browser's set to fly the altitude the plane's dipped down to by now, and then we see a remarkable difference:
+With that, we can save our file, make sure to tell the AP that we want to hold "whatever altitude we're now on", and then watch the result play out in our graphs:
 
-![image-20231108122448807](./image-20231108122448807.png)
+![image-20231113162155940](./image-20231113162155940.png)
 
+And now we're centered around zero instead of being biased towards a slight drift. But as much as that looks great, how are we doing compared to the in-game AP? Simple enough to find out: let's set the in-game AP to hold altitude and turn off our own autopilot. Will we be able to tell the difference?
 
+![image-20231113162703846](./image-20231113162703846.png)
 
-We see that the _kind_ of oscillation has changed. We're now changing vertical speed much more gradually, and we're oscillating around zero, neither dropping nor gaining altitude. Hurray!
+### Changing altitudes
 
-But there's another problem, and if you guessed "`flyLevel` probably has the same problem", then you're spot on: even though the plane isn't noticeably banking, that doesn't mean we're flying straight, it just means we're not noticeably banking. We could still be drifting ever so gently left or right, and any kind of wind can easily blow us in whichever way it likes without our autopilot noticing we're in a turn with a *very* large turn radius. So let's address that problem too by turning our "fly level" code into "fly a specific heading" mode.
+Turns out, we can, but that's a pretty small difference: we've done well! So what about if we change altitudes? Let's have the plane fly at 1500 feet, then change it to 2000 until it's stable, and then make it fly back down to 1500:
+
+![image-20231113200205061](./image-20231113200205061.png)
+
+As you can see, that's a bit... jagged. We're changing altitude correctly, but we're also bobbing up and down a lot, so let's smooth that out by, instead of just immediately setting our `targetVS` to the maximum value setting it to "something higher (or lower) than our current VS" until we reach maximum vertical speed:
+
+```javascript
+const FEATURES = {
+  ...
+  SMOOTH_RAMP_UP: true,
+};
+
+...
+
+async function getTargetVS(autopilot, state, maxVS) {
+  ...
+  
+  const targetAltitude = autopilot.modes[ALTITUDE_HOLD];
+  if (targetAltitude) {
+    altDiff = targetAltitude - currentAltitude;
+
+    if (FEATURES.SMOOTH_RAMP_UP) {
+      const direction = sign(altDiff);
+      const plateau = 200;
+      
+      // If we're more than <plateau> feet away from our target, ramp
+      // our target up to maxVS, and keep it there.
+      if (abs(altDiff) > plateau) {
+        // start ramping up our vertical speed until we're at maxVS
+        if (abs(VS) < maxVS) {
+          const step = direction * plateau;
+          targetVS = constrain(VS + step, -maxVS, maxVS);
+        } else {
+          targetVS = direction * maxVS;
+        }
+      }
+
+      // And if we're close to the target, start reducing our target
+      // speed such that our target VS is zero at our target altitude.
+      else {
+        targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
+      }
+    }
+
+    // if we're not smooth-ramping, we just target maxVs, same as we did before:
+    else {
+      targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
+    }
+  }
+
+  return { targetVS, altDiff };
+}
+```
+
+By giving the plane a smaller difference to overcome, we get much smoother transition curves:
+
+![image-20231113200835501](./image-20231113200835501.png)
+
+### Tidying up our ALT
+
+So let's just put in three more "fixes" before we move on, mostly because we're here now anyway, and they're very easy to add:
+
+1. skipping truly tiny updates
+2. boosting tiny updates if we need to go up, but we're going down, if if we need to go down but we're going up, and
+3. making sure we don't trim past +/- 100%
+
+All of these should make intuitive sense, and they're very little work to put in:
+
+```javascript
+const FEATURES = {
+  ...
+  SKIP_TINY_UPDATES: true,
+  BOOST_SMALL_CORRECTIONS: true,
+  LIMIT_TRIM_TO_100: true,
+};
+
+...
+
+export async function altitudeHold(autopilot, state) {
+  ...
+  
+  const updateMagnitude = update / trimStep;
+
+  // Skip tiny updates if we're already moving in the right direction
+  if (FEATURES.SKIP_TINY_UPDATES && sign(targetVS) === sign(VS) && abs(updateMagnitude) < 0.001) return;
+
+  // Boost small updates if we're moving in the wrong direction
+  if (FEATURES.BOOST_SMALL_CORRECTIONS && sign(targetVS) !== sign(VS) && abs(updateMagnitude) < 0.01) update *= 2;
+
+  trim.pitch += update;
+  
+  if (FEATURES.LIMIT_TRIM_TO_100) trim.pitch = constrain(trim.pitch, -Math.PI / 20, Math.PI / 20);
+  
+  autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
+}
+```
+
+And that's it. Three constants, three lines of code. The effect of these are pretty subtle: the first two make our behaviour around out hold altitude oscillate just a _tiny_ bit less, and the last one prevents us from telling MSFS to trim past what would be realistic values. Which it will happily do if we tell it to, so let's not tell it to!
+
+...buuuuuut there's another problem, and if you guessed "well if our `altitudeHold` has this problem, then `flyLevel` probably has the same problem?", then you're spot on: even though the plane isn't noticeably banking, that doesn't mean we're _actually_ flying straight, it just means we're not noticeably banking. We could still be drifting ever so gently left or right, and any kind of wind can easily blow us in whichever way it likes without our autopilot noticing we're in a turn. Just with a *very* large turn radius. So let's address that problem, too, by turning our "fly level" code into "fly a specific heading" mode.
 
 ### Flying straight, not just level
 
@@ -3270,42 +3431,36 @@ export class AutoPilot {
 Then, we can update `flyLevel` to take heading into account:
 
 ```javascript
-import { HEADING_MODE } from "./utils/constants.js";
+...
+
+const FEATURES = {
+  FLY_SPECIFIC_HEADING: false,
+};
 
 ...
 
 export async function flyLevel(autopilot, state) {
   ...
-
-  // How big should our corrections be, at most?
-  const step = constrainMap(state.speed, 50, 150, radians(1), radians(5));
-
-  // And "how much are we off by?" And to determine that, we're going to
-  // use an extra function that can take our autopilot heading into account:
+  // Our "how much are we off" information... which we're going to rewrite
+  // a little by instead calling a function to do the work for us:
   const turnRate = state.turnRate;
-  const targetData = getTargetBankAndTurnRate(autopilot, state, maxBank);
-  const { targetBank, maxTurnRate } = targetData;
+  const { targetBank, maxTurnRate } = getTargetBankAndTurnRate(autopilot, state, maxBank);
   const diff = targetBank - bank;
-
-  ...
+  ..
 }
 
-// If we're not flying a heading and we just need to fly straight, then
-// our target bank angle should be zero, but if we *do* need to fly a specific
-// heading, then we can set a non-zero bank angle, depending on how far from
-// the intended heading we are, and then the closer we get to the intended
-// heading, the closer the target bank angle should get to zero:
+// And our new function:
 function getTargetBankAndTurnRate(autopilot, state, maxBank) {
   const heading = state.heading;
   let targetBank = DEFAULT_TARGET_BANK;
   let maxTurnRate = DEFAULT_MAX_TURN_RATE;
 
-  // If there is an autopilot flight heading set then we set a new target
-  // bank, somewhere between zero and the maximum allowed bank angle, with
-  // the resulting "target bank angle" closer to zero the closer we already
-  // are to our target heading.
-  let flightHeading = autopilot.modes[HEADING_MODE];
-
+  // If there is an autopilot flight heading set (either because the
+  // user set one, or because of the previous waypoint logic) then we
+  // set a new target bank, somewhere between zero and the maximum
+  // bank angle we want to allow, with the target bank closer to zero
+  // the closer we already are to our target heading.
+  let flightHeading = FEATURES.FLY_SPECIFIC_HEADING && autopilot.modes[HEADING_MODE];
   if (flightHeading) {
     const hDiff = getCompassDiff(heading, flightHeading);
     targetBank = constrainMap(hDiff, -30, 30, maxBank, -maxBank);
@@ -3316,163 +3471,29 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
 }
 ```
 
-In order to test the improvement, we're going to repeat the kind of flight we had above, but instead of just turning on level mode and altitude hold, we'll also turn on heading mode for "whatever heading we're flying when turn things on". Then, we're going to *change* the heading, and see what happens. In the following graph, we start off flying a heading of 345 degrees, and then after flying that for a while, we change the intended heading to 270 degrees, and then after a while we change it back to 345 degrees:
+Now, really all we need to do is just save this and then look at what this does to our heading. For example, while running without this change, the heading graph looked like this:
 
-![image-20231108140405794](./image-20231108140405794.png)
+![image-20231113164204055](./image-20231113164204055.png)
 
-What are we seeing here? On the left we see our altitude behaviour and our aileron trim, and on the right we see our heading and bank behaviour. As you can see, we are flying dead straight until we switch from 345 to 270, at which point the plane banks up to its allowed maximum bank, then gradually banks less and less as we approach our new target heading. At the same time, on the left we can see that when we do that, we lose a bit of altitude. Not much, and not enough to put another fix in the code for, but it's an important little detail to be aware of.
+That's... not a straight line. Clearly we're drifting, so let's save, tell the autopilot (through the browser's heading input field) that we want the current heading, and then let's see what happens:
 
-So... that seems to work quite well, how about if we change heading and altitude at the same time?
+![image-20231113165227868](./image-20231113165227868.png)
 
-![image-20231108141255426](./image-20231108141255426.png)
+That look to be continuing straight to me, now!
 
-That's... that's less good. Our initial course and altitude change, from 345 degrees at 1600 feet to 270 degrees at 2000 feet, goes off without a hitch. However, once we switch back to 345 degrees at 1600 feet, things get near-plane-destroyingly bad.
+## More testing
 
-![image-20231108143655771](./image-20231108143655771.png)
+In order to test our improvements, we're going to repeat the kind of flight we had before, but instead of just turning on level mode and altitude hold, we'll also turn on heading mode for "whatever heading we're flying when turn things on". Then, we're going to *change* the heading, and see what happens. In the following graph, we start off flying an altitude of 2000 feet, with a heading of 345 degrees, and then after flying that for a while, we change the intended heading to 270 degrees, and then after a while we change it back to 345 degrees:
 
-As we descend our plane starts to pick up speed... and what we're looking at here is kind of a "best case" scenario: we manage to reach 1600 feet before our speed exceeds what our airplane can deal with, and we pitch up... but we're going too fast, so instead of just pitching up we "yo yo" through and end up pitching up too much... that slows us down, but we're still going quite fast, so when we pitch down again, we pick up more speed, and we just keep doing that over and over and over until, as the graph shows, we intervene and help the plane level back out.
+![image-20231113171651472](./image-20231113171651472.png)
 
-And this is a "best case" scenario: the more typically scenario here is "we keep picking up speed as we descend and tear the control surfaces off the airplane". So let's try to make sure that doesn't happen:
-
-### Obeying the speed limit
-
-So, we're going to need one more fix to our altitude hold code: we need to auto-throttle the plane so we stay within safe speed limits.
-
-```javascript
-async function getTargetVS(autopilot, state, maxVS) {
-  let targetVS = DEFAULT_TARGET_VS;
-  let altDiff = undefined;
-
-  const targetAltitude = autopilot.modes[ALTITUDE_HOLD];
-  if (targetAltitude) {
-    altDiff = targetAltitude - state.altitude;
-    targetVS = constrainMap(altDiff, -200, 200, -maxVS, maxVS);
-    // After our initial target calculation, run through an autothrottle step to
-    // see if we need to throttle down, and set a smaller vertical speed as target:
-    targetVS = await autoThrottle(state, autopilot.api, altDiff, targetVS);
-  }
-
-  return { targetVS, altDiff };
-}
-
-// Strap in, we're going to have to do some work.
-async function autoThrottle(state, api, altDiff, targetVS) {
-  // First, let's get both our current flight data and the
-  // plane's "design speeds":
-  const { verticalSpeed: VS } = state;
-  const speed = round(state.speed);
-  const {
-    DESIGN_SPEED_CLIMB: sc,
-    DESIGN_SPEED_VC: vc, // "cruise" speed
-    NUMBER_OF_ENGINES: engineCount,
-  } = await api.get(...ATT_PROPERTIES);
-
-  // Small fix: we want these values in knots, not feet per second
-  const cruiseSpeed = round(vc / KNOT_IN_FPS);
-  const climbSpeed = round(sc / KNOT_IN_FPS);
-
-  // Then we maths our way to how big of an adjustment to the throttle
-  // we want to make if we're going too fast, or too slow:
-  const throttleStep = 0.2;
-  const tinyStep = throttleStep / 10;
-  const ALT_LIMIT = 50;
-  const BRACKET = 2;
-  const adjustment = constrainMap(abs(altDiff), 0, ALT_LIMIT, tinyStep, throttleStep);
-
-  // And we set up a helper function that can throttle all engines at the
-  // same time (because not every airplane has only a single engine!).
-  function change(v) { changeThrottle(api, engineCount, v); }
-
-  // ...and then let's talk about what's supposed to happen here...
-
-  return targetVS;
-}
-```
-
-We interrupt this code so we can think about what situations our plane might be in, because those will dictate which action we take with regards to throttling:
-
-1. We can be in level flight, and usually that means a reasonably stable speed.
-2. We can be climbing, which runs the risk of a stall if we climb too fast and lose too much speed.
-3. We can be descending, which runs the risk of losing control surface efficacy or even tearing the plane apart.
-
-Each of these three has a plane-specific speed constraint associated with it:
-
-1. In level flight, there is an "optimal cruise speed", known as `Vc`.
-2. When we're climbing, there is an "optimal climb speed", known as `Vy`, which is related to how fast the plane can go "right now", so it's not a single "vertical speed" value, it varies.
-3. When we're descending, our speed is dictated by a plane's "never exceed" speed, known as `Vne`. As it says on the tin: we never want to exceed that speed. And really, we generally want to stay well below it: we'd prefer to live.
-
-So let's write some code for each of those three cases. First, cruise flight:
-
-```javascript
-async function autoThrottle(state, api, altDiff, targetVS) {
-  ...
-
-  function change(v) { changeThrottle(api, engineCount, v); }
-
-  // Are we at/near cruise altitude with a VS that's stable enough that we can throttle?
-  if (abs(altDiff) < ALT_LIMIT) {
-    // If so, throttle up from to cruise speed:
-    if (speed < cruiseSpeed - BRACKET && VS < 15) {
-      change(constrainMap(cruiseSpeed - speed, 0, 10, adjustment, throttleStep));
-    }
-    // Or, of course, throttle *down* to cruise speed:
-    if (speed > cruiseSpeed + BRACKET && VS > -15) {
-      // And note the minus sign here:
-      change(-constrainMap(speed - cruiseSpeed, 0, 10, adjustment, throttleStep));
-    }
-  }
-```
-
-Then, what to do during a climb:
-
-```javascript
-  // If we need to climb, we'll typically need to throttle the plane up to optimal climb speed:
-  else if (altDiff > ALT_LIMIT) {
-    // Throttle up to climb speed
-    if (speed < climbSpeed) change(adjustment);
-    // Or, if we're at climb speed  but our vertical speed is not high enough, throttle up some more
-    else if (VS < 0.8 * targetVS) change(adjustment);
-  }
-```
-
-And finally, what to do during a descent:
-
-```javascript
-  // And last, if we need to descend, throttle (mostly) down to maintain a safe speed.
-  else if (altDiff < -ALT_LIMIT) {
-    // If we're going too fast, throttle down to cruise speed
-    if (speed > cruiseSpeed + BRACKET) {
-      // And note the minus sign here, too:
-      change(-adjustment);
-    }
-    // And if we're going too slow, which would also be bad, speed up a little.
-    else if (speed < cruiseSpeed - BRACKET) {
-      change(adjustment / 2);
-    }
-    // Also, as this situation represents a potential danger, we should be
-    // aiming for a slower descent: return a new target VS that is lower
-    // than what the code thought we could pull off:
-    return constrainMap(speed, climbSpeed - 20, climbSpeed, 0, targetVS);
-  }
-
-  // And finally, if we get here, then our target VS was fine, and we keep its original value.
-  return targetVS;
-}
-```
-
-So, let's try this one more time: we'll leave the heading change off for now, first let's try out altitude changes and see if we don't enter "the rollercoaster of death":
-
-![image-20231108151531175](./image-20231108151531175.png)
-
-Much better. This time dropping from 2000 feet to 1600 feet shows our speed starting to pick up as we start to descend, and then immediately getting curbed by our auto-throttle code. In fact, to keep us safe, we see the speed dip to _below_ cruise speed, and then slowly creep back up as we settle into our new level. Going back up to 2000 feet shows the auto throttle giving us a bit more speed as we climb, settling back down to cruise speed after we've reached our target.
-
-One thing to note is that our altitudes are no longer as "crisp": we're now overshooting our targets a little and then recover over a longer period of time because the target vertical speed and auto throttle "interfere" with each other: we could try to tune that to perfect by writing more code and running more tests, but this feels acceptable for now. We can always revisit this later.
+What are we seeing here? On the left we see our altitude behaviour and our aileron trim, and on the right we see our heading and bank behaviour. As you can see, we are flying dead straight until we switch from 345 to 270, at which point the plane banks up to its allowed maximum bank, then gradually banks less and less as we approach our new target heading. At the same time, on the left we can see th1at when we do that, we lose a bit of altitude. Not much, and not enough to put another fix in the code for, but it's an important little detail to be aware of.
 
 ### Emergency intervention
 
 Of course, accidents happen, so as one last "test": what happens if we bump the yoke while on autopilot? Let's yank the yoke until the plane beeps, indicating a *serious* problem, and then letting go again. As it turns out, our AP can't currently deal with that, unable to get the plane under control. Although perhaps that's not quite the right description... it gets the plane under chaotic control:
 
-![{E7062496-3870-48B6-849F-B06C5C9EDEB2}](./{E7062496-3870-48B6-849F-B06C5C9EDEB2}.png)
+![image-20231113175653822](./image-20231113175653822.png)
 
 An error that should have leveled back out to a nice stable flat altitude and vertical speed instead ends up reinforcing itself until it finds a new, _very different_, stable outcome that can only be described as "a rollercoaster of death". It's holding the correct altitude _on average_ but it's doing so in what is probably the worst possible way...
 
@@ -3484,6 +3505,11 @@ So, one more fix: a reasonable altitude transition has the plane's pitch change 
 // a pitch change of more than 2 degrees per second means something is very wrong.
 const DELTA_PITCH_LIMIT = 2;
 
+const FEATURES = {
+  ...
+  EMERGENCY_PROTECTION: false
+};
+
 export async function altitudeHold(autopilot, state) {
   ...
   let trimStep = 10 * small;
@@ -3492,7 +3518,7 @@ export async function altitudeHold(autopilot, state) {
   // us to emergency-override the regular altitude hold code?
   const { dPitch } = state;
   const pitchExcess = exceeds(dPitch, DELTA_PITCH_LIMIT);
-  if (pitchExcess !== 0) {
+  if (FEATURES.EMERGENCY_PROTECTION && pitchExcess !== 0) {
     // The faster the plane is moving, the more we'll want to trim to get us
     // back into some kind of recoverable orientation:
     const MF = constrainMap(speed, 50, 200, 20, 100);
@@ -3509,71 +3535,58 @@ export async function altitudeHold(autopilot, state) {
 
     // And then shortcut the altitude hold function by sending that trim to
     // MSFS and then returning. The next call will happen soon enough.
-    return autopilot.set("ELEVATOR_TRIM_POSITION", trim.y);
+    return autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
   }
 
   ...
 }
 ```
 
-Let's see what that does for us if we bump the yoke (three times: once pulling the plane up, then pushing the plane down, and then pulling the plane up again):
+Let's see what that does for us if we bump the yoke (four times: one pulling the plane up until we see the emergency code kick in, and having it stabilize again, and then pushing the plane down until we see the emergency code to kick in, and having it stabilize again. And then we do that a second time, for good measure):
 
-![image-20231110185051133](./image-20231110185051133.png)
+![{86122629-07DB-4CC1-B58F-8AA8155F0D46}](./{86122629-07DB-4CC1-B58F-8AA8155F0D46}.png)
 
-Much better. Now, we've written a _lot_ of code fixes, so I think it's time to do finally do some 
+With our emergency intervention in place, we no longer end up in a rollercoaster of death situation, instead returning to our intended altitude. Now, granted, it wouldn't feel nice being inside this plane while it recovers, _but it will recover_ and that's by far the most important result.
+
+### Making the experience a little better
+
+If you look at the graph, lots of ups and downs, if we add some more fixes, smoother:
+
+
+
+![image-20231113192933372](./image-20231113192933372.png)
 
 ## Testing our code, this time for real
 
-Now that we have pretty decent control of both the horizontal and the vertical, let's get a few planes up in the air, manually trim them so they fly mostly straight ahead, and then turn on our bespoke, artisanal autopilot and see how the various planes fly. To make sure we're getting a decent result, here's my cross section of test planes  in MSFS:
+Now that we have pretty decent control of both the horizontal and the vertical, let's get a few planes up in the air, manually trim them so they fly mostly straight ahead, and then turn on our bespoke, artisanal autopilot and see how the various planes fly.
+
+### The planes
+
+To make sure we're getting a decent result, here's my cross section of test planes  in MSFS:
 
 ![image-20231105214745162](./beaver-shot.png)
 
-- The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), which we've been testing with so far.
+- The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), which we've been testing with so far. The beaver has trim limits of +/- 18.
 
 ![image-20231105214954647](./310-shot.png)
 
-- The [Cessna 310R](https://en.wikipedia.org/wiki/Cessna%5F310), a (very good looking once the gear is up) small twin turbo-prop plane.
+- The [Cessna 310R](https://en.wikipedia.org/wiki/Cessna%5F310), a (very good looking once the gear is up) small twin turbo-prop plane. The 310R is still relatively light, and responds to trim quite quickly. it has trim limits of +/-20.
 
 ![image-20231105215130775](./beech-shot.png)
 
-- The [Beechcraft Model 18](https://en.wikipedia.org/wiki/Beechcraft%5FModel%5F18), a gorgeous twin radial engine aeroplane.
+- The [Beechcraft Model 18](https://en.wikipedia.org/wiki/Beechcraft%5FModel%5F18), a gorgeous twin radial engine aeroplane. This plane is a delight to fly, and has trim limits of +/- 30. It's slow to respond, but that might actually be beneficial in our case, because our autopilot only runs once every half second.
 
 ![image-20231105215235492](./dc3-shot.png)
 
-- The [Douglas DC-3](https://en.wikipedia.org/wiki/Douglas%5FDC-3), an almost four times bigger twin radial engine aeroplane.
+- The [Douglas DC-3](https://en.wikipedia.org/wiki/Douglas%5FDC-3), an almost four times bigger twin radial engine aeroplane. This lumbering beast has trim limits of +/- 12 and will overshoot if you let it. However, it does respond to trim instructions, and it _will_ end up going where we tell it to go. It just takes it a while, and it'll be bouncy.
 
 ![image-20231105215402255](./top-rudder-shot.png)
 
-- And finally, the [Top Rudder Solo 103](https://www.toprudderaircraft.com/product-page/103solo-standard), which is an ultralight that no sane person would stick an autopilot in. So we will. _Because we now totally can_.
+- And finally, the [Top Rudder Solo 103](https://www.toprudderaircraft.com/product-page/103solo-standard), with trim limits +/-12 trim, but of course, this type of plane was never meant to have an autopilot. Under no circumstances should you try to add one in real life. No sane person would stick an autopilot in. _So we will_. _Because we  can_.
+
+### The flights
 
 We'll be flying all of these in fair weather, starting at an altitude of 1500 feet and flying a heading of 345 degrees. We'll test a heading change from 345 to 270 and back, then an altitude change from 1500 feet to 2000 feet and back down to 1500 feet, and then we'll test those two changes combined, changing heading while also changing altitude.
-
-#### De Havilland DHC-2 "Beaver"
-
-We've already seen the beaver in action when flown by our autopilot, but let's put it through the same tests as the other planes and generate some graphs. The beaver has trim limits of +/- 18,
-
-#### Cessna 310R
-
-The 310R is still relatively light, and responds to trim quite quickly. it has trim limits of +/-20, and our code makes it fly straighter than an arrow. Because arrows fall out of the sky. And our plane just keeps going.
-
-#### Beechcraft Model 18
-
-This plane is a delight to fly, and has trim limits of +/- 30. It's slow to respond, but that actually helps us in this case because our autopilot only runs once every half second.
-
-#### Douglas DC-3
-
-This lumbering beast has trim limits of +/- 12 and will overshoot if you let it. However, it does respond to trim instructions, and it _will_ end up going where we tell it to go. It just takes it a while, and it'll be bouncy.
-
-#### Top Rudder Solo 103
-
-This ultralight has +/-12 trim, but of course, this type of plane was never meant to have an autopilot. Under no circumstances should you try to add one in real life. But this is a video game, so let's see what happens if we add one anyway!
-
-
-
-What happens is that we've just bolted cruise control onto an ultralight. Madness! Glorious madness. This plane was never meant to fly this stable, and I'm here for it. And if you made it this far into the tutorial, you are too, probably. But.... we can do better. Or rather, we can do more.
-
-# --- continue here ---
-
 
 #### Top Rudder Solo 103
 
@@ -3599,6 +3612,10 @@ Oh look, we lived!
 Much better. 200 feet is quite doable for the Top Rudder, and you can see the heading transitioning quite well, too. And tell me this isn't the best way to enjoy Tahiti.
 
 ![image-20230527184208114](./tahiti.png)
+
+***REPHRASE/RELOCATE: What happens is that we've just bolted cruise control onto an ultralight. Madness! Glorious madness. This plane was never meant to fly this stable, and I'm here for it. And if you made it this far into the tutorial, you are too, probably. But.... we can do better. Or rather, we can do more.***
+
+#### 
 
 #### De Havilland DHC-2 "Beaver"
 
@@ -4699,6 +4716,141 @@ We do see that the DC-3 is considerably more bouncy than even the twin Beech, bu
 # Part four: "Let's just have JavaScript fly the plane for us"
 
 We have a pretty fancy autopilot, but the best autopilots let you plan your flight path, and then just... fly that for you. So before we call it a day (week? ...month??) let's not be outdone by the real world and make an even more convenient autopilot that lets us put some points on the map (rather than trying to input a flight plan one letter at a time with a jog dial), and then just takes off for you, figuring out what elevation to fly in order to stay a fixed distance above the ground, and landing at whatever is a nearby airport at the end of the flight. All on its own.
+
+## Implementing auto-throttle
+
+So, we're going to need one more fix to our altitude hold code: we need to auto-throttle the plane so we stay within safe speed limits.
+
+```javascript
+async function getTargetVS(autopilot, state, maxVS) {
+  let targetVS = DEFAULT_TARGET_VS;
+  let altDiff = undefined;
+
+  const targetAltitude = autopilot.modes[ALTITUDE_HOLD];
+  if (targetAltitude) {
+    altDiff = targetAltitude - state.altitude;
+    targetVS = constrainMap(altDiff, -200, 200, -maxVS, maxVS);
+    // After our initial target calculation, run through an autothrottle step to
+    // see if we need to throttle down, and set a smaller vertical speed as target:
+    targetVS = await autoThrottle(state, autopilot.api, altDiff, targetVS);
+  }
+
+  return { targetVS, altDiff };
+}
+
+// Strap in, we're going to have to do some work.
+async function autoThrottle(state, api, altDiff, targetVS) {
+  // First, let's get both our current flight data and the
+  // plane's "design speeds":
+  const { verticalSpeed: VS } = state;
+  const speed = round(state.speed);
+  const {
+    DESIGN_SPEED_CLIMB: sc,
+    DESIGN_SPEED_VC: vc, // "cruise" speed
+    NUMBER_OF_ENGINES: engineCount,
+  } = await api.get(...ATT_PROPERTIES);
+
+  // Small fix: we want these values in knots, not feet per second
+  const cruiseSpeed = round(vc / KNOT_IN_FPS);
+  const climbSpeed = round(sc / KNOT_IN_FPS);
+
+  // Then we maths our way to how big of an adjustment to the throttle
+  // we want to make if we're going too fast, or too slow:
+  const throttleStep = 0.2;
+  const tinyStep = throttleStep / 10;
+  const ALT_LIMIT = 50;
+  const BRACKET = 2;
+  const adjustment = constrainMap(abs(altDiff), 0, ALT_LIMIT, tinyStep, throttleStep);
+
+  // And we set up a helper function that can throttle all engines at the
+  // same time (because not every airplane has only a single engine!).
+  function change(v) { changeThrottle(api, engineCount, v); }
+
+  // ...and then let's talk about what's supposed to happen here...
+
+  return targetVS;
+}
+```
+
+We interrupt this code so we can think about what situations our plane might be in, because those will dictate which action we take with regards to throttling:
+
+1. We can be in level flight, and usually that means a reasonably stable speed.
+2. We can be climbing, which runs the risk of a stall if we climb too fast and lose too much speed.
+3. We can be descending, which runs the risk of losing control surface efficacy or even tearing the plane apart.
+
+Each of these three has a plane-specific speed constraint associated with it:
+
+1. In level flight, there is an "optimal cruise speed", known as `Vc`.
+2. When we're climbing, there is an "optimal climb speed", known as `Vy`, which is related to how fast the plane can go "right now", so it's not a single "vertical speed" value, it varies.
+3. When we're descending, our speed is dictated by a plane's "never exceed" speed, known as `Vne`. As it says on the tin: we never want to exceed that speed. And really, we generally want to stay well below it: we'd prefer to live.
+
+So let's write some code for each of those three cases. First, cruise flight:
+
+```javascript
+async function autoThrottle(state, api, altDiff, targetVS) {
+  ...
+
+  function change(v) { changeThrottle(api, engineCount, v); }
+
+  // Are we at/near cruise altitude with a VS that's stable enough that we can throttle?
+  if (abs(altDiff) < ALT_LIMIT) {
+    // If so, throttle up from to cruise speed:
+    if (speed < cruiseSpeed - BRACKET && VS < 15) {
+      change(constrainMap(cruiseSpeed - speed, 0, 10, adjustment, throttleStep));
+    }
+    // Or, of course, throttle *down* to cruise speed:
+    if (speed > cruiseSpeed + BRACKET && VS > -15) {
+      // And note the minus sign here:
+      change(-constrainMap(speed - cruiseSpeed, 0, 10, adjustment, throttleStep));
+    }
+  }
+```
+
+Then, what to do during a climb:
+
+```javascript
+  // If we need to climb, we'll typically need to throttle the plane up to optimal climb speed:
+  else if (altDiff > ALT_LIMIT) {
+    // Throttle up to climb speed
+    if (speed < climbSpeed) change(adjustment);
+    // Or, if we're at climb speed  but our vertical speed is not high enough, throttle up some more
+    else if (VS < 0.8 * targetVS) change(adjustment);
+  }
+```
+
+And finally, what to do during a descent:
+
+```javascript
+  // And last, if we need to descend, throttle (mostly) down to maintain a safe speed.
+  else if (altDiff < -ALT_LIMIT) {
+    // If we're going too fast, throttle down to cruise speed
+    if (speed > cruiseSpeed + BRACKET) {
+      // And note the minus sign here, too:
+      change(-adjustment);
+    }
+    // And if we're going too slow, which would also be bad, speed up a little.
+    else if (speed < cruiseSpeed - BRACKET) {
+      change(adjustment / 2);
+    }
+    // Also, as this situation represents a potential danger, we should be
+    // aiming for a slower descent: return a new target VS that is lower
+    // than what the code thought we could pull off:
+    return constrainMap(speed, climbSpeed - 20, climbSpeed, 0, targetVS);
+  }
+
+  // And finally, if we get here, then our target VS was fine, and we keep its original value.
+  return targetVS;
+}
+```
+
+So, let's try this one more time: we'll leave the heading change off for now, first let's try out altitude changes and see if we don't enter "the rollercoaster of death":
+
+![image-20231108151531175](./image-20231108151531175.png)
+
+Much better. This time dropping from 2000 feet to 1600 feet shows our speed starting to pick up as we start to descend, and then immediately getting curbed by our auto-throttle code. In fact, to keep us safe, we see the speed dip to _below_ cruise speed, and then slowly creep back up as we settle into our new level. Going back up to 2000 feet shows the auto throttle giving us a bit more speed as we climb, settling back down to cruise speed after we've reached our target.
+
+One thing to note is that our altitudes are no longer as "crisp": we're now overshooting our targets a little and then recover over a longer period of time because the target vertical speed and auto throttle "interfere" with each other: we could try to tune that to perfect by writing more code and running more tests, but this feels acceptable for now. We can always revisit this later.
+
 
 ## Terrain follow mode
 

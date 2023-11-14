@@ -1,11 +1,6 @@
-import {
-  exceeds,
-  radians,
-  constrainMap,
-  getCompassDiff,
-} from "./utils/utils.js";
+import { exceeds, radians, constrainMap, getCompassDiff } from "../utils.js";
 
-import { AUTO_TAKEOFF, HEADING_MODE } from "./utils/constants.js";
+import { AUTO_TAKEOFF, HEADING_MODE } from "../constants.js";
 import { AutoPilot } from "./autopilot.js";
 import { State } from "./utils/ap-state.js";
 
@@ -14,7 +9,12 @@ const DEFAULT_TARGET_BANK = 0;
 const DEFAULT_MAX_TURN_RATE = 3;
 const DEFAULT_MAX_BANK = 30;
 
-const RUN_SIMPLE_VERSION = true;
+// Test constants
+const FEATURES = {
+  OVERSHOOT_COMPENSATION: false, // Do we even need this?
+  FLY_SPECIFIC_HEADING: true,
+  UPDATE_FROM_WAYPOINTS: false,
+};
 
 export const LOAD_TIME = Date.now();
 
@@ -37,14 +37,12 @@ export async function flyLevel(autopilot, state) {
   const { trim } = autopilot;
 
   // Our bank/roll information:
-  const bank = state.bankAngle;
-  const maxBank = constrainMap(state.speed, 50, 200, 10, DEFAULT_MAX_BANK);
-
-  const dBank = state.dBank;
+  const { bankAngle: bank, dBank, speed } = state;
+  const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
   const maxdBank = DEFAULT_MAX_TURN_RATE;
 
   // How big our corrections are going to be:
-  const step = constrainMap(state.speed, 50, 150, radians(1), radians(5)); // kodiak wants 5 instead of 2???!?!?
+  const step = constrainMap(speed, 50, 150, radians(1), radians(5)); // kodiak wants 5 instead of 2???!?!?
   const s1 = step;
   const s2 = step / 2;
   const s5 = step / 5;
@@ -60,23 +58,17 @@ export async function flyLevel(autopilot, state) {
   update -= constrainMap(diff, -maxBank, maxBank, -s1, s1);
   update += constrainMap(dBank, -maxdBank, maxdBank, -s2, s2);
 
-  if (!RUN_SIMPLE_VERSION) {
+  if (FEATURES.OVERSHOOT_COMPENSATION) {
     const overshoot = exceeds(turnRate, maxTurnRate);
     if (overshoot !== 0) {
       update -= constrainMap(overshoot, -maxTurnRate, maxTurnRate, -s5, s5);
     }
   }
 
-  if (isNaN(update)) {
-    console.warn(`fly-level update was NaN`);
-    console.warn({ bank, dBank, turnRate });
-    console.warn({ targetBank, maxTurnRate, diff });
-    console.warn({ s1, s2, update, trim: trim.x });
-    return;
+  if (!isNaN(update)) {
+    trim.roll += update;
+    autopilot.set("AILERON_TRIM_PCT", trim.roll);
   }
-
-  trim.x += update;
-  autopilot.set("AILERON_TRIM_PCT", trim.x);
 }
 
 /**
@@ -98,16 +90,16 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
   let maxTurnRate = DEFAULT_MAX_TURN_RATE;
 
   // Are we flying using waypoints?
-  // if (!RUN_SIMPLE_VERSION) {
+  if (FEATURES.UPDATE_FROM_WAYPOINTS) {
     updateHeadingFromWaypoint(autopilot, state);
-  // }
+  }
 
   // If there is an autopilot flight heading set (either because the
   // user set one, or because of the previous waypoint logic) then we
   // set a new target bank, somewhere between zero and the maximum
   // bank angle we want to allow, with the target bank closer to zero
   // the closer we already are to our target heading.
-  let flightHeading = autopilot.modes[HEADING_MODE];
+  let flightHeading = FEATURES.FLY_SPECIFIC_HEADING && autopilot.modes[HEADING_MODE];
 
   if (flightHeading) {
     const hDiff = getCompassDiff(heading, flightHeading);

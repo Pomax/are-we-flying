@@ -1,5 +1,4 @@
-import { AutoPilot } from "../../api/autopilot/autopilot.js";
-import { ClientClass } from "../client/client.js";
+import { AutoPilot } from "../../../autopilot/autopilot.js";
 
 /**
  * "route" handler for autopilot API calls from clients

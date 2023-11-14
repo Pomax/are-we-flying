@@ -1,5 +1,5 @@
-import { degrees } from "./utils.js";
-import { KNOT_IN_FPS } from "./constants.js";
+import { degrees } from "../../utils.js";
+import { KNOT_IN_FPS } from "../../constants.js";
 import { AP_VARIABLES } from "./ap-variables.js";
 
 export const LOAD_TIME = Date.now();

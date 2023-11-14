@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { SystemEvents } from "msfs-simconnect-api-wrapper";
-import { AutoPilot } from "../../api/autopilot/autopilot.js";
+import { AutoPilot } from "../../../autopilot/autopilot.js";
 
 const resultCache = {};
 const eventTracker = {};
