@@ -10,21 +10,24 @@ import {
 } from "../constants.js";
 
 const { abs, round, sign } = Math;
+
 const DEFAULT_TARGET_VS = 0;
 const DEFAULT_MAX_dVS = 100;
 const DEFAULT_MAX_VS = 1000;
-const DELTA_PITCH_LIMIT = 2;
+// const DELTA_PITCH_LIMIT = 5;
 
 // Test constants
 const FEATURES = {
   EMERGENCY_PROTECTION: true,
+  COUNTER_SPEED_PROTECTION: true,
+  DROP_PROTECTION: true,
   DAMPEN_CLOSE_TO_ZERO: true,
   TARGET_TO_HOLD: true,
   SMOOTH_RAMP_UP: true,
-  STALL_PROTECTION: false, // should this be linked to auto-throttle?
+  STALL_PROTECTION: false, // Do we... still need this? Now that we have smooth ramping?
   SKIP_TINY_UPDATES: true,
   BOOST_SMALL_CORRECTIONS: true,
-  LIMIT_TRIM_TO_100: true,
+  LIMIT_TRIM: true,
 };
 
 // The elevator trim uses a super weird unit, where +/- 100% maps
@@ -37,41 +40,72 @@ const LARGE_TRIM = radians(0.035);
 export const LOAD_TIME = Date.now();
 
 export async function altitudeHold(autopilot, state) {
-  // How big should our trim steps be?
+  // The local and state values we'll be working with:
+  const { verticalSpeed: VS, dVS, dPitch, speed } = state;
   const { trim } = autopilot;
+
+  // A helper function that lets us update the trim vector
+  // and then set the plane's trim based on the new value:
+  const updateTrim = (update) => {
+    trim.pitch += update;
+    if (FEATURES.LIMIT_TRIM) {
+      // Only allow up to 66% trim when on autopilot. If we'd need
+      // 100% trim, things would have already gone disastrously wrong.
+      const upperLimit = Math.PI / 30;
+      const lowerLimit = -upperLimit;
+      trim.pitch = constrain(trim.pitch, lowerLimit, upperLimit);
+    }
+    autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
+  };
+
+  // How big should our trim steps be?
   let trimLimit = state.pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
   const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
-  const { speed } = state;
   let trimStep = constrainMap(speed, 50, 200, 5, 20) * small;
 
+  // What are our VS parameters?
+  let maxVS = DEFAULT_MAX_VS;
+  maxVS = constrainMap(speed, 30, 100, maxVS / 10, maxVS);
+  let { targetVS, altDiff, direction } = await getTargetVS(
+    autopilot,
+    state,
+    maxVS
+  );
+
   // Quick check: are we pitching *way* out of control?
-  const { dPitch } = state;
-  const dPitchLimit = DELTA_PITCH_LIMIT;
-  const pitchExcess = exceeds(dPitch, dPitchLimit);
-  if (FEATURES.EMERGENCY_PROTECTION && pitchExcess !== 0) {
-    console.log(`--bad, excess: ${pitchExcess}`);
-    const MF = constrainMap(speed, 50, 200, 20, 100);
-    trim.pitch += constrainMap(
-      pitchExcess,
-      -MF,
-      MF,
-      -MF * trimStep,
-      MF * trimStep
-    );
-    return autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
+  if (FEATURES.EMERGENCY_PROTECTION) {
+    const DELTA_PITCH_LIMIT = constrainMap(speed, 50, 200, 1, 5);
+    const dPitchLimit = VS < 0 ? DELTA_PITCH_LIMIT / 2 : DELTA_PITCH_LIMIT;
+    const pitchExcess = exceeds(dPitch, dPitchLimit);
+    if (pitchExcess !== 0 && sign(direction) !== sign(VS)) {
+      console.log(`emergency recovery (1) - pitchExcess: ${pitchExcess}`);
+      return updateTrim(pitchExcess * trimStep);
+    }
+
+    // Second quick check: even if we're not pitching like crazy, are we
+    // moving in the wrong direction too fast?
+    if (
+      FEATURES.COUNTER_SPEED_PROTECTION &&
+      direction !== sign(VS) &&
+      abs(VS) > 200
+    ) {
+      console.log(`emergency recovery (2) - targetVS: ${targetVS}, VS: ${VS}`);
+      // note that we want to pitch up, so to add a positive number we use -VS:
+      let factor = -VS / (VS < 0 ? 500 : 1000);
+      if (abs(VS) > 2 * maxVS) factor *= 2;
+      return updateTrim(factor * trimStep);
+    }
+
+    // Third quick check: are we descending (possibly *way*) too fast?
+    if (FEATURES.DROP_PROTECTION && VS < -2 * maxVS) {
+      console.log(
+        `emergency recovery (3) - VS: ${VS}, threshold: ${-2 * maxVS}`
+      );
+      return updateTrim((-VS / 500) * trimStep);
+    }
   }
 
-  // What are our VS parameters?
-  const { verticalSpeed: VS, dVS } = state;
-  const maxVS = constrainMap(
-    speed,
-    30,
-    100,
-    DEFAULT_MAX_VS / 10,
-    DEFAULT_MAX_VS
-  );
-  let { targetVS } = await getTargetVS(autopilot, state, maxVS);
   const diff = targetVS - VS;
 
   // Nudge us towards the correct vertical speed
@@ -92,10 +126,10 @@ export async function altitudeHold(autopilot, state) {
     // if (aDiff < 100) update /= 2;
     // if (aDiff < 20) update /= 2;
     if (aDiff < 100) {
-      if (aDiff < 80) {
-        update = constrainMap(aDiff, 5, 80, update / 10, update / 2);
+      if (aDiff < 50) {
+        update = constrainMap(aDiff, 5, 50, update / 10, update / 2);
       } else {
-        update = constrainMap(aDiff, 80, 100, update / 2, update);
+        update = constrainMap(aDiff, 50, 100, update / 2, update);
       }
     }
   }
@@ -121,14 +155,7 @@ export async function altitudeHold(autopilot, state) {
         update *= 2;
     }
 
-    trim.pitch += update;
-
-    // // We can't trim past +/- 100% of the trim range.
-    if (FEATURES.LIMIT_TRIM_TO_100) {
-      trim.pitch = constrain(trim.pitch, -Math.PI / 20, Math.PI / 20);
-    }
-
-    autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
+    updateTrim(update);
   }
 }
 
@@ -153,6 +180,7 @@ async function getTargetVS(autopilot, state, maxVS) {
 
   const { altitude: currentAltitude, verticalSpeed: VS, speed } = state;
   let targetVS = DEFAULT_TARGET_VS;
+  let direction = undefined;
   let altDiff = undefined;
 
   // Are we flying using waypoints?
@@ -164,7 +192,7 @@ async function getTargetVS(autopilot, state, maxVS) {
     altDiff = targetAltitude - currentAltitude;
 
     // positive = we need +VS, negative = we need -VS
-    const direction = sign(altDiff);
+    direction = sign(altDiff);
     const plateau = 200;
 
     if (FEATURES.SMOOTH_RAMP_UP) {
@@ -182,8 +210,8 @@ async function getTargetVS(autopilot, state, maxVS) {
         }
       }
 
-      // if we're close to the target, start reducing our target speed
-      // such that our target VS is zero at our target altitude.
+      // Else, if we're close to the target, start reducing our target
+      // speed such that our target VS is zero at our target altitude.
       else {
         targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
       }
@@ -201,26 +229,26 @@ async function getTargetVS(autopilot, state, maxVS) {
     }
   }
 
-  if (FEATURES.STALL_PROTECTION) {
+  if (FEATURES.STALL_PROTECTION && targetVS > 0) {
     // And of course: if we're close to our stall speed, and we need to
     // climb, *CLIMB LESS FAST*. A simple rule, but really important.
-    if (targetVS > 0) {
-      let { DESIGN_SPEED_VS1: ds_vs1, DESIGN_SPEED_CLIMB: ds_c } =
-        await autopilot.api.get(`DESIGN_SPEED_CLIMB`, `DESIGN_SPEED_VS1`);
-      // We don't want feet per second, we want knots:
-      const cruiseSpeed = ds_c * FPS_IN_KNOTS;
-      const stallSpeed = ds_vs1 * FPS_IN_KNOTS;
-      targetVS = constrainMap(
-        speed,
-        stallSpeed,
-        cruiseSpeed,
-        targetVS / 2,
-        targetVS
-      );
-    }
+    let { DESIGN_SPEED_VS1, DESIGN_SPEED_CLIMB } = await autopilot.api.get(
+      `DESIGN_SPEED_CLIMB`,
+      `DESIGN_SPEED_VS1`
+    );
+    // We don't want feet per second, we want knots:
+    const cruiseSpeed = DESIGN_SPEED_CLIMB * FPS_IN_KNOTS;
+    const stallSpeed = DESIGN_SPEED_VS1 * FPS_IN_KNOTS;
+    targetVS = constrainMap(
+      speed,
+      stallSpeed,
+      cruiseSpeed,
+      targetVS / 2,
+      targetVS
+    );
   }
 
-  return { targetVS, altDiff };
+  return { targetVS, altDiff, direction };
 }
 
 const ATT_PROPERTIES = [

@@ -217,6 +217,9 @@ export class AutoPilot {
     const { modes } = this;
     if (modes[type] === undefined) return;
     const prev = modes[type];
+    if (typeof value === `number`) {
+      value = parseFloat(value.toFixed(2));
+    }
     if (prev === value) return;
     modes[type] = value;
     console.log(`changing ${type} from ${prev} to ${value}`);

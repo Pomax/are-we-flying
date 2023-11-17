@@ -11,9 +11,9 @@ const DEFAULT_MAX_BANK = 30;
 
 // Test constants
 const FEATURES = {
-  OVERSHOOT_COMPENSATION: false, // Do we even need this?
+  EMERGENCY_PROTECTION: false, // does nothing yet.
   FLY_SPECIFIC_HEADING: true,
-  UPDATE_FROM_WAYPOINTS: false,
+  UPDATE_FROM_WAYPOINTS: true,
 };
 
 export const LOAD_TIME = Date.now();
@@ -42,27 +42,19 @@ export async function flyLevel(autopilot, state) {
   const maxdBank = DEFAULT_MAX_TURN_RATE;
 
   // How big our corrections are going to be:
-  const step = constrainMap(speed, 50, 150, radians(1), radians(5)); // kodiak wants 5 instead of 2???!?!?
-  const s1 = step;
-  const s2 = step / 2;
-  const s5 = step / 5;
+  const step = constrainMap(speed, 50, 150, radians(1), radians(5));
 
   // Our "how much are we off" information:
-  const turnRate = state.turnRate;
-  const targetData = getTargetBankAndTurnRate(autopilot, state, maxBank);
-  const { targetBank, maxTurnRate } = targetData;
+  const { targetBank } = getTargetBankAndTurnRate(autopilot, state, maxBank);
   const diff = targetBank - bank;
 
   // And finally, apply the corrections.
   let update = 0;
-  update -= constrainMap(diff, -maxBank, maxBank, -s1, s1);
-  update += constrainMap(dBank, -maxdBank, maxdBank, -s2, s2);
+  update -= constrainMap(diff, -maxBank, maxBank, -step, step);
+  update += constrainMap(dBank, -maxdBank, maxdBank, -step / 2, step / 2);
 
-  if (FEATURES.OVERSHOOT_COMPENSATION) {
-    const overshoot = exceeds(turnRate, maxTurnRate);
-    if (overshoot !== 0) {
-      update -= constrainMap(overshoot, -maxTurnRate, maxTurnRate, -s5, s5);
-    }
+  if (FEATURES.EMERGENCY_PROTECTION) {
+    // ...what would be a good policy to pr
   }
 
   if (!isNaN(update)) {
@@ -99,7 +91,8 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
   // set a new target bank, somewhere between zero and the maximum
   // bank angle we want to allow, with the target bank closer to zero
   // the closer we already are to our target heading.
-  let flightHeading = FEATURES.FLY_SPECIFIC_HEADING && autopilot.modes[HEADING_MODE];
+  let flightHeading =
+    FEATURES.FLY_SPECIFIC_HEADING && autopilot.modes[HEADING_MODE];
 
   if (flightHeading) {
     const hDiff = getCompassDiff(heading, flightHeading);

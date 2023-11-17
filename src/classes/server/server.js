@@ -38,7 +38,7 @@ export class ServerClass {
   }
 
   async init() {
-    watch(`${__dirname}../../autopilot/`, `autopilot.js`, (lib) => {
+    watch(`${__dirname}../../autopilot/autopilot.js`, (lib) => {
       AutoPilot = lib.AutoPilot;
       if (autopilot) {
         Object.setPrototypeOf(autopilot, AutoPilot.prototype);
