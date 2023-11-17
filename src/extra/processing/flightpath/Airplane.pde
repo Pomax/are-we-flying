@@ -25,6 +25,6 @@ class Airplane extends Circle {
     if (diff > PI) diff -= TAU;
     if (diff < -cap) diff = -cap;
     if (diff > cap) diff = cap;
-    heading += diff;
+    heading = (heading + diff) % TAU;
   }
 }

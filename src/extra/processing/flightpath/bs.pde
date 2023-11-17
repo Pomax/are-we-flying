@@ -2,6 +2,10 @@ void ellipse(double a, double b, double c, double d) {
   ellipse((float)a, (float)b, (float)c, (float)d);
 }
 
+void line(Point p1, Point p2) {
+  line(p1.x, p1.y, p2.x, p2.y);
+}
+
 void line(double a, double b, double c, double d) {
   line((float)a, (float)b, (float)c, (float)d);
 }
