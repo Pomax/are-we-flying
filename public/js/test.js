@@ -19,7 +19,7 @@ class BrowserClient {
     this.#plane = new Plane(this.server);
     if (experiment) {
       import(`./experiments/${experiment}/index.js`).then(({ Experiment }) =>
-        Experiment(this.#plane)
+        new Experiment(this.#plane)
       );
     }
   }

@@ -81,9 +81,12 @@ export class ServerClass {
   /**
    * ...docs go here...
    */
-  #onMSFSConnect() {
+  async #onMSFSConnect() {
     MSFS = true;
     console.log(`Connected to MSFS.`);
+    console.log(
+      `${(await api.get(`ALL_AIRPORTS`)).ALL_AIRPORTS.length} airports loaded`
+    );
     this.#registerWithAPI(api, autopilot);
     this.clients.forEach((client) => client.onMSFS(MSFS));
     this.#poll();

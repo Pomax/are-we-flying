@@ -58,6 +58,8 @@ export class AutoTakeoff {
    * @param {*} state
    */
   async run(state) {
+    const { model } = state;
+
     // EXPERIMENTAL FOR ROTATION
     if (!this.trimStep) {
       let trimLimit = state.pitchTrimLimit[0];
@@ -66,17 +68,13 @@ export class AutoTakeoff {
     }
 
     // constants
-    const {
-      TOTAL_WEIGHT: totalWeight,
-      DESIGN_SPEED_VS1: vs1,
-      NUMBER_OF_ENGINES: engineCount,
-    } = state;
+    const totalWeight = model.weight;
+    const vs1 = model.vs1;
+    const engineCount = model.numberOfEngines;
 
     // variables: these have the wrong unit, so we need to fix them
-    let {
-      DESIGN_SPEED_MIN_ROTATION: minRotate,
-      DESIGN_TAKEOFF_SPEED: takeoffSpeed,
-    } = state;
+    let minRotate = model.minRotation;
+    let takeoffSpeed = model.takeoffSpeed;
     minRotate *= FPS_IN_KNOTS;
     takeoffSpeed *= FPS_IN_KNOTS;
     if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
@@ -311,18 +309,20 @@ export class AutoTakeoff {
     // FIXME: this goes "wrong" for the Kodiak 100, which immediately banks left on take-off
     // FIXME: this does "nothing" for the Cessna 172, unless we add the static drift correction.
 
-    // console.log({
-    //   STAGE: `auto-rudder`,
-    //   drift,
-    //   limit,
-    //   driftCorrection,
-    //   staticDriftCorrection: this.staticDriftCorrection,
-    //   diff,
-    //   stallFactor,
-    //   speedFactor,
-    //   tailFactor,
-    //   rudder,
-    // });
+    console.log({
+      STAGE: `auto-rudder`,
+      drift,
+      currentSpeed,
+      minRotate,
+      limit,
+      driftCorrection,
+      staticDriftCorrection: this.staticDriftCorrection,
+      diff,
+      stallFactor,
+      speedFactor,
+      tailFactor,
+      rudder,
+    });
 
     this.lastDrift = drift;
 

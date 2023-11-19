@@ -20,6 +20,7 @@ export class Plane {
   constructor(server, map = defaultMap, location = Duncan, heading = 135) {
     console.log(`building plane`);
     this.server = server;
+    this.map = map;
     this.autopilot = new Autopilot(this);
     this.waypoints = new WaypointOverlay(this, map);
 

@@ -26,5 +26,7 @@ export async function changeThrottle(
       api.set(simVar, newThrottle);
     }
   }
-  return newThrottle ?? (byHowMuch < 0 ? floor : ceiling);
+  const simVar = `GENERAL_ENG_THROTTLE_LEVER_POSITION:1`;
+  newThrottle = (await api.get(simVar))[simVar];
+  return newThrottle;
 }

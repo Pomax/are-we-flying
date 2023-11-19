@@ -6,7 +6,6 @@ import {
   getCompassDiff,
 } from "../../utils.js";
 import { Trail } from "../../trail.js";
-import { getAPI } from "../../api.js";
 
 const { sign } = Math;
 
@@ -32,11 +31,12 @@ export async function getNearestApproach(
 
   if (icao) {
     const simvar = `AIRPORT:${icao}`;
-    const airport = (await getAPI(simvar))[simvar];
+    const airport = (await plane.server.api.get(simvar))[simvar];
     candidates.push(airport);
   } else {
     // Get all nearby airports
-    const { NEARBY_AIRPORTS: nearby } = await getAPI(`NEARBY_AIRPORTS`);
+    const { NEARBY_AIRPORTS: nearby } =
+      await plane.server.api.get(`NEARBY_AIRPORTS`);
 
     // Reduce that to the five nearest airports, but if we're flying a flight plan,
     // nearest to the end of our flight plan. If we're not, then nearest to the plane.
@@ -61,7 +61,9 @@ export async function getNearestApproach(
 
     for await (let airport of reduced) {
       const simvar = `AIRPORT:${airport.icao}`;
-      const fullAirport = (await getAPI(simvar))[simvar];
+      const data = await plane.server.api.get(simvar);
+      console.log(data);
+      const fullAirport = data[simvar];
       fullAirport.distance = airport.d;
       candidates.push(fullAirport);
     }
@@ -84,7 +86,7 @@ export async function getNearestApproach(
     .sort((a, b) => a.distanceToMark - b.distanceToMark);
 
   // remove water landings for planes that can't swim
-  const { FLOATS: isFloatPlane } = plane.flightModel.values;
+  const { FLOATS: isFloatPlane } = plane.state.flightModel;
   if (!isFloatPlane)
     approaches = approaches.filter((e) => {
       const surface = e.runway.surface;
@@ -114,6 +116,7 @@ export function drawApproach(map, { runway, coordinates }) {
     undefined,
     { width: 10 }
   );
+
   approachTrail.add(...coordinates.runwayStart);
 
   const { bbox } = runway;
@@ -225,24 +228,27 @@ export function setApproachPath(
   if (distToAirport < approachDistance - MARGIN_DISTANCE) {
     // we're on the wrong side of the approach: add some easing waypoints to get
     // us onto the approach flight plan.
-    callAutopilot(`waypoint`, {
-      lat: easingPoints[1][0],
-      long: easingPoints[1][1],
-      landing: true,
-    });
+    plane.server.autopilot.addWaypoint(
+      easingPoints[1][0],
+      easingPoints[1][1],
+      undefined,
+      true
+    );
   }
 
   // Then add waypoints that mark the approach itself as part of the flight plan.
-  callAutopilot(`waypoint`, {
-    lat: easingPoints[0][0],
-    long: easingPoints[0][1],
-    landing: true,
-  });
+  plane.server.autopilot.addWaypoint(
+    easingPoints[0][0],
+    easingPoints[0][1],
+    undefined,
+    true
+  );
 
-  callAutopilot(`waypoint`, { lat: anchor[0], long: anchor[1], landing: true });
-  callAutopilot(`waypoint`, {
-    lat: runwayEnd[0],
-    long: runwayEnd[1],
-    landing: true,
-  });
+  plane.server.autopilot.addWaypoint(anchor[0], anchor[1], undefined, true);
+  plane.server.autopilot.addWaypoint(
+    runwayEnd[0],
+    runwayEnd[1],
+    undefined,
+    true
+  );
 }

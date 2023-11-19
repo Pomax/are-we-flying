@@ -18,7 +18,6 @@ import {
   setApproachPath,
 } from "./approach.js";
 import { pathIntersection, changeThrottle, targetThrottle } from "./compute.js";
-import { getAPI, setAPI, callAutopilot, triggerEvent } from "../../api.js";
 import { Runner } from "../experiment.js";
 import { BEAVER, C310R, DEFAULT } from "./parameters.js";
 
@@ -51,12 +50,13 @@ let ROLLOUT_BRAKE_VALUE;
 // Brakes run on this weird ±2^14 scale, but we like percentages better.
 function brake(percentage) {
   const value = map(percentage, 0, 100, -16383, 16383) | 0;
-  triggerEvent(`AXIS_LEFT_BRAKE_SET`, value);
-  triggerEvent(`AXIS_RIGHT_BRAKE_SET`, value);
+  plane.server.api.trigger(`AXIS_LEFT_BRAKE_SET`, value);
+  plane.server.api.trigger(`AXIS_RIGHT_BRAKE_SET`, value);
 }
 
 function assignParameters(plane) {
-  const title = plane.flightModel.values.TITLE.toLowerCase();
+  console.log(plane);
+  const title = plane.state.flightModel.TITLE.toLowerCase();
   let PARAMS = DEFAULT;
   if (title.includes(` beaver`)) PARAMS = BEAVER;
   if (title.includes(` 310`)) PARAMS = C310R;
@@ -78,9 +78,10 @@ function assignParameters(plane) {
  * Our experiment
  */
 export class Experiment extends Runner {
-  constructor(map, plane) {
-    super(map, plane);
+  constructor(plane) {
+    super(plane);
     const ATL = document.createElement(`button`);
+    const map = plane.map;
     ATL.textContent = `land`;
     ATL.title = `auto land`;
     ATL.classList.add(`ATL`);
@@ -93,8 +94,10 @@ export class Experiment extends Runner {
  * ...docs go here...
  */
 async function autoLand(runner, map, plane) {
+  console.log(plane);
+
   assignParameters(plane);
-  const { NUMBER_OF_ENGINES: engineCount } = plane.flightModel.values;
+  const { NUMBER_OF_ENGINES: engineCount } = plane.state.flightModel;
 
   // =============================
   // (1) Find a runway to land at
@@ -130,7 +133,7 @@ async function autoLand(runner, map, plane) {
       landingAltitude,
       approachAltitude
     );
-    callAutopilot(`update`, { ALT: alt });
+    plane.server.autopilot.update({ ALT: alt });
   };
 
   // Get the runway altitude
@@ -198,7 +201,7 @@ async function autoLand(runner, map, plane) {
 function getOntoApproach(plane, approach, approachAltitude) {
   setApproachPath(plane, approach.coordinates);
 
-  callAutopilot({
+  plane.server.autopilot.update({
     MASTER: true,
     LVL: true,
     ALT: approachAltitude,
@@ -230,7 +233,7 @@ function getOntoApproach(plane, approach, approachAltitude) {
  */
 function throttleTo(plane, engineCount, position, setAltitude) {
   // turn off the auto-throttle (obviously) and terrain follow if it's on
-  callAutopilot(`update`, { ATT: false, TER: false });
+  plane.server.autopilot.update({ ATT: false, TER: false });
 
   // Then return the function that will keep throttling down until we reach our throttle target.
   return async (done) => {
@@ -268,13 +271,13 @@ function reachRunway(plane, { runway, coordinates }, distance, setAltitude) {
  * @returns
  */
 function dropToRunway(plane, engineCount, cgToGround, dropAltitude) {
-  callAutopilot(`update`, { ALT: dropAltitude });
+  plane.server.autopilot.update({ ALT: dropAltitude });
 
   console.log(`Gear down`);
-  triggerEvent(`GEAR_DOWN`);
+  plane.server.api.trigger(`GEAR_DOWN`);
 
   console.log(`Full flaps`);
-  setAPI(`FLAPS_HANDLE_INDEX:1`, 10);
+  plane.server.api.set(`FLAPS_HANDLE_INDEX:1`, 10);
 
   // flag that lets us flare, once.
   let flared = false;
@@ -284,19 +287,19 @@ function dropToRunway(plane, engineCount, cgToGround, dropAltitude) {
     changeThrottle(engineCount, -3, 0, 100);
 
     // get true "how far above the ground are we"
-    let { PLANE_ALT_ABOVE_GROUND_MINUS_CG: pacg } = await getAPI(
+    let { PLANE_ALT_ABOVE_GROUND_MINUS_CG: pacg } = await plane.server.api.get(
       `PLANE_ALT_ABOVE_GROUND_MINUS_CG`
     );
 
     const distanceToGround = pacg - cgToGround;
     if (distanceToGround < FLARE_ALTITUDE && !flared) {
-      setAPI(`ELEVATOR_POSITION`, FLARE_AMOUNT);
+      plane.server.api.set(`ELEVATOR_POSITION`, FLARE_AMOUNT);
       flared = true;
     }
 
     if (!plane.lastUpdate.airBorn) {
       console.log(`Turn off our autopilot, it has done its job`);
-      callAutopilot(`update`, {
+      plane.server.autopilot.update({
         MASTER: false,
       });
       done();
@@ -336,7 +339,7 @@ function startBraking(plane, approach, engineCount) {
     const headingDiff = getCompassDiff(plane.lastUpdate.heading, targetHeading);
     const diff = constrain(headingDiff, -2, 2);
     const rudder = RUDDER_FACTOR * diff;
-    setAPI(`RUDDER_POSITION`, rudder);
+    plane.server.api.set(`RUDDER_POSITION`, rudder);
 
     if (speed < 15) done();
   };
@@ -344,7 +347,7 @@ function startBraking(plane, approach, engineCount) {
 
 function rollOut(plane, engineCount) {
   console.log(`Flaps up...`);
-  setAPI(`FLAPS_HANDLE_INDEX:1`, 0);
+  plane.server.api.set(`FLAPS_HANDLE_INDEX:1`, 0);
 
   // ease up on the brakes
   brake(ROLLOUT_BRAKE_VALUE);
@@ -359,7 +362,7 @@ function rollOut(plane, engineCount) {
       // release brakes.
       brake(0);
       // kill engine
-      triggerEvent(`ENGINE_AUTO_SHUTDOWN`);
+      plane.server.api.trigger(`ENGINE_AUTO_SHUTDOWN`);
       done();
     }
   };
