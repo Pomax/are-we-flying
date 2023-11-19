@@ -12,7 +12,6 @@ import {
   TERRAIN_FOLLOW,
 } from "../constants.js";
 import { degrees } from "../utils.js";
-import { followTerrain } from "./terrain-follow.js";
 import { ALOSInterface } from "../elevation/alos-interface.js";
 
 // allow hot-reloading of flyLevel and altitudeHold code,
@@ -20,6 +19,7 @@ import { ALOSInterface } from "../elevation/alos-interface.js";
 import { watch } from "../reload-watcher.js";
 import { flyLevel as fl } from "./fly-level.js";
 import { altitudeHold as ah } from "./altitude-hold.js";
+import { followTerrain as ft } from "./terrain-follow.js";
 
 // allow hot-reloading of these classes with global binding.
 import { AutoTakeoff as ato } from "./auto-takeoff.js";
@@ -76,6 +76,7 @@ export class AutoPilot {
     // operators
     this.flyLevel = fl;
     this.altitudeHold = ah;
+    this.followTerrain = ft;
   }
 
   resetTrim() {
@@ -99,6 +100,9 @@ export class AutoPilot {
     });
     watch(`${__dirname}altitude-hold.js`, (module) => {
       this.altitudeHold = module.altitudeHold;
+    });
+    watch(`${__dirname}terrain-follow.js`, (module) => {
+      this.followTerrain = module.followTerrain;
     });
     watch(`${__dirname}auto-takeoff.js`, (module) => {
       AutoTakeoff = module.AutoTakeoff;
@@ -299,7 +303,7 @@ export class AutoPilot {
       if (this.modes[TERRAIN_FOLLOW] !== false && this.alos.loaded) {
         // If we are in terrain-follow mode, make sure the correct
         // altitude is set before running the ALT pass.
-        followTerrain(this, state);
+        this.followTerrain(this, state);
       }
 
       this.altitudeHold(this, state);

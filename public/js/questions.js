@@ -12,6 +12,7 @@ const qss = [
   `using-ap`,
   `plane-crashed`,
   `specific-plane`,
+  `gmaps-link`,
   `latitude`,
   `longitude`,
 ];
@@ -47,12 +48,17 @@ export const Questions = {
       state.flightData && !state.flightData.SIM_ON_GROUND;
     elements.usingAp.checked = state.flightData?.AUTOPILOT_MASTER;
     elements.planeCrashed.checked = state.crashed;
-    elements.latitude.textContent =
-      state.flightData?.PLANE_LATITUDE?.toFixed(6) ?? `-`;
-    elements.longitude.textContent =
-      state.flightData?.PLANE_LONGITUDE?.toFixed(6) ?? `-`;
+    this.whereAreWeFlying(state);
     // And we'll do this one separately because it's a more than just a checkmark:
     this.modelLoaded(state.flightModel?.TITLE);
+  },
+
+  whereAreWeFlying(state) {
+    const lat = state.flightData?.PLANE_LATITUDE?.toFixed(6);
+    const long = state.flightData?.PLANE_LONGITUDE?.toFixed(6);
+    elements.gmapsLink.href = `https://www.google.com/maps/place/${lat}+${long}/@${lat},${long},13z`;
+    elements.latitude.textContent = lat ?? `-`;
+    elements.longitude.textContent = long ?? `-`;
   },
 
   modelLoaded(modelName) {

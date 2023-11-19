@@ -1,10 +1,6 @@
 const { ceil } = Math;
 import { getPointAtDistance } from "../utils.js";
-import {
-  ALTITUDE_HOLD,
-  FEET_PER_METER,
-  KMS_PER_KNOT,
-} from "../constants.js";
+import { ALTITUDE_HOLD, FEET_PER_METER, KMS_PER_KNOT } from "../constants.js";
 import {
   ALOS_VOID_VALUE,
   NO_ALOS_DATA_VALUE,
@@ -61,5 +57,5 @@ export async function followTerrain(autopilot, state, altitude = 500) {
   targetAltitude = ceil(targetAltitude / bracketSize) * bracketSize;
 
   // Set the ALT value and let the autopilot do the rest
-  autopilot.modes[ALTITUDE_HOLD] = targetAltitude;
+  autopilot.setTarget(ALTITUDE_HOLD, targetAltitude);
 }

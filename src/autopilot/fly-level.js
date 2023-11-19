@@ -117,7 +117,8 @@ function updateHeadingFromWaypoint(autopilot, state) {
   if (autopilot.modes[AUTO_TAKEOFF]) return;
 
   const { waypoints } = autopilot;
-  if (waypoints.length === 0) return;
+  const N = waypoints.length;
+  if (N === 0) return;
 
   const waypointHeading = waypoints.getHeading(state);
   if (waypointHeading) {

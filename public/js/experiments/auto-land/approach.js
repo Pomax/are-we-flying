@@ -1,4 +1,3 @@
-import { callAutopilot } from "../../api.js";
 import {
   getPointAtDistance,
   getDistanceBetweenPoints,

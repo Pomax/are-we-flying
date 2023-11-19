@@ -163,7 +163,7 @@ async function autoLand(runner, map, plane) {
 
   const pos = SAFE_THROTTLE;
   console.log(`Throttle down to ${pos}%...`);
-  await runner.run(throttleTo(plane, engineCount, pos, setAltitude));
+  await runner.run(throttleTo(plane, pos, setAltitude));
   console.log(`Done`);
 
   // ============================
@@ -179,15 +179,15 @@ async function autoLand(runner, map, plane) {
   // ============================================
 
   console.log(`Dropping to`, stallAltitude);
-  await runner.run(dropToRunway(plane, engineCount, cgToGround, stallAltitude));
+  await runner.run(dropToRunway(plane, cgToGround, stallAltitude));
 
   // =========================
   // (6) Brake to a full stop
   // =========================
 
   console.log("Braking...");
-  await runner.run(startBraking(plane, approach, engineCount));
-  await runner.run(rollOut(plane, engineCount));
+  await runner.run(startBraking(plane, approach));
+  await runner.run(rollOut(plane));
 
   console.log(`Landing complete`);
 }
@@ -231,14 +231,14 @@ function getOntoApproach(plane, approach, approachAltitude) {
  * @param {*} position
  * @returns
  */
-function throttleTo(plane, engineCount, position, setAltitude) {
+function throttleTo(plane, position, setAltitude) {
   // turn off the auto-throttle (obviously) and terrain follow if it's on
   plane.server.autopilot.update({ ATT: false, TER: false });
 
   // Then return the function that will keep throttling down until we reach our throttle target.
   return async (done) => {
     setAltitude();
-    if ((await targetThrottle(engineCount, position)) === false) done();
+    if ((await targetThrottle(plane, position)) === false) done();
   };
 }
 
@@ -270,7 +270,7 @@ function reachRunway(plane, { runway, coordinates }, distance, setAltitude) {
  * @param {*} dropAltitude
  * @returns
  */
-function dropToRunway(plane, engineCount, cgToGround, dropAltitude) {
+function dropToRunway(plane, cgToGround, dropAltitude) {
   plane.server.autopilot.update({ ALT: dropAltitude });
 
   console.log(`Gear down`);
@@ -284,7 +284,7 @@ function dropToRunway(plane, engineCount, cgToGround, dropAltitude) {
 
   return async (done) => {
     // throttle down to a glide
-    changeThrottle(engineCount, -3, 0, 100);
+    changeThrottle(plane, -3, 0, 100);
 
     // get true "how far above the ground are we"
     let { PLANE_ALT_ABOVE_GROUND_MINUS_CG: pacg } = await plane.server.api.get(
@@ -313,14 +313,14 @@ function dropToRunway(plane, engineCount, cgToGround, dropAltitude) {
  * @param {*} approach
  * @returns
  */
-function startBraking(plane, approach, engineCount) {
+function startBraking(plane, approach) {
   brake(INITIAL_BRAKE_VALUE);
 
   return (done) => {
     const { lat, long, speed, heading: h1, trueHeading: h2 } = plane.lastUpdate;
 
     // keep throttling down to 0
-    targetThrottle(engineCount, 0, 3);
+    targetThrottle(plane, 0, 3);
 
     // auto-rudder
     const { runwayStart, runwayEnd } = approach.coordinates;
@@ -345,7 +345,7 @@ function startBraking(plane, approach, engineCount) {
   };
 }
 
-function rollOut(plane, engineCount) {
+function rollOut(plane) {
   console.log(`Flaps up...`);
   plane.server.api.set(`FLAPS_HANDLE_INDEX:1`, 0);
 
@@ -356,7 +356,7 @@ function rollOut(plane, engineCount) {
     const { speed } = plane.lastUpdate;
 
     // keep throttling down to 0
-    targetThrottle(engineCount, 0, 3);
+    targetThrottle(plane, 0, 3);
 
     if (speed < 1) {
       // release brakes.

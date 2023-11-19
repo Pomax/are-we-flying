@@ -1,5 +1,3 @@
-import { getAPI, setAPI } from "../../api.js";
-
 const { abs, sqrt } = Math;
 
 /**
@@ -70,32 +68,35 @@ function f(t, x, y, dx, dy) {
  * @param {*} pCeiling
  */
 export async function changeThrottle(
-  engineCount = 4,
+  plane,
   byHowMuch,
   floor = 0,
   ceiling = 100,
   pFloor = floor,
   pCeiling = ceiling
 ) {
+  const engineCount = plane.state.model.numberOfEngines;
+  const { api } = plane.server;
+
   for (let count = 1; count <= engineCount; count++) {
     // change throttle
     const throttleVar = `GENERAL_ENG_THROTTLE_LEVER_POSITION:${count}`;
-    const throttle = (await getAPI(throttleVar))[throttleVar];
+    const throttle = (await api.get(throttleVar))[throttleVar];
     if (
       (byHowMuch < 0 && throttle > floor - byHowMuch) ||
       (byHowMuch > 0 && throttle < ceiling - byHowMuch)
     ) {
-      setAPI(throttleVar, throttle + byHowMuch);
+      api.set(throttleVar, throttle + byHowMuch);
     }
 
     // change prop
     const propVar = `GENERAL_ENG_PROPELLER_LEVER_POSITION:${count}`;
-    const prop = (await getAPI(propVar))[propVar];
+    const prop = (await api.get(propVar))[propVar];
     if (
       (byHowMuch < 0 && prop > pFloor - byHowMuch) ||
       (byHowMuch > 0 && prop < pCeiling - byHowMuch)
     ) {
-      setAPI(propVar, prop + byHowMuch);
+      api.set(propVar, prop + byHowMuch);
     }
   }
 }
@@ -107,12 +108,15 @@ export async function changeThrottle(
  * @param {*} step
  * @returns
  */
-export async function targetThrottle(engineCount = 4, target, step = 1) {
+export async function targetThrottle(plane, target, step = 1) {
+  const engineCount = plane.state.model.numberOfEngines;
+  const { api } = plane.server;
+
   let updated = false;
   for (let count = 1; count <= engineCount; count++) {
     // change throttle
     const throttleVar = `GENERAL_ENG_THROTTLE_LEVER_POSITION:${count}`;
-    const throttle = (await getAPI(throttleVar))[throttleVar];
+    const throttle = (await api.get(throttleVar))[throttleVar];
     if (abs(throttle - target) >= abs(step)) {
       // console.log(`current throttle: ${throttle}, target: ${target}`);
 
@@ -122,7 +126,7 @@ export async function targetThrottle(engineCount = 4, target, step = 1) {
       // set directly
       if (abs(diff) < abs(step)) {
         // console.log(`hard set`);
-        setAPI(throttleVar, target);
+        api.set(throttleVar, target);
       }
 
       // inc/dec by `step`
@@ -130,7 +134,7 @@ export async function targetThrottle(engineCount = 4, target, step = 1) {
         if (diff > 0) step = abs(step);
         if (diff < 0) step = -abs(step);
         // console.log(`step is ${step}, setting throttle to ${throttle + step}`);
-        setAPI(throttleVar, throttle + step);
+        api.set(throttleVar, throttle + step);
       }
       updated = true;
     }

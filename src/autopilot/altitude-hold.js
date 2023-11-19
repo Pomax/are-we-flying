@@ -88,7 +88,8 @@ export async function altitudeHold(autopilot, state) {
     if (
       FEATURES.COUNTER_SPEED_PROTECTION &&
       direction !== sign(VS) &&
-      abs(VS) > 200
+      abs(VS) > 200 &&
+      abs(targetVS) > 200
     ) {
       console.log(`emergency recovery (2) - targetVS: ${targetVS}, VS: ${VS}`);
       // note that we want to pitch up, so to add a positive number we use -VS:
