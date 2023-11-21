@@ -1,204 +1,240 @@
-Airplane airplane;
-ArrayList<Point> waypoints;
-ArrayList<Point> pathpoints;
-ArrayList<Point> flightpath;
-int currentPointIndex;
-Point target;
+// This code can be copy-pasted and run using the Processing IDE, https://processing.org/download
+
+int current = -1;
+boolean playing = false;
+
+final String TARGET_MODE = "point target";
+final String INTERCEPT_MODE = "path intercept";
+boolean CLOSE_TARGET = false;
+
+String mode = "";
+
+double RADIUS = 50;
+double SPEED = 1;
+double TURN_RATE = 5;
 
 double targetRatio = 0.33;
 double permissibleOvershoot = 0;
 
+Plane plane;
+Point target;
+
+ArrayList<Point> pts = new ArrayList<Point>();
+ArrayList<Point> trace = new ArrayList<Point>();
+
 void setup() {
-  frameRate(144);
-  size(1200, 900);
-  waypoints = new ArrayList<Point>();
-  flightpath = new ArrayList<Point>();
-  reset();
-  //placeWayPoint(200, 200);
-  placeWayPoint(533, 166);
-  placeWayPoint(530, 264);
-  placeWayPoint(150, 354);
-  placeWayPoint(1070, 589);
-  placeWayPoint(218, 481);
-  placeWayPoint(950, 654);
-  placeWayPoint(348, 578);
-  placeWayPoint(658, 688);
-  placeWayPoint(490, 684);
-  placeWayPoint(770, 108);
-  placeWayPoint(1068, 115);
-  placeWayPoint(1071, 757);
-  placeWayPoint(795, 791);
-  placeWayPoint(86, 676);
+  size(1200, 800);
+  restart();
+  restart();
 }
 
-void reset() {
-  currentPointIndex = 0;
-  airplane = new Airplane(200, 300, 50, 0);
-}
-
-void safifyWaypoints() {
-  pathpoints = new ArrayList<Point>(waypoints);
-  // move waypoints that are too close together
-  // TODO: code goes here
-
-  // then resolve turns that are too tight:
-  for (int i=0; i<pathpoints.size()-2; i++) {
-    Point p1 = pathpoints.get(i);
-    Point p2 = pathpoints.get(i+1);
-    Point p3 = pathpoints.get(i+2);
-
-    double a = atan2(p1.y - p2.y, p1.x - p2.x);
-    double b = atan2(p3.y - p2.y, p3.x - p2.x);
-    double r1 = (a - b + TAU) % TAU;
-    double r2 = r1 - TAU;
-
-    double c = (a + b)/2 - PI/2;
-    double d = r1;
-    if (abs(r1) > abs(r2)) d = r2;
-    if (a<b) c+= PI;
-
-    // is this angle too steep?
-    if (abs(d) < PI/4) {
-      println("turn " + (i+1) + " is too steep");
-      // replace it with two points that are spaced "safely"
-      double r = (airplane.r / 2) + 5;
-      Vec2 dd = new Vec2(r * cos(c), r * sin(c)).normalize();
-      Point n1 = new Point(p2.x - dd.x * r, p2.y - dd.y * r);
-      Point n2 = new Point(p2.x + dd.x * r, p2.y + dd.y * r);
-      // replace p2 with n1
-      pathpoints.set(i+1, n1);
-      // and then add n2 after n1
-      pathpoints.add(i+2, n2);
-    }
+void restart() {
+  double x = 164.0;
+  double y = 285.0;
+  if (plane == null || plane.x != x || plane.y != y) {
+    plane = new Plane(x, y, 50., PI/4, 1.);
+    playing = false;
+    mode = INTERCEPT_MODE;
+    trace.add(new Point(-1,-1));
+    current = 0;
+  } else {
+    trace.clear();
+    pts.clear();
   }
+
+  /*
+  addPoint(303, 148);
+   addPoint(714, 141);
+   addPoint(857, 286);
+   addPoint(728, 512);
+   addPoint(654, 316);
+   addPoint(618, 705);
+   addPoint(533, 315);
+   addPoint(476, 700);
+   addPoint(403, 472);
+   addPoint(243, 468);
+   */
 }
 
 void draw() {
-  background(250, 235, 210);
+  color bg = color(250, 234, 190);
+  background(bg);
 
+  // draw the flight path
+  stroke(127);
   noFill();
-
-  // what we'll fly
-  stroke(0, 0, 100, 40);
-  if (pathpoints.size() > 0) {
+  strokeWeight(3);
+  if (pts.size() > 0) {
     beginShape();
-    for (Point p : pathpoints) vertex(p.x, p.y);
+    for (Point p : pts) vertex(p.x, p.y);
     endShape();
   }
-  for (Point p : pathpoints)p.draw();
 
-  // what we placed
-  stroke(0);
-  if (waypoints.size() > 0) {
-    beginShape();
-    for (Point p : waypoints) vertex(p.x, p.y);
-    endShape();
+  // draw each waypoint
+  strokeWeight(1);
+  fill(0);
+  for (int i=0, e=pts.size(); i<e; i++) {
+    pts.get(i).draw(""+(i+1));
   }
-  for (Point p : waypoints)p.draw();
 
-  // we we flew so far
+  // draw the plane
+  fill(255, 150);
+  plane.draw(); 
+  trace.add(new Point(plane));
+
+  // draw the plane's path so far
+  noFill();
   stroke(0, 0, 200);
-  if (flightpath.size() > 0) {
+  if (trace.size() > 0) {
     beginShape();
-    for (Point p : flightpath) vertex(p.x, p.y);
+    for (Point p : trace) {
+      if (p.x == -1) {
+        endShape();
+        beginShape();
+        continue;
+      }
+      vertex(p.x, p.y);
+    }
     endShape();
   }
 
-
-  fill(255, 100);
-  airplane.draw();
-  {
-    Circle c = new Circle(airplane);
-    c.r = airplane.r * targetRatio;
-    c.draw();
+  // figure out where to fly to
+  Point target = getTarget();
+  if (target != null) {
+    stroke(0, 200, 0);
+    line(plane, target);
+    stroke(0);
+    plane.target(target);
   }
-  flightpath.add(new Point(airplane));
 
-  if (currentPointIndex > -1) {
-    if (currentPointIndex < pathpoints.size() - 1) {
-      updateHeading();
-    }
-  }
+  // draw our control visualization last, on top of everything.
+  drawSliders(10, 10);
+  text("mode: " + mode + (CLOSE_TARGET ? " (close target)": ""), 10, 80);
 }
 
-void updateHeading() {
-  // TODO: stop updating heading past last point
 
-  Point p1 = pathpoints.get(currentPointIndex);
-  Point target = p1;
-  Point p2 = pathpoints.get(currentPointIndex + 1);
-  Point pr = airplane.project(p1.x, p1.y, p2.x, p2.y);
-  Point i1 = airplane.intersection(p1.x, p1.y, p2.x, p2.y);
-
+/**
+ * The meat and potatoes
+ */
+Point getTarget() {
+  if (current < 0) return null;
+  
+  Point target = null;
+  Point p1 = null;
+  Point p2 = null;
   Point p3 = null;
+  Point i1 = null;
   Point i2 = null;
 
-  if (currentPointIndex < pathpoints.size() - 2) {
-    p3 = pathpoints.get(currentPointIndex + 2);
-    i2 = airplane.intersection(p2.x, p2.y, p3.x, p3.y);
-  }
+  if (pts.size() > 0 && current < pts.size()) p1 = pts.get(current);
+  if (pts.size() > 1 && current + 1 < pts.size()) p2 = pts.get(current + 1);
+  if (pts.size() > 2 && current + 2 < pts.size()) p3 = pts.get(current + 2);
+  if (p1 != null && p2 != null) i1 = plane.intersection(p1, p2);
+  if (p2 != null && p3 != null) i2 = plane.intersection(p2, p3);
 
-  if (i1 != null) {
-    target = i1;
-    // leading intersection = RED
-    color RED = color(255, 0, 0);
-    fill(RED);
-    stroke(RED);
-    i1.draw();
-    line(airplane, i1);
-  }
+  if (p1 == null) return null;
 
-  if (i2 != null) {
-    Point pr2 = airplane.project(p2, p3);
-    // projection onto the next segment = GREEN
-    color GREEN = color(0, 255, 0);
-    fill(GREEN);
-    stroke(GREEN);
-    line(airplane, pr2);
-    pr2.draw();
-    boolean tooCloseToP2 = dist(airplane.x, airplane.y, p2.x, p2.y) < airplane.r;
-    boolean tooCloseToSegment = dist(airplane, pr2) <= airplane.r * (1 - permissibleOvershoot);
-    if (tooCloseToP2 || tooCloseToSegment) {
-      target = i2;
-      currentPointIndex++;
+  // ===============================
+  //  naive "point at the waypoint"
+  // ===============================
+
+  if (mode == TARGET_MODE && p1 != null) {
+    if (dist(plane, p1) < plane.r) {
+      current++;
     }
+    return p1;
   }
 
-  if (currentPointIndex + 2 >= pathpoints.size()) {
-    // arriving at the last point should set the heading
-    // based on real waypoints, not virtual waypoints:
-    if (i1 == null && i2 == null) {
-      p1 = waypoints.get(waypoints.size()-2);
-      p2 = waypoints.get(waypoints.size()-1);
-      // no. this needs to be a target.
-      airplane.heading = atan2(p2.y - p1.y, p2.x - p1.x);
-      currentPointIndex++;
-      return;
-    }
-  }
+  // ===============================
+  //        path interception
+  // ===============================
 
-  // If we get here, fly along the flightpath
-  Point m = pr.mix(target, targetRatio);
-  fill(255, 0, 255); // target is MAGENTA
-  m.draw();
-  target = m;
-  if (dist(p2, m) > dist(p2, p1)) {
+  if (mode == INTERCEPT_MODE) {
     target = p1;
+
+    // if there is no next point, target the only point.
+    if (p2 == null) {
+      // Of course, once we reach that, we're "done":
+      if (dist(plane, p1) < plane.r) {
+        current++;
+        target = null;
+      }
+      return target;
+    }
+
+    Point pr = plane.project(p1, p2);
+
+    // have we reached the end of this segment?
+    if (dist(plane, p2) < plane.r) {
+      current++;
+      return i2;
+    }
+
+    // main target on flightpath
+    if (i1 != null) {
+      target = i1;
+      color RED = color(255, 0, 0);
+      fill(RED);
+      stroke(RED);
+      i1.draw();
+      line(plane, i1);
+    }
+
+    // projection onto the next segment, used to etermine if we're
+    // close enough to the next segment and need to transition. This
+    // will initiate a transition before we reach p2, except when we
+    // approach at a right angle.
+    if (i2 != null) {
+      Point pr2 = plane.project(p2, p3);
+      color GREEN = color(0, 255, 0);
+      fill(GREEN);
+      stroke(GREEN);
+      line(p2, pr2);
+      pr2.draw();
+
+      if (dist(plane, pr2) <= plane.r) {
+        current++;
+        return i2;
+      }
+    }
+
+    // ===============================
+    //     target closer radius
+    // ===============================
+
+    if (CLOSE_TARGET) {
+      // If we get here, we want to target a point on the "current
+      // flightpath segment" that is only a little bit ahead of us,
+      // so that we get onto the path itself nice and cleanly.
+      Point m = pr.mix(target, targetRatio);
+      fill(255, 0, 255); // target is MAGENTA
+      m.draw();
+      target = m;
+      // if we transition, there may be a short period where "m"
+      // does not lie on the new segment yet. For as long as that's
+      // the case, we'll target p1, since "m" will automatically
+      // end up on the segment once we get close enough.
+      if (dist(p2, m) > dist(p2, p1)) target = p1;
+    }
   }
-  airplane.updateHeading(target);
+
+  return target;
 }
 
-boolean contained(Point p1, Point p, double transitionRadius) {
-  if (p == null) return false;
-  return dist(p1.x, p1.y, p.x, p.y) <= transitionRadius;
+void drawSliders(double x, double y) {
+  drawSlider("radius", x, y, 1, RADIUS);
+  drawSlider("speed", x, y, 2, 100. / 5. * SPEED);
+  drawSlider("turn rate", x, y, 3, 100. / 10. * TURN_RATE);
 }
 
-void placeWayPoint(int x, int y) {
-  println("placeWayPoint("+x+","+y+");");
-  if (waypoints.size() == 0) {
-    currentPointIndex = 0;
-    waypoints.add(new Point(airplane.x, airplane.y ));
-  }
-  waypoints.add(new Point(x, y));
-  safifyWaypoints();
+void drawSlider(String label, double x, double y, int i, double value) {
+  int oy = (i-1) * 20;
+  noStroke();
+  fill(120, 140, 255);
+  rect(x, y + oy, value, 10);
+  stroke(0);
+  noFill();
+  rect(x, y + oy, 100, 10);
+  fill(0);
+  text(label, 115, 20 + oy);
 }

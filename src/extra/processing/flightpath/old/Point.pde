@@ -13,13 +13,8 @@ class Point {
     this.y = other.y;
   }
 
-  void draw(String label) {
-    draw();
-    text(label, x+15, y-8);
-  }
-
   void draw() {
-    ellipse(x, y, 11, 11);
+    ellipse(x, y, 5, 5);
   }
 
   void move(double x, double y) {
@@ -53,7 +48,7 @@ class Point {
     double y = lerp(this.y, other.y, v);
     return new Point(x, y);
   }
-
+  
   Vec2 to(Point other) {
     return new Vec2(other.x - x, other.y - y);
   }
@@ -67,25 +62,4 @@ class Point {
 Point fractionalMove(double t, double x, double y, double dx, double dy) {
   if (t<0 || t>1) return null;
   return new Point(x + dx*t, y + dy*t);
-}
-
-
-class Vec2 extends Point {
-  Vec2(double x, double y) {
-    super(x, y);
-  }
-}
-
-class Point3D extends Point {
-  double z;
-  Point3D(double x, double y, double z) {
-    super(x, y);
-    this.z = z;
-  }
-}
-
-class Vec3 extends Point3D {
-  Vec3(double x, double y, double z) {
-    super(x, y, z);
-  }
 }
