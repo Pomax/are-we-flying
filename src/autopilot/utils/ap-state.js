@@ -1,5 +1,5 @@
-import { degrees } from "../../utils.js";
-import { KNOT_IN_FPS } from "../../constants.js";
+import { degrees } from "../../utils/utils.js";
+import { KNOT_IN_FPS } from "../../utils/constants.js";
 import { AP_VARIABLES } from "./ap-variables.js";
 
 export const LOAD_TIME = Date.now();
@@ -98,7 +98,7 @@ export class State {
     this.verticalSpeed = 60 * data.VERTICAL_SPEED; // we want feet per minute, not feet per second
 
     // trim values
-    this.pitchTrim = data.ELEVATOR_TRIM_POSITION;
+    this.pitchTrim = data.ELEVATOR_TRIM_POSITION; // this is a "unitless" value, not a percentage over 100
     this.pitchTrimLimit = [
       data.ELEVATOR_TRIM_UP_LIMIT ?? 10,
       data.ELEVATOR_TRIM_DOWN_LIMIT ?? -10,
@@ -109,10 +109,10 @@ export class State {
     // model data
     this.model = {
       climbSpeed: data.DESIGN_SPEED_CLIMB / KNOT_IN_FPS,
-      minRotation: data.DESIGN_SPEED_MIN_ROTATION,
+      minRotation: data.DESIGN_SPEED_MIN_ROTATION, // this number is in feet per second.
       vc: data.DESIGN_SPEED_VC / KNOT_IN_FPS,
-      vs1: data.DESIGN_SPEED_VS1,
-      takeoffSpeed: data.DESIGN_TAKEOFF_SPEED,
+      vs1: data.DESIGN_SPEED_VS1, // this number is in "knots indicated"
+      takeoffSpeed: data.DESIGN_TAKEOFF_SPEED, // this number is in knots
       numberOfEngines: data.NUMBER_OF_ENGINES,
       overSpeed: data.OVERSPEED_WARNING,
       weight: data.TOTAL_WEIGHT,

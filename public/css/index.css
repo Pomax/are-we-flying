@@ -67,3 +67,7 @@ body > svg {
 input[type="file"] {
   width: 15em;
 }
+
+label[for="center-map"] {
+  cursor: pointer;
+}

@@ -1,25 +1,13 @@
-import { setupGraph } from "./svg-graph.js";
+import { PositiveGraph, BalancedGraph } from "./svg-graph.js";
 
-class Chart {
-  constructor(chartables, colors, container = document.body) {
-    this.charts = Object.fromEntries(
-      Object.entries(chartables).map(([label, props]) => {
-        const chart = setupGraph(container, 600, 400, colors.background);
-        chart.setProperties({ label, ...props });
-        chart.start();
-        return [label, (value) => chart.addValue(label, value)];
-      })
-    );
-  }
+const CHART_WIDTH = 600;
+const CHART_HEIGHT = 100;
 
-  update(data) {
-    const { charts } = this;
-    Object.entries(data).forEach(([name, value]) => {
-      charts[name]?.(value);
-    });
-  }
-}
-
+/**
+ * ...docs go here...
+ * @param {*} container
+ * @returns
+ */
 export function initCharts(container) {
   const colors = {
     background: `#444`,
@@ -30,163 +18,61 @@ export function initCharts(container) {
   };
 
   const chartables = {
-    ground: {
-      addLabel: true,
-      min: 0,
-      startMax: 500,
-      colors,
-      axes: {
-        minor: {
-          interval: 100,
-        },
-        major: {
-          interval: 1000,
-          strokeWidth: 2,
-        },
-      },
-    },
-    altitude: {
-      min: 0,
-      startMax: 500,
-      colors,
-      axes: {
-        minor: {
-          interval: 100,
-        },
-        major: {
-          interval: 1000,
-          strokeWidth: 2,
-        },
-      },
-    },
-    vspeed: {
-      limit: 100,
-      colors,
-      axes: {
-        minor: {
-          interval: 10,
-        },
-        major: {
-          interval: 50,
-          strokeWidth: 2,
-        },
-      },
-    },
-    trim: {
-      limit: 50,
-      colors,
-      axes: {
-        minor: {
-          interval: 5,
-        },
-        major: {
-          interval: 10,
-          strokeWidth: 2,
-        },
-      },
-    },
+    // basics
+    ground: { unit: `feet`, positive: true, fixed: 1, max: 1500, filled: true },
+    altitude: { unit: `feet`, positive: true, fixed: 1 },
+    speed: { unit: `knots`, positive: true, fixed: 2 },
+    // elevator
+    VS: { unit: `fpm`, fixed: 1, /*autoscale: 60,*/ limits: [1000, -1000] },
+    dVS: { unit: `fpm/s`, fixed: 2 /*autoscale: 60*/ },
+    pitch: { unit: `degrees`, fixed: 1 },
+    dPitch: { unit: `deg/s`, fixed: 2, limits: [1, -1] },
+    // aileron
     heading: {
-      limit: 180,
-      colors,
-      axes: {
-        minor: {
-          interval: 10,
-        },
-        major: {
-          interval: 30,
-          strokeWidth: 2,
-        },
-      },
+      unit: `degrees`,
+      positive: true,
+      min: 0,
+      max: 360,
+      discontinuous: true,
+      fixed: 0,
     },
-    bank: {
-      limit: 40,
-      colors,
-      axes: {
-        minor: {
-          interval: 5,
-        },
-        major: {
-          interval: 20,
-          strokeWidth: 2,
-        },
-      },
-    },
-    "aileron trim": {
-      limit: 18,
-      colors,
-      axes: {
-        minor: {
-          interval: 1,
-        },
-        major: {
-          interval: 3,
-        },
-      },
-    },
-    dvs: {
-      limit: 1,
-      colors,
-      axes: {
-        minor: {
-          interval: 0.5,
-        },
-        major: {
-          interval: 2,
-        },
-      },
-    },
-    speed: {
-      min: -10,
-      startMax: 150,
-      colors,
-      axes: {
-        minor: {
-          interval: 5,
-        },
-        major: {
-          interval: 25,
-        },
-      },
-    },
-    pitch: {
-      limit: 90,
-      colors,
-      axes: {
-        minor: {
-          interval: 10,
-        },
-        major: {
-          interval: 30,
-          strokeWidth: 2,
-        },
-      },
-    },
-    dbank: {
-      limit: 10,
-      colors,
-      axes: {
-        minor: {
-          interval: 1,
-        },
-        major: {
-          interval: 5,
-          strokeWidth: 2,
-        },
-      },
-    },
-    "turn rate": {
-      limit: 6,
-      colors,
-      axes: {
-        minor: {
-          interval: 1,
-        },
-        major: {
-          interval: 3,
-        },
-      },
-    },
+    bank: { unit: `degrees`, fixed: 2, limits: [30, -30] },
+    dBank: { unit: `deg/s`, fixed: 4 },
+    turnRate: { label: `turn rate`, unit: `deg/s`, fixed: 2 },
+    // trim settings
+    pitchTrim: { label: `pitch trim`, unit: `%`, fixed: 3 },
+    aileronTrim: { label: `aileron trim`, unit: `%`, fixed: 3 },
+    rudderTrim: { label: `rudder trim`, unit: `%`, fixed: 3 },
   };
 
   return new Chart(chartables, colors, container);
+}
+
+/**
+ * ...docs go here...
+ */
+class Chart {
+  constructor(chartables, container = document.body) {
+    const elements = (this.elements = {});
+    const charts = (this.charts = {});
+    Object.entries(chartables).map(([label, props]) => {
+      const { positive, ...rest } = props;
+      const GraphType = positive ? PositiveGraph : BalancedGraph;
+      const chart = new GraphType(`science`, CHART_WIDTH, CHART_HEIGHT, {
+        label,
+        ...rest,
+      });
+      elements[label] = chart;
+      charts[label] = (value) => chart.addValue(value);
+      chart.start();
+    });
+  }
+
+  update(data) {
+    const { charts } = this;
+    Object.entries(data).forEach(([name, value]) => {
+      const chart = charts[name];
+      chart?.(value);
+    });
+  }
 }

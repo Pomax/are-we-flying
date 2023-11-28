@@ -1,5 +1,10 @@
+import url from "url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import { AutoPilot } from "../../autopilot/autopilot.js";
-import { FlightInformation } from "./flight-information.js";
+
+import { watch } from "../../utils/reload-watcher.js";
+import { FlightInformation as fi } from "../../utils/flight-information.js";
+let FlightInformation = fi;
 
 const RECONNECT_TIMEOUT_IN_MS = 5000;
 const POLL_RATE_IN_MS = 1000;
@@ -27,6 +32,12 @@ export class ClientClass {
    */
   init() {
     this.#resetState();
+    watch(`${__dirname}../../utils/flight-information.js`, (module) => {
+      FlightInformation = module.FlightInformation;
+      if (this.#flightInfo) {
+        Object.setPrototypeOf(this.#flightInfo, FlightInformation.prototype);
+      }
+    });
     setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
   }
 

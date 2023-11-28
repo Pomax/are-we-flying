@@ -128,16 +128,16 @@ export class Plane {
     if (flightData) this.updateMap(flightData, now);
 
     // Update the attitude indicator:
-    Attitude.setPitchBank(
-      flightData.PLANE_PITCH_DEGREES,
-      flightData.PLANE_BANK_DEGREES
-    );
+    Attitude.setPitchBank(flightData.pitch, flightData.bank);
 
     // Update the autopilot
     const { waypoints, elevation, ...params } = state.autopilot ?? {};
     this.autopilot.update(params);
     this.manageWaypoints(waypoints);
     this.setElevationProbe(elevation);
+
+    // Update our science
+    this.updateChart(flightData, now);
 
     // Cache and wait for the next state
     this.lastUpdate = { time: now, ...state };
@@ -150,8 +150,7 @@ export class Plane {
    */
   async updateMap(flightData, now) {
     const { paused, crashed, flightModel } = this.state;
-    const varData = getVarData(flightData);
-    const { lat, long, speed } = varData;
+    const { lat, long, speed } = flightData;
 
     // Do we have a GPS coordinate? (And not the 0/0 you get
     // while you're not in game?)
@@ -160,8 +159,7 @@ export class Plane {
 
     // Did we teleport?
     const latLong = [lat, long];
-    const { PLANE_LATITUDE: lat2, PLANE_LONGITUDE: long2 } =
-      this.lastUpdate.flightData;
+    const { lat: lat2, long: long2 } = this.lastUpdate.flightData;
     const d = getDistanceBetweenPoints(lat2, long2, lat, long);
     const kmps = (speed ?? 0) / 1944;
     const teleported = this.lastUpdate.flightData && d > 5 * kmps;
@@ -187,10 +185,7 @@ export class Plane {
       (img) => (img.src = `planes/${pic}`)
     );
     this.planeIcon.classList.toggle(`crashed`, crashed);
-    this.updateMarker(planeIcon, varData);
-
-    // And update the graphs
-    this.updateChart(varData, now);
+    this.updateMarker(planeIcon, flightData);
   }
 
   /**
@@ -198,54 +193,61 @@ export class Plane {
    * @param {*} css
    * @param {*} varData
    */
-  updateMarker(planeIcon, varData) {
+  updateMarker(planeIcon, flightData) {
     const css = planeIcon.style;
-    const { alt, bug, cg, galt, paag } = varData;
-    const { heading, speed, trueHeading } = varData;
-    const palt = paag - cg;
+    const { alt, headingBug, cg, groundAlt, altAboveGround } = flightData;
+    const { heading, speed, trueHeading } = flightData;
+
+    const palt = altAboveGround - cg;
 
     css.setProperty(`--altitude`, max(palt, 0));
     css.setProperty(`--sqrt-alt`, sqrt(max(palt, 0)));
     css.setProperty(`--speed`, speed | 0);
     css.setProperty(`--north`, trueHeading - heading);
     css.setProperty(`--heading`, heading);
-    css.setProperty(`--heading-bug`, bug);
+    css.setProperty(`--heading-bug`, headingBug);
 
     const altitudeText =
-      (galt | 0) === 0 ? `${alt | 0}'` : `${palt | 0}' (${alt | 0}')`;
+      (groundAlt | 0) === 0 ? `${alt | 0}'` : `${palt | 0}' (${alt | 0}')`;
     planeIcon.querySelector(`.alt`).textContent = altitudeText;
     planeIcon.querySelector(`.speed`).textContent = `${speed | 0}kts`;
 
     // Update the autopilot fields with the current live value,
     // if the autopilot is not currently engaged.
-    this.autopilot.setCurrentAltitude(palt);
+    this.autopilot.setCurrentAltitude(alt);
     this.autopilot.setCurrentHeading(heading);
   }
 
   /**
    * ...docs go here...
    */
-  updateChart(varData, now) {
-    const { alt, bank, galt, pitch, speed, heading } = varData;
-    const { vspeed, trim, aTrim, turnRate } = varData;
-
-    const dvs =
-      (vspeed - this.lastUpdate.flightData.VERTICAL_SPEED) /
-      (now - this.lastUpdate.time);
-
+  updateChart(flightData, now) {
+    const { alt, bank, groundAlt, pitch, speed, heading } = flightData;
+    const { VS, pitchTrim, aileronTrim, turnRate, rudderTrim } = flightData;
+    const {
+      VS: dVS,
+      pitch: dPitch,
+      bank: dBank,
+    } = flightData.delta ?? { VS: 0, pitch: 0, bank: 0 };
     this.charts.update({
-      ground: galt,
+      // basics
+      ground: groundAlt,
       altitude: alt,
-      vspeed: vspeed,
-      dvs: dvs,
-      speed: speed,
-      pitch: pitch,
-      trim: trim,
-      heading: heading - 180,
-      bank: bank,
-      dbank: (bank - this.lastUpdate.bank) / (now - this.lastUpdate.time),
-      "turn rate": turnRate,
-      "aileron trim": aTrim,
+      speed,
+      // elevator
+      VS,
+      dVS,
+      pitch,
+      dPitch,
+      // ailleron
+      heading,
+      bank,
+      dBank,
+      turnRate,
+      //trim
+      pitchTrim,
+      aileronTrim,
+      rudderTrim,
     });
   }
 }
@@ -276,31 +278,3 @@ const debounceState = (() => {
     lastDebounceState = state;
   };
 })();
-
-// Helper function: change sim var naming into something more manageable.
-function getVarData(flightData) {
-  const {
-    AILERON_TRIM_PCT: aTrim,
-    AIRSPEED_INDICATED: speed,
-    AUTOPILOT_HEADING_LOCK_DIR: bug,
-    ELEVATOR_TRIM_POSITION: trim,
-    GROUND_ALTITUDE: galt,
-    INDICATED_ALTITUDE: alt,
-    PLANE_ALT_ABOVE_GROUND: paag,
-    PLANE_BANK_DEGREES: bank,
-    PLANE_HEADING_DEGREES_MAGNETIC: heading,
-    PLANE_HEADING_DEGREES_TRUE: trueHeading,
-    PLANE_LATITUDE: lat,
-    PLANE_LONGITUDE: long,
-    PLANE_PITCH_DEGREES: pitch,
-    STATIC_CG_TO_GROUND: cg,
-    TURN_INDICATOR_RATE: turnRate,
-    VERTICAL_SPEED: vspeed,
-  } = flightData;
-  return {
-    ...{ lat, long },
-    ...{ alt, bank, bug, cg, galt, paag },
-    ...{ heading, pitch, speed, trueHeading },
-    ...{ vspeed, trim, aTrim, turnRate },
-  };
-}

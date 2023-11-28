@@ -32,12 +32,17 @@ export class MOCK_API {
   async get(...props) {
     // airports
     const first = props[0];
-    if (props.length === 1 && first === `NEARBY_AIRPORTS`)
+    if (props.length === 1 && first === `ALL_AIRPORTS`) {
+      return { ALL_AIRPORTS: AIRPORTS };
+    }
+    if (props.length === 1 && first === `NEARBY_AIRPORTS`) {
       return { NEARBY_AIRPORTS: AIRPORTS };
-    if (props.length === 1 && first.startsWith(`AIRPORT:`))
+    }
+    if (props.length === 1 && first.startsWith(`AIRPORT:`)) {
       return {
         [first]: AIRPORTS.find((a) => a.icao === first.replace(`AIRPORT:`, ``)),
       };
+    }
     // everything else gets handled by the "plane".
     return this.plane.get(props);
   }

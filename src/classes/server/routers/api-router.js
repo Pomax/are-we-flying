@@ -69,6 +69,7 @@ export class APIRouter {
   async set(client, simVars) {
     if (!this.#api.connected) return false;
     if (!client.authenticated) return false;
+    if (typeof simVars !== `object`) throw new Error(`api.set input must be an object.`);
 
     const errors = [];
     const entries = Object.entries(simVars);

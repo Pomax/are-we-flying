@@ -125,15 +125,19 @@ export class WaypointOverlay {
    */
   addNewWaypointToMap(waypoint) {
     waypoint = new Waypoint(waypoint);
-    const { lat, long, completed } = waypoint;
+    const { lat, long, completed, NM } = waypoint;
 
+    const wpClass = `waypoint-marker${completed ? ` completed` : ``}`;
     const icon = L.divIcon({
       iconSize: [40, 40],
       iconAnchor: [20, 40],
       className: `waypoint-div`,
-      html: `<img class="${`waypoint-marker${
-        completed ? ` completed` : ``
-      }`}" src="css/images/marker-icon.png">`,
+      html: `
+        <div class="${wpClass}">
+          <div class="pre"></div>
+          <img src="css/images/marker-icon.png">
+          <div class="post"></div>
+        </div>`,
     });
 
     const marker = (waypoint.marker = L.marker(
@@ -192,7 +196,7 @@ export class WaypointOverlay {
    */
   updateKnownWaypointOnMap(
     known,
-    { id, lat, long, alt, landing, active, completed }
+    { id, number, lat, long, alt, NM, landing, active, completed }
   ) {
     // are we currently dragging this point around?
     if (known.marker?.__drag__latlng) return;
@@ -218,8 +222,14 @@ export class WaypointOverlay {
       }
     }
 
+    if (NM) {
+      const div = known.marker.getElement()?.querySelector(`.post`);
+      div.textContent = `waypoint ${number}: ${NM} NM`;
+    }
+
     {
       const dataset = known.marker.getElement()?.dataset;
+
       known.alt = alt;
       if (alt) {
         if (dataset) dataset.alt = `${alt}'`;

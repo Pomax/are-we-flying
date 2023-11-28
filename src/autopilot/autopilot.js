@@ -10,13 +10,13 @@ import {
   INVERTED_FLIGHT,
   LEVEL_FLIGHT,
   TERRAIN_FOLLOW,
-} from "../constants.js";
-import { degrees } from "../utils.js";
+} from "../utils/constants.js";
+import { degrees } from "../utils/utils.js";
 import { ALOSInterface } from "../elevation/alos-interface.js";
 
 // allow hot-reloading of flyLevel and altitudeHold code,
 // with the functions (re)bound in the AutoPilot instance.
-import { watch } from "../reload-watcher.js";
+import { watch } from "../utils/reload-watcher.js";
 import { flyLevel as fl } from "./fly-level.js";
 import { altitudeHold as ah } from "./altitude-hold.js";
 import { followTerrain as ft } from "./terrain-follow.js";
@@ -47,7 +47,7 @@ export class AutoPilot {
     this.watchForUpdates();
   }
 
-  reset() {
+  async reset() {
     console.log(`resetting autopilot`);
     this.bootstrap();
     this.autoPilotEnabled = false;
@@ -63,7 +63,7 @@ export class AutoPilot {
       [ACROBATIC]: false, // use the special acrobatic code instead?
       [INVERTED_FLIGHT]: false, // fly upside down?
     };
-    this.onChange(this.getParameters);
+    this.onChange(await this.getParameters);
   }
 
   bootstrap() {
@@ -118,8 +118,13 @@ export class AutoPilot {
     this.paused = value;
   }
 
-  getWaypoints() {
-    return this.waypoints.getWaypoints();
+  async getWaypoints() {
+    const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } = await this.get(
+      `PLANE_LATITUDE`,
+      `PLANE_LONGITUDE`
+    );
+    console.log(lat, long);
+    return this.waypoints.getWaypoints(lat, long);
   }
 
   addWaypoint(lat, long, alt, landing) {
@@ -175,10 +180,10 @@ export class AutoPilot {
     this.api.trigger(name);
   }
 
-  getParameters() {
+  async getParameters() {
     const state = {
       MASTER: this.autoPilotEnabled,
-      waypoints: this.waypoints.getWaypoints(),
+      waypoints: await this.getWaypoints(),
       elevation: this.modes[TERRAIN_FOLLOW] ? this.elevation : false,
     };
     Object.entries(this.modes).forEach(([key, value]) => {
@@ -260,7 +265,7 @@ export class AutoPilot {
       }
     }
 
-    this.onChange(this.getParameters());
+    this.onChange(await this.getParameters());
   }
 
   async runAutopilot() {

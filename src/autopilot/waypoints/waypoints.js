@@ -1,15 +1,14 @@
 import url from "url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-import { watch } from "../../reload-watcher.js";
+import { watch } from "../../utils/reload-watcher.js";
 import { Waypoint as wp } from "./waypoint.js";
-import { getDistanceBetweenPoints } from "../../utils.js";
 import { TransitionModes } from "./transitions/index.js";
 import { AltitudeModes } from "./altitude/index.js";
 import {
   ALTITUDE_HOLD,
   HEADING_MODE,
   TERRAIN_FOLLOW,
-} from "../../constants.js";
+} from "../../utils/constants.js";
 import { ALLOW_SELF_SIGNED_CERTS } from "socketless";
 
 export const LOAD_TIME = Date.now();
@@ -51,8 +50,13 @@ export class WayPoints {
   }
 
   // make sure that if someone asks for all waypoints, they don't get a reference to the actual array.
-  getWaypoints() {
-    return this.points.slice();
+  getWaypoints(lat, long) {
+    const points = this.points.slice();
+    points.forEach((p, pos) => {
+      p.setDistancetoPlane(lat, long);
+      p.setNumber(pos + 1);
+    });
+    return points;
   }
 
   // add a waypoint for a specific GPS coordinate
@@ -132,14 +136,12 @@ export class WayPoints {
 
   // ...docs go here...
   getHeading(state) {
-    const targetHeading = TransitionModes.getProjectiveHeading(this, state);
-    this.autopilot.setTarget(HEADING_MODE, targetHeading);
+    return TransitionModes.getProjectiveHeading(this, state);
   }
 
   // ...docs go here...
   getAltitude(state) {
     if (this.autopilot.modes[TERRAIN_FOLLOW]) return;
-    const targetAltitude = AltitudeModes.getNaiveAltitude(this, state);
-    this.autopilot.setTarget(ALTITUDE_HOLD, targetAltitude);
+    return AltitudeModes.getNaiveAltitude(this, state);
   }
 }

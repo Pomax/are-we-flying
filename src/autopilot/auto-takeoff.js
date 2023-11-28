@@ -5,15 +5,15 @@ import {
   FEET_PER_METER,
   ALTITUDE_HOLD,
   FPS_IN_KNOTS,
-} from "../constants.js";
+} from "../utils/constants.js";
 import {
   constrain,
   constrainMap,
   getCompassDiff,
   getPointAtDistance,
   dist,
-} from "../utils.js";
-import { changeThrottle } from "./utils/controls.js";
+} from "../utils/utils.js";
+import { changeThrottle } from "../utils/controls.js";
 import { AutoPilot } from "./autopilot.js";
 
 const { abs } = Math;
@@ -149,7 +149,8 @@ export class AutoTakeoff {
       dVS,
       totalWeight,
       pitchTrim,
-      isTailDragger
+      isTailDragger,
+      engineCount
     );
   }
 
@@ -347,7 +348,8 @@ export class AutoTakeoff {
     dVs,
     totalWeight,
     pitchTrim,
-    isTailDragger
+    isTailDragger,
+    engineCount
   ) {
     const { autopilot, trimStep } = this;
     const rotateSpeed = minRotate + 5;
@@ -370,7 +372,7 @@ export class AutoTakeoff {
 
         // Are we high enough up? Switch to autopilot
         if (lift > 300) {
-          this.switchToAutopilot(altitude, isTailDragger);
+          this.switchToAutopilot(altitude, isTailDragger, engineCount);
         }
 
         // Do we not have a positive enough rate yet? Trim more
@@ -390,7 +392,7 @@ export class AutoTakeoff {
     }
   }
 
-  async switchToAutopilot(targetAltitude, isTailDragger) {
+  async switchToAutopilot(targetAltitude, isTailDragger, engineCount) {
     const { api, autopilot } = this;
 
     console.log(`reset rudder, gear up, unlock tailwheel.`);
@@ -399,6 +401,10 @@ export class AutoTakeoff {
     if (isTailDragger) {
       const { TAILWHEEL_LOCK_ON } = await api.get(`TAILWHEEL_LOCK_ON`);
       if (TAILWHEEL_LOCK_ON === 1) api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
+    }
+
+    for (let i = 1; i <= engineCount; i++) {
+      api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 90);
     }
 
     console.log(`switch to autopilot.`);

@@ -1,3 +1,6 @@
+import { degrees, getDistanceBetweenPoints } from "../../utils/utils.js";
+
+
 // a silly little id function, but it's less code than writing a generator.
 const nextId = (() => {
   let id = 1;
@@ -27,6 +30,18 @@ export class Waypoint {
   move(lat, long) {
     this.lat = lat;
     this.long = long;
+  }
+
+  setNumber(number) {
+    this.number = number;
+  }
+
+  setDistancetoPlane(lat, long) {
+    lat = degrees(lat);
+    long = degrees(long);
+    const km = getDistanceBetweenPoints(lat, long, this.lat, this.long);
+    const NM = 1.852 * km;
+    this.NM = NM | 0;
   }
 
   // set this waypoint's altitude
@@ -60,7 +75,19 @@ export class Waypoint {
   // And since we need to send them to the client, make sure that when this gets turned into JSON,
   // we do *not* include the owner object. The toJSON() function is really useful for that.
   toJSON() {
-    const { id, lat, long, alt, landing, active, completed, next } = this;
-    return { id, lat, long, alt, landing, active, completed, next: next?.id };
+    const { id, number, lat, long, alt, landing, NM, active, completed, next } =
+      this;
+    return {
+      id,
+      number: number ?? id,
+      lat,
+      long,
+      alt,
+      landing,
+      NM,
+      active,
+      completed,
+      next: next?.id,
+    };
   }
 }

@@ -1,5 +1,5 @@
-import { radians, constrain, constrainMap, exceeds, nf } from "../utils.js";
-import { changeThrottle } from "./utils/controls.js";
+import { radians, constrain, constrainMap, exceeds, nf } from "../utils/utils.js";
+import { changeThrottle } from "../utils/controls.js";
 import {
   ALTITUDE_HOLD,
   AUTO_THROTTLE,
@@ -7,7 +7,7 @@ import {
   KNOT_IN_FPS,
   TERRAIN_FOLLOW,
   FPS_IN_KNOTS,
-} from "../constants.js";
+} from "../utils/constants.js";
 
 const { abs, round, sign } = Math;
 
@@ -27,7 +27,6 @@ const FEATURES = {
   STALL_PROTECTION: false, // Do we... still need this? Now that we have smooth ramping?
   SKIP_TINY_UPDATES: true,
   BOOST_SMALL_CORRECTIONS: true,
-  LIMIT_TRIM: true,
 };
 
 // The elevator trim uses a super weird unit, where +/- 100% maps
@@ -48,13 +47,6 @@ export async function altitudeHold(autopilot, state) {
   // and then set the plane's trim based on the new value:
   const updateTrim = (update) => {
     trim.pitch += update;
-    if (FEATURES.LIMIT_TRIM) {
-      // Only allow up to 66% trim when on autopilot. If we'd need
-      // 100% trim, things would have already gone disastrously wrong.
-      const upperLimit = Math.PI / 30;
-      const lowerLimit = -upperLimit;
-      trim.pitch = constrain(trim.pitch, lowerLimit, upperLimit);
-    }
     autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
   };
 
@@ -116,6 +108,9 @@ export async function altitudeHold(autopilot, state) {
   // If we accelerating too much, stop doing that.
   const maxdVS = constrainMap(abs(diff), 0, 100, 0, DEFAULT_MAX_dVS);
   update -= constrainMap(dVS, -maxdVS, maxdVS, -trimStep / 2, trimStep / 2);
+
+  // And, try to keep us within reasonable pitch-change thresholds
+  update += constrainMap(dPitch, -1, 1, -trimStep / 4, trimStep / 4);
 
   if (FEATURES.DAMPEN_CLOSE_TO_ZERO) {
     // Scale the effect of our nudge so that the closer we are to our

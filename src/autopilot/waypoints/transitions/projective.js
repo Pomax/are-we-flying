@@ -2,13 +2,13 @@ import {
   KMS_PER_KNOT,
   AUTO_TAKEOFF,
   HEADING_MODE,
-} from "../../../constants.js";
+} from "../../../utils/constants.js";
 import {
   dist,
   getHeadingFromTo,
   getDistanceBetweenPoints,
   pathIntersection,
-} from "../../../utils.js";
+} from "../../../utils/utils.js";
 
 export function getHeading(waypoints, state) {
   const { currentWaypoint: p1, autopilot } = waypoints;

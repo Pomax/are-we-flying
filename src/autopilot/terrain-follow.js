@@ -1,6 +1,6 @@
 const { ceil } = Math;
-import { getPointAtDistance } from "../utils.js";
-import { ALTITUDE_HOLD, FEET_PER_METER, KMS_PER_KNOT } from "../constants.js";
+import { getPointAtDistance } from "../utils/utils.js";
+import { ALTITUDE_HOLD, FEET_PER_METER, KMS_PER_KNOT } from "../utils/constants.js";
 import {
   ALOS_VOID_VALUE,
   NO_ALOS_DATA_VALUE,

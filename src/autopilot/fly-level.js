@@ -1,6 +1,6 @@
-import { exceeds, radians, constrainMap, getCompassDiff } from "../utils.js";
+import { exceeds, radians, constrainMap, getCompassDiff } from "../utils/utils.js";
 
-import { AUTO_TAKEOFF, HEADING_MODE } from "../constants.js";
+import { AUTO_TAKEOFF, HEADING_MODE } from "../utils/constants.js";
 import { AutoPilot } from "./autopilot.js";
 import { State } from "./utils/ap-state.js";
 

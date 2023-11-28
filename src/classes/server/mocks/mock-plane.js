@@ -4,15 +4,16 @@ import {
   degrees,
   getPointAtDistance,
   radians,
-} from "../../../utils.js";
-import { FEET_PER_METER } from "../../../constants.js";
+} from "../../../utils/utils.js";
+import { FEET_PER_METER } from "../../../utils/constants.js";
 import {
   ALOSInterface,
   NO_ALOS_DATA_VALUE,
   DATA_FOLDER,
 } from "../../../elevation/alos-interface.js";
 
-const { abs, sign } = Math;
+const { abs, sign, PI } = Math;
+const TAU = PI * 2;
 
 // Our starting point is runway 27 at Victoria airport
 let lat = 48.646548831015394;
@@ -148,7 +149,7 @@ export class MockPlane {
   }
 
   get PLANE_HEADING_DEGREES_MAGNETIC() {
-    return radians(heading - deviation);
+    return radians(heading - deviation) % TAU;
   }
 
   get PLANE_HEADING_DEGREES_TRUE() {

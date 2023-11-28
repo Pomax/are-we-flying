@@ -1,6 +1,6 @@
 import url from "url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-import { watch } from "../../../reload-watcher.js";
+import { watch } from "../../../utils/reload-watcher.js";
 import { getHeading as getNaiveHeading } from "./naive.js";
 import { getHeading as getProjectiveHeading } from "./projective.js";
 import { getHeading as getDoubleProjectiveHeading } from "./double-projective.js";

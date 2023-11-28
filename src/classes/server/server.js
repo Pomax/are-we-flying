@@ -7,7 +7,7 @@ dotenv.config({ path: `${__dirname}/../../../.env` });
 import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
 
 // we'll make the autopilot hot-reloadable
-import { watch } from "../../reload-watcher.js";
+import { watch } from "../../utils/reload-watcher.js";
 import { AutoPilot as ap } from "../../autopilot/autopilot.js";
 let AutoPilot = ap;
 
