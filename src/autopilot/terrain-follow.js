@@ -1,6 +1,10 @@
 const { ceil } = Math;
 import { getPointAtDistance } from "../utils/utils.js";
-import { ALTITUDE_HOLD, FEET_PER_METER, KMS_PER_KNOT } from "../utils/constants.js";
+import {
+  ALTITUDE_HOLD,
+  FEET_PER_METER,
+  KMS_PER_KNOT,
+} from "../utils/constants.js";
 import {
   ALOS_VOID_VALUE,
   NO_ALOS_DATA_VALUE,
@@ -22,10 +26,14 @@ export const LOAD_TIME = Date.now();
  * @param {*} state
  * @param {*} altitude
  */
-export async function followTerrain(autopilot, state, altitude = 500) {
-  const { latitude: lat, longitude: long, trueHeading } = state;
+export async function followTerrain(
+  autopilot,
+  { data: flightData },
+  altitude = 500
+) {
+  const { lat, long, trueHeading, speed } = flightData;
 
-  const distance = getDistanceGivenSpeed(state.speed);
+  const distance = getDistanceGivenSpeed(speed);
   const { lat: lat2, long: long2 } = getPointAtDistance(
     lat,
     long,

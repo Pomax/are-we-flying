@@ -2,7 +2,7 @@ import { MSFS_API } from "msfs-simconnect-api-wrapper";
 import {
   BOOLEAN_VALUES,
   DEGREE_VALUES,
-  FIXED_PROPERTIES,
+  DERIVATIVES,
   FLIGHT_DATA,
   FLIGHT_MODEL,
   FPM_VALUES,
@@ -44,11 +44,16 @@ export class FlightInformation {
    * ...docs go here...
    */
   async update() {
-    const [flightModel, flightData] = await Promise.all([
-      this.updateModel(),
-      this.updateFlight(),
-    ]);
-    return { flightModel, flightData };
+    try {
+      const [flightModel, flightData] = await Promise.all([
+        this.updateModel(),
+        this.updateFlight(),
+      ]);
+      console.log(`bootstrapped flight information`);
+      return { flightModel, flightData };
+    } catch (e) {
+      console.warn(e);
+    }
   }
 
   /**
@@ -61,6 +66,13 @@ export class FlightInformation {
     }
     this.convertValues(modelData);
     this.rebindData(modelData);
+
+    // Create a convenience value for trimming
+    modelData.pitchTrimLimit = [
+      modelData.trimUpLimit ?? 10,
+      modelData.trimDownLimit ?? -10,
+    ];
+
     return (this.model = modelData);
   }
 
@@ -86,12 +98,6 @@ export class FlightInformation {
 
     // Create a convenience value for compass correction:
     flightData.declination = flightData.trueHeading - flightData.heading;
-
-    // Create a convenience value for trimming
-    flightData.pitchTrimLimit = [
-      flightData.trimUpLimit ?? 10,
-      flightData.trimDownLimit ?? -10,
-    ];
 
     return (this.data = flightData);
   }
@@ -134,16 +140,16 @@ export class FlightInformation {
     // At the same time, compute deltas for anything that has a JS name
     // and is a numeric type (and isn't in the FIXED_PROPERTIES list).
     Object.entries(data).forEach(([simName, value]) => {
-      if (FIXED_PROPERTIES.includes(simName)) return;
       const jsName = NAME_MAPPING[simName];
       data[jsName] = value;
 
       // Do we need to compute derivatives?
-      if (previousValues) {
+      if (previousValues && DERIVATIVES.includes(jsName)) {
         const previous = previousValues[jsName];
         if (typeof previous !== `number`) return;
         const current = data[jsName];
         delta[jsName] = (current - previous) / dt;
+
         // ...do we need to compute *second* derivatives?
         if (SECOND_DERIVATIVES.includes(jsName)) {
           delta.delta ??= {};

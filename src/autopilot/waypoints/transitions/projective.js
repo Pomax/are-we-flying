@@ -10,16 +10,14 @@ import {
   pathIntersection,
 } from "../../../utils/utils.js";
 
-export function getHeading(waypoints, state) {
+export function getHeading(waypoints, heading, cy, cx, speed, declination) {
   const { currentWaypoint: p1, autopilot } = waypoints;
   const { modes } = autopilot;
 
   // if we're in auto-takeoff, waypoints should not be active yet
   if (modes[AUTO_TAKEOFF]) return;
 
-  let heading = modes[HEADING_MODE] || state.heading;
-
-  const { latitude: cy, longitude: cx, speed, declination } = state;
+  heading = modes[HEADING_MODE] || heading;
 
   // Do we even have a waypoint to work with?
   if (!p1) return heading;

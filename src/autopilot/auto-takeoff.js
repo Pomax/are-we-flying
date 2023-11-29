@@ -55,49 +55,45 @@ export class AutoTakeoff {
    *  - try to lift off when we have enough speed
    *  - gear up and hand off flying the plane to the autopilot when we've gained enough altitude.
    *
-   * @param {*} state
+   * @param {*} FlightInformation
    */
-  async run(state) {
-    const { model } = state;
+  async run({ data: flightData, model }) {
+    const {
+      isTailDragger,
+      pitchTrimLimit,
+      weight: totalWeight,
+      vs1,
+      engineCount,
+      minRotation,
+      takeoffSpeed,
+    } = model;
 
-    // EXPERIMENTAL FOR ROTATION
     if (!this.trimStep) {
-      let trimLimit = state.pitchTrimLimit[0];
+      let trimLimit = pitchTrimLimit[0];
       trimLimit = trimLimit === 0 ? 10 : trimLimit;
       this.trimStep = constrainMap(trimLimit, 5, 20, 0.001, 0.01);
     }
 
-    // constants
-    const totalWeight = model.weight;
-    const vs1 = model.vs1;
-    const engineCount = model.numberOfEngines;
-
     // variables: these have the wrong unit, so we need to fix them
-    let minRotate = model.minRotation;
-    let takeoffSpeed = model.takeoffSpeed;
-    minRotate *= FPS_IN_KNOTS;
-    takeoffSpeed *= FPS_IN_KNOTS;
+    let minRotate = minRotation;
     if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
 
     // current airplane state values:
     const {
+      alt: altitude,
+      bank: bankAngle,
+      heading,
+      lat,
+      lift,
+      long,
       onGround,
       speed: currentSpeed,
-      lift,
-      dLift,
-      verticalSpeed: vs,
-      dVS,
-      bankAngle,
-      altitude: alt,
-      latitude: lat,
-      longitude: long,
-      isTailDragger,
-      altitude,
-      pitchTrim,
-    } = state;
+      trimPosition: pitchTrim,
+      trueHeading,
+      VS: vs,
+    } = flightData;
 
-    const heading = state.heading;
-    const trueHeading = state.trueHeading;
+    const { lift: dLift, VS: dVS } = flightData.delta ?? { lift: 0, VS: 0 };
 
     // Mystery value: this shouldn't really be used =(
     const vs12 = vs1 ** 2;

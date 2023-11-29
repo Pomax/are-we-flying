@@ -23,13 +23,11 @@ import { followTerrain as ft } from "./terrain-follow.js";
 
 // allow hot-reloading of these classes with global binding.
 import { AutoTakeoff as ato } from "./auto-takeoff.js";
-import { AP_VARIABLES as apv } from "./utils/ap-variables.js";
-import { State as st } from "./utils/ap-state.js";
+import { FlightInformation as fi } from "../utils/flight-information.js";
 import { WayPoints as wp } from "./waypoints/waypoints.js";
 
 let AutoTakeoff = ato;
-let AP_VARIABLES = apv;
-let State = st;
+let FlightInformation = fi;
 let WayPoints = wp;
 
 const FAST_AUTOPILOT = 200;
@@ -70,8 +68,11 @@ export class AutoPilot {
     // Set up values we need during the autopilot main loop
     this.paused = false;
     this.resetTrim();
-    this.prevState = new State();
     this.waypoints = new WayPoints(this);
+
+    // set up a new flight information object and instantiate it.
+    this.flightInformation = new FlightInformation(this.api);
+    this.flightInformation.update();
 
     // operators
     this.flyLevel = fl;
@@ -89,11 +90,14 @@ export class AutoPilot {
 
   // Hot-reload watching
   watchForUpdates() {
-    watch(`${__dirname}/utils/ap-variables.js`, (module) => {
-      AP_VARIABLES = module.AP_VARIABLES;
-    });
-    watch(`${__dirname}/utils/ap-state.js`, (module) => {
-      State = module.State;
+    watch(`${__dirname}../utils/flight-information.js`, (module) => {
+      FlightInformation = module.FlightInformation;
+      if (this.flightInformation) {
+        Object.setPrototypeOf(
+          this.flightInformation,
+          FlightInformation.prototype
+        );
+      }
     });
     watch(`${__dirname}fly-level.js`, (module) => {
       this.flyLevel = module.flyLevel;
@@ -123,7 +127,6 @@ export class AutoPilot {
       `PLANE_LATITUDE`,
       `PLANE_LONGITUDE`
     );
-    console.log(lat, long);
     return this.waypoints.getWaypoints(lat, long);
   }
 
@@ -284,10 +287,10 @@ export class AutoPilot {
     //  Are we flying, or paused/in menu/etc?
     if (this.paused) return;
 
-    const data = await this.get(...AP_VARIABLES);
-    const state = new State(data, this.prevState);
+    // get the up to date flight information
+    await this.flightInformation.updateFlight();
 
-    if (!this.modes[AUTO_TAKEOFF] && state.speed < 15) {
+    if (!this.modes[AUTO_TAKEOFF] && this.flightInformation.speed < 15) {
       // disengage autopilot, but preserve all settings
       // in case we want to turn it back on momentarily.
       return;
@@ -295,12 +298,12 @@ export class AutoPilot {
 
     // Are we in auto-takeoff?
     if (this.modes[AUTO_TAKEOFF]) {
-      this.autoTakeoff.run(state);
+      this.autoTakeoff.run(this.flightInformation);
     }
 
     // Do we need to level the wings / fly a specific heading?
     if (this.modes[LEVEL_FLIGHT]) {
-      this.flyLevel(this, state);
+      this.flyLevel(this, this.flightInformation);
     }
 
     // Do we need to hold our altitude / fly a specific altitude?
@@ -308,12 +311,10 @@ export class AutoPilot {
       if (this.modes[TERRAIN_FOLLOW] !== false && this.alos.loaded) {
         // If we are in terrain-follow mode, make sure the correct
         // altitude is set before running the ALT pass.
-        this.followTerrain(this, state);
+        this.followTerrain(this, this.flightInformation);
       }
 
-      this.altitudeHold(this, state);
+      this.altitudeHold(this, this.flightInformation);
     }
-
-    this.prevState = state;
   }
 }

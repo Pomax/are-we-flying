@@ -5,7 +5,7 @@
  * is lower than our current altitude, maintain our current altitude until
  * we get to the next waypoint.
  */
-export function getAltitude(waypoints, state) {
+export function getAltitude(waypoints) {
   const { currentWaypoint: p1 } = waypoints;
   if (!p1) return;
   const { next: p2 } = p1;

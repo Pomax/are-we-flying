@@ -1,4 +1,10 @@
-import { radians, constrain, constrainMap, exceeds, nf } from "../utils/utils.js";
+import {
+  radians,
+  constrain,
+  constrainMap,
+  exceeds,
+  nf,
+} from "../utils/utils.js";
 import { changeThrottle } from "../utils/controls.js";
 import {
   ALTITUDE_HOLD,
@@ -38,10 +44,11 @@ const LARGE_TRIM = radians(0.035);
 
 export const LOAD_TIME = Date.now();
 
-export async function altitudeHold(autopilot, state) {
+export async function altitudeHold(autopilot, { data: flightData, model }) {
   // The local and state values we'll be working with:
-  const { verticalSpeed: VS, dVS, dPitch, speed } = state;
   const { trim } = autopilot;
+  const { VS, speed } = flightData;
+  const { VS: dVS, pitch: dPitch } = flightData.delta ?? { VS: 0, pitch: 0 };
 
   // A helper function that lets us update the trim vector
   // and then set the plane's trim based on the new value:
@@ -51,7 +58,7 @@ export async function altitudeHold(autopilot, state) {
   };
 
   // How big should our trim steps be?
-  let trimLimit = state.pitchTrimLimit[0];
+  let trimLimit = model.pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
   const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
   let trimStep = constrainMap(speed, 50, 200, 5, 20) * small;
@@ -61,7 +68,8 @@ export async function altitudeHold(autopilot, state) {
   maxVS = constrainMap(speed, 30, 100, maxVS / 10, maxVS);
   let { targetVS, altDiff, direction } = await getTargetVS(
     autopilot,
-    state,
+    flightData,
+    model,
     maxVS
   );
 
@@ -167,20 +175,20 @@ export async function altitudeHold(autopilot, state) {
  * @param {*} maxVS
  * @returns
  */
-async function getTargetVS(autopilot, state, maxVS) {
+async function getTargetVS(autopilot, flightData, model, maxVS) {
   if (!FEATURES.TARGET_TO_HOLD) {
     return {
       targetVS: DEFAULT_TARGET_VS,
     };
   }
 
-  const { altitude: currentAltitude, verticalSpeed: VS, speed } = state;
+  const { alt: currentAltitude, VS, speed } = flightData;
   let targetVS = DEFAULT_TARGET_VS;
   let direction = undefined;
   let altDiff = undefined;
 
   // Are we flying using waypoints?
-  updateAltitudeFromWaypoint(autopilot, state);
+  updateAltitudeFromWaypoint(autopilot);
 
   // Are we supposed to fly a specific altitude?
   const targetAltitude = autopilot.modes[ALTITUDE_HOLD];
@@ -221,7 +229,13 @@ async function getTargetVS(autopilot, state, maxVS) {
     // If we are, then we also want to boost our ability to control
     // vertical speed, by using a (naive) auto-throttle procedure.
     if (autopilot.modes[AUTO_THROTTLE]) {
-      targetVS = await autoThrottle(state, autopilot.api, altDiff, targetVS);
+      targetVS = await autoThrottle(
+        flightData,
+        model,
+        autopilot.api,
+        altDiff,
+        targetVS
+      );
     }
   }
 
@@ -259,24 +273,14 @@ const ATT_PROPERTIES = [
  * damaging the plane, whereas if we're flying up, we need max throttle, and in
  * level flight we want to cruise at "our rated cruise speed".
  *
- * @param {*} state
  * @param {*} api
  * @param {*} altDiff
  */
-async function autoThrottle(state, api, altDiff, targetVS) {
-  const { verticalSpeed: VS } = state;
-  const speed = round(state.speed);
+async function autoThrottle(flightData, model, api, altDiff, targetVS) {
+  const speed = round(flightData.speed);
+  const { VS, overSpeed } = flightData;
+  const { climbSpeed, cruiseSpeed, engineCount } = model;
 
-  const {
-    DESIGN_SPEED_CLIMB: sc,
-    DESIGN_SPEED_VC: vc,
-    NUMBER_OF_ENGINES: engineCount,
-    OVERSPEED_WARNING: overSpeed,
-  } = await api.get(...ATT_PROPERTIES);
-
-  // we want these values in knots, not feet per second
-  const cruiseSpeed = round(vc / KNOT_IN_FPS);
-  const climbSpeed = round(sc / KNOT_IN_FPS);
   const throttleStep = 0.2;
   const tinyStep = throttleStep / 10;
   const ALT_LIMIT = 200;
@@ -351,11 +355,10 @@ async function autoThrottle(state, api, altDiff, targetVS) {
  * altitude information from the waypoints themselves.
  *
  * @param {*} autopilot
- * @param {*} state
  * @param {*} waypoint
  * @returns
  */
-function updateAltitudeFromWaypoint(autopilot, state) {
+function updateAltitudeFromWaypoint(autopilot) {
   // Ignore this instruction if we're in the middle of taking of
   if (autopilot.modes[AUTO_TAKEOFF]) return;
 
@@ -367,7 +370,7 @@ function updateAltitudeFromWaypoint(autopilot, state) {
   if (!waypoints.hasActive()) return;
 
   // We do, find the altitude we should be flying.
-  const waypointAltitude = waypoints.getAltitude(state);
+  const waypointAltitude = waypoints.getAltitude();
   if (waypointAltitude) {
     autopilot.setTarget(ALTITUDE_HOLD, waypointAltitude);
   }

@@ -135,13 +135,20 @@ export class WayPoints {
   }
 
   // ...docs go here...
-  getHeading(state) {
-    return TransitionModes.getProjectiveHeading(this, state);
+  getHeading(heading, lat, long, speed, declination) {
+    return TransitionModes.getProjectiveHeading(
+      this,
+      heading,
+      lat,
+      long,
+      speed,
+      declination
+    );
   }
 
   // ...docs go here...
-  getAltitude(state) {
+  getAltitude() {
     if (this.autopilot.modes[TERRAIN_FOLLOW]) return;
-    return AltitudeModes.getNaiveAltitude(this, state);
+    return AltitudeModes.getNaiveAltitude(this);
   }
 }

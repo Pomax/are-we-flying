@@ -1,4 +1,9 @@
-import { exceeds, radians, constrainMap, getCompassDiff } from "../utils/utils.js";
+import {
+  exceeds,
+  radians,
+  constrainMap,
+  getCompassDiff,
+} from "../utils/utils.js";
 
 import { AUTO_TAKEOFF, HEADING_MODE } from "../utils/constants.js";
 import { AutoPilot } from "./autopilot.js";
@@ -31,13 +36,14 @@ export const LOAD_TIME = Date.now();
  * trim adjustments: positive numbers tip us to the right, negative to the left.
  *.get(
  * @param {*} autopilot
- * @param {*} state
+ * @param {*} flightData
  */
-export async function flyLevel(autopilot, state) {
+export async function flyLevel(autopilot, { data: flightData }) {
   const { trim } = autopilot;
+  const { bank, speed, heading, lat, long, declination } = flightData;
+  const { bank: dBank } = flightData.delta ?? { bank: 0 };
 
   // Our bank/roll information:
-  const { bankAngle: bank, dBank, speed } = state;
   const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
   const maxdBank = DEFAULT_MAX_TURN_RATE;
 
@@ -45,7 +51,15 @@ export async function flyLevel(autopilot, state) {
   const step = constrainMap(speed, 50, 150, radians(1), radians(5));
 
   // Our "how much are we off" information:
-  const { targetBank } = getTargetBankAndTurnRate(autopilot, state, maxBank);
+  const { targetBank } = getTargetBankAndTurnRate(
+    autopilot,
+    heading,
+    lat,
+    long,
+    speed,
+    declination,
+    maxBank
+  );
   const diff = targetBank - bank;
 
   // And finally, apply the corrections.
@@ -75,15 +89,28 @@ export async function flyLevel(autopilot, state) {
  * @param {*} maxBank
  * @returns
  */
-function getTargetBankAndTurnRate(autopilot, state, maxBank) {
-  const heading = state.heading;
-
+function getTargetBankAndTurnRate(
+  autopilot,
+  heading,
+  lat,
+  long,
+  speed,
+  declination,
+  maxBank
+) {
   let targetBank = DEFAULT_TARGET_BANK;
   let maxTurnRate = DEFAULT_MAX_TURN_RATE;
 
   // Are we flying using waypoints?
   if (FEATURES.UPDATE_FROM_WAYPOINTS) {
-    updateHeadingFromWaypoint(autopilot, state);
+    updateHeadingFromWaypoint(
+      autopilot,
+      heading,
+      lat,
+      long,
+      speed,
+      declination
+    );
   }
 
   // If there is an autopilot flight heading set (either because the
@@ -113,14 +140,27 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
  * @param {State} state
  * @returns
  */
-function updateHeadingFromWaypoint(autopilot, state) {
+function updateHeadingFromWaypoint(
+  autopilot,
+  heading,
+  lat,
+  long,
+  speed,
+  declination
+) {
   if (autopilot.modes[AUTO_TAKEOFF]) return;
 
   const { waypoints } = autopilot;
   const N = waypoints.length;
   if (N === 0) return;
 
-  const waypointHeading = waypoints.getHeading(state);
+  const waypointHeading = waypoints.getHeading(
+    heading,
+    lat,
+    long,
+    speed,
+    declination
+  );
   if (waypointHeading) {
     autopilot.setTarget(HEADING_MODE, waypointHeading);
   }
