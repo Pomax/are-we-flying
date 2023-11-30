@@ -93,7 +93,7 @@ export class AutoTakeoff {
       VS: vs,
     } = flightData;
 
-    const { lift: dLift, VS: dVS } = flightData.delta ?? { lift: 0, VS: 0 };
+    const { lift: dLift, VS: dVS } = flightData.d ?? { lift: 0, VS: 0 };
 
     // Mystery value: this shouldn't really be used =(
     const vs12 = vs1 ** 2;

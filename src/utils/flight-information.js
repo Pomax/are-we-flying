@@ -129,7 +129,7 @@ export class FlightInformation {
   rebindData(data, previousValues) {
     // Whether or not we have previous values for delta computation,
     // just preallocate the values we _might_ need for that.
-    const delta = {};
+    const d = {};
     const before = this.data.__datetime;
     const now = Date.now();
     const dt = (now - before) / 1000; // delta per second seconds
@@ -148,13 +148,13 @@ export class FlightInformation {
         const previous = previousValues[jsName];
         if (typeof previous !== `number`) return;
         const current = data[jsName];
-        delta[jsName] = (current - previous) / dt;
+        d[jsName] = (current - previous) / dt;
 
         // ...do we need to compute *second* derivatives?
         if (SECOND_DERIVATIVES.includes(jsName)) {
-          delta.delta ??= {};
-          const previousDelta = previousValues.delta?.[jsName] ?? 0;
-          delta.delta[jsName] = delta[jsName] - previousDelta;
+          d.d ??= {};
+          const previousDelta = previousValues.d?.[jsName] ?? 0;
+          d.d[jsName] = d[jsName] - previousDelta;
         }
       }
     });
@@ -162,7 +162,7 @@ export class FlightInformation {
     // If we did delta computation work, save the result:
     if (previousValues) {
       data.__datetime = now;
-      data.delta = delta;
+      data.d = d;
     }
   }
 }

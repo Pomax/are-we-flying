@@ -48,7 +48,7 @@ export async function altitudeHold(autopilot, { data: flightData, model }) {
   // The local and state values we'll be working with:
   const { trim } = autopilot;
   const { VS, speed } = flightData;
-  const { VS: dVS, pitch: dPitch } = flightData.delta ?? { VS: 0, pitch: 0 };
+  const { VS: dVS, pitch: dPitch } = flightData.d ?? { VS: 0, pitch: 0 };
 
   // A helper function that lets us update the trim vector
   // and then set the plane's trim based on the new value:
