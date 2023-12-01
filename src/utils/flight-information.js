@@ -52,7 +52,7 @@ export class FlightInformation {
       console.log(`bootstrapped flight information`);
       return { flightModel, flightData };
     } catch (e) {
-      console.warn(e);
+      // console.warn(e);
     }
   }
 

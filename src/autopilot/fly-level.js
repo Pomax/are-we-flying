@@ -41,7 +41,7 @@ export const LOAD_TIME = Date.now();
 export async function flyLevel(autopilot, { data: flightData }) {
   const { trim } = autopilot;
   const { bank, speed, heading, lat, long, declination } = flightData;
-  const { bank: dBank } = flightData.delta ?? { bank: 0 };
+  const { bank: dBank } = flightData.d ?? { bank: 0 };
 
   // Our bank/roll information:
   const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);

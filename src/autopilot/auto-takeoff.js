@@ -5,6 +5,7 @@ import {
   FEET_PER_METER,
   ALTITUDE_HOLD,
   FPS_IN_KNOTS,
+  TERRAIN_FOLLOW,
 } from "../utils/constants.js";
 import {
   constrain,
@@ -406,6 +407,7 @@ export class AutoTakeoff {
     console.log(`switch to autopilot.`);
     autopilot.setParameters({
       [AUTO_TAKEOFF]: false,
+      [TERRAIN_FOLLOW]: true,
       [ALTITUDE_HOLD]: targetAltitude,
     });
   }
