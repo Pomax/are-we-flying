@@ -1,3 +1,6 @@
+import path from "node:path";
+import { __root } from "./constants.js";
+
 const { sin, asin, cos, acos, tan, atan, atan2, sqrt } = Math;
 const TAU = Math.PI * 2;
 
@@ -190,4 +193,11 @@ export function nf(v) {
 
 export function exists(v) {
   return v !== undefined && v !== null;
+}
+
+export function rootRelative(filepath) {
+  return filepath
+    .split(path.win32.sep)
+    .join(path.posix.sep)
+    .replace(__root, `./`);
 }

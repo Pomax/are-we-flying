@@ -142,7 +142,6 @@ export const NAME_MAPPING = {
   DESIGN_SPEED_VS0: `vs0`,
   DESIGN_SPEED_VS1: `vs1`,
   DESIGN_TAKEOFF_SPEED: `takeoffSpeed`,
-  ELECTRICAL_TOTAL_LOAD_AMPS: `ampLoad`,
   ELEVATOR_TRIM_DOWN_LIMIT: `trimDownLimit`,
   ELEVATOR_TRIM_PCT: `pitchTrim`,
   ELEVATOR_TRIM_POSITION: `trimPosition`,

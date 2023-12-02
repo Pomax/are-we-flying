@@ -1,4 +1,4 @@
-import url from "url";
+import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import { watch } from "../../utils/reload-watcher.js";
 import { Waypoint as wp } from "./waypoint.js";
@@ -40,7 +40,6 @@ export class WayPoints {
 
   reset() {
     console.log(`RESETTING WAYPOINTS`);
-    console.trace();
     this.points = [];
     this.currentWaypoint = undefined;
   }

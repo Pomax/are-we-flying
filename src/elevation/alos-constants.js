@@ -1,5 +1,5 @@
 import { join, resolve } from "path";
-import url from "url";
+import url from "node:url";
 
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 

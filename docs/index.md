@@ -64,7 +64,7 @@ Before we look at the "real" code we need to write, let's quickly run through th
 
 ```js
 // First we load our .env file:
-import url from "url";
+import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/.env` });
@@ -90,7 +90,7 @@ Next up, the code required to run the "web server" part of our above "diagram" w
 
 ```js
 // We start the same was as above:
-import url from "url";
+import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/.env` });
@@ -349,13 +349,13 @@ export class ServerClass {
       CAMERA_STATE: camera,
       CAMERA_SUBSTATE: subcamera,
       SIM_ON_GROUND: onGround,
-      ELECTRICAL_TOTAL_LOAD_AMPS: load,
+      ELECTRICAL_AVIONICS_BUS_VOLTAGE: load,
     } = await this.api.get(
       client,
       `CAMERA_STATE`,
       `CAMERA_SUBSTATE`,
       `SIM_ON_GROUND`,
-      `ELECTRICAL_TOTAL_LOAD_AMPS`
+      `ELECTRICAL_AVIONICS_BUS_VOLTAGE`
     );
 
     // Record whether we "were" flying or not:
@@ -1087,7 +1087,7 @@ Which means our crash event listener worked. So this is promising, we have a ful
 As a last bit of preparator dev work, we're going to be working on files in a way where it'll be super useful if we can just make changes, save the file, and then have the new code immediately swap in without having to shut down and restart our API or web server. This is actually relatively easy to do, although it comes with some caveats:
 
 ```javascript
-import fs from "fs";
+import fs from "node:fs";
 
 export function watch(filePath, onChange) {
   // Step 1: don't run file-watching in production. Obviously.
@@ -1105,7 +1105,7 @@ export function watch(filePath, onChange) {
   fs.watchFile(filePath, { interval: 1000 }, async () => {
     console.log(`RELOADING ${filePath} AT ${DATE.now()}`);
 
-    // If there was a change, re-import this file as an ES module, with a 
+    // If there was a change, re-import this file as an ES module, with a
     // "cache busting" URL that includes the current time stamp. Modules are
     // cached based on their exact URL, so adding a query argument that we
     // can vary means we we "reimport" the code:
@@ -1115,10 +1115,10 @@ export function watch(filePath, onChange) {
     // check whether it has a `LOAD_TIME` constant that it set during load, and log
     // what that value is. Because it should be very close to our reload time.
     if (module.LOAD_TIME) console.log(`  module.LOAD_TIME:${module.LOAD_TIME}`);
-    
+
     // Then we log the stack so we know where this reload was set up in our code:
     console.log(callStack);
-    
+
     // And then we run whatever code needs to run now that the module's been reloaded.
     onChange(module);
   });
@@ -1130,7 +1130,7 @@ The first caveat being an explicit memory leak. There is no mechanism for "unloa
 The second caveat is that we can no longer "just import something from a module", because we can't update imports, they're effectively `const` values. Instead, we need to be a little more clever about how we import things:
 
 ```javascript
-import url from "url";
+import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import { watch } from "./reload-watcher.js";
 
@@ -2491,7 +2491,7 @@ Nothing to it.
 Of course, with all that done, it's probably a good idea to apply the "hot reload" pattern we looked at in part two so that we can update our autopilot code without having to restart our server, so let's quickly update our `server.js`:
 
 ```javascript
-import url from "url";
+import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../../.env` });
@@ -2768,7 +2768,7 @@ export async function flyLevel(autopilot, state) {
   // the more we're banking, the more we correct, although if we're banking
   // more than "max bank", correct based off the max bank value instead.
   update -= constrainMap(diff, -maxBank, maxBank, -step, step);
-  
+
   // Also, counter-correct based on the current change in bank angle,
   // so that we don't en up jerking the plane around.
   const maxDBank = DEFAULT_MAX_TURN_RATE;
@@ -2804,7 +2804,7 @@ Big change, very exiting.
 Then, we update the autopilot code to make use of this new constant, and we'll add that  `trim` vector for tracking how much we need to trim in each direction:
 
 ```javascript
-import url from "url";
+import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
 // Import our new constant...
@@ -2823,10 +2823,10 @@ export class Autopilot {
     this.modes = {
       [LEVEL_FLIGHT]: false,
     }
-    // And we set up that trim vector:    
+    // And we set up that trim vector:
     this.resetTrim();
   }
-  
+
   resetTrim() {
     this.trim = {
       pitch: 0, // we'll use this for our "altitude hold" code, coming up.
@@ -3006,7 +3006,7 @@ export async function altitudeHold(autopilot, state) {
   const { trim } = autopilot;
   let trimLimit = state.pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
-  
+
   // And then determine a "lower end" and "upper end" trim step:
   const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
   const trimStep = 10 * small;
@@ -3091,7 +3091,7 @@ const FEATURES = {
 
 export async function altitudeHold(autopilot, state) {
   ...
-  
+
   const maxdVS = constrainMap(abs(diff), 0, 100, 0, DEFAULT_MAX_dVS);
   update -= constrainMap(dVS, -maxdVS, maxdVS, -trimStep / 2, trimStep / 2);
 
@@ -3101,7 +3101,7 @@ export async function altitudeHold(autopilot, state) {
     if (aDiff < 100) update /= 2;
     if (aDiff < 20) update /= 2;
   }
-  
+
   trim.pitch += update
   ...
 }
@@ -3245,7 +3245,7 @@ const FEATURES = {
 
 async function getTargetVS(autopilot, state, maxVS) {
   ...
-  
+
   const targetAltitude = autopilot.modes[ALTITUDE_HOLD];
   if (targetAltitude) {
     altDiff = targetAltitude - currentAltitude;
@@ -3253,7 +3253,7 @@ async function getTargetVS(autopilot, state, maxVS) {
     if (FEATURES.SMOOTH_RAMP_UP) {
       const direction = sign(altDiff);
       const plateau = 200;
-      
+
       // If we're more than <plateau> feet away from our target, ramp
       // our target up to maxVS, and keep it there.
       if (abs(altDiff) > plateau) {
@@ -3300,7 +3300,7 @@ All of these should make intuitive sense, and they're very little work to put in
 ```javascript
 const FEATURES = {
   ...
-  STALL_PROTECTION: true, 
+  STALL_PROTECTION: true,
   SKIP_TINY_UPDATES: true,
   BOOST_SMALL_CORRECTIONS: true,
   LIMIT_TRIM_TO_100: true,
@@ -3310,7 +3310,7 @@ const FEATURES = {
 
 export async function altitudeHold(autopilot, state) {
   ...
-  
+
   const updateMagnitude = update / trimStep;
 
   // Skip tiny updates if we're already moving in the right direction
@@ -3320,9 +3320,9 @@ export async function altitudeHold(autopilot, state) {
   if (FEATURES.BOOST_SMALL_CORRECTIONS && sign(targetVS) !== sign(VS) && abs(updateMagnitude) < 0.01) update *= 2;
 
   trim.pitch += update;
-  
+
   if (FEATURES.LIMIT_TRIM_TO_100) trim.pitch = constrain(trim.pitch, -Math.PI / 20, Math.PI / 20);
-  
+
   autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
 }
 
@@ -3531,7 +3531,7 @@ export async function altitudeHold(autopilot, state) {
       // and very quickly changes pitch, we want to very quickly correct for
       // that with a huge change in trim setting. We won't need it for very long,
       // but we do need to make it much, much bigger than the step size we use
-      // when we adjust the trim in tiny increments during normal AP operation:      
+      // when we adjust the trim in tiny increments during normal AP operation:
       trim.pitch += pitchExcess * trimStep;
       // And then after we apply this emergency trim, we exit the altitude hold
       // function and wait for the next autopilot pass, where we hopefully won't
@@ -3559,19 +3559,19 @@ export async function altitudeHold(autopilot, state) {
   ...
 }
 
-// With an update to our getTargetVS so it can tell us which 
+// With an update to our getTargetVS so it can tell us which
 // vertical direction we're supposed to move in:
 async function getTargetVS(autopilot, state, maxVS) {
   ...
-  
+
   const { altitude: currentAltitude, verticalSpeed: VS, speed } = state;
 
   // we'll replace our hardcoded value "200" with a const:
   const plateau = plateau;
-  
+
   let targetVS = DEFAULT_TARGET_VS;
   let altDiff = undefined;
-  
+
   // and then we add our direction variable:
   let direction = undefined;
 
@@ -3587,7 +3587,7 @@ async function getTargetVS(autopilot, state, maxVS) {
 
   return { targetVS, altDiff, direction };
 }
-  
+
 ```
 
 Let's see what that does for us if we bump the yoke four times: once pulling the plane up until we see the emergency code kick in, and having it stabilize again, then once pushing the plane down until we see the emergency code to kick in, and having it stabilize. And then we repeat that, for good measure (literally in this case, since we're measuring AP response behaviour):
@@ -4782,7 +4782,7 @@ First, some ALOS constants:
 
 ```javascript
 import { join, resolve } from "path";
-import url from "url";
+import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
 export const SEA_LEVEL = 0;

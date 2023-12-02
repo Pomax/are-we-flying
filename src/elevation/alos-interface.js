@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { mkdir } from "fs/promises";
 import { win32, sep, join } from "path";
 
-import url from "url";
+import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../.env` });

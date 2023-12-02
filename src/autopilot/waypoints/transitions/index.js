@@ -1,4 +1,4 @@
-import url from "url";
+import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import { watch } from "../../../utils/reload-watcher.js";
 import { getHeading as getNaiveHeading } from "./naive.js";

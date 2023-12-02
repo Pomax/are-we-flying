@@ -2,9 +2,8 @@ import {
   AUTO_TAKEOFF,
   HEADING_MODE,
   LEVEL_FLIGHT,
-  FEET_PER_METER,
+  FEET_PER_DEGREE,
   ALTITUDE_HOLD,
-  FPS_IN_KNOTS,
   TERRAIN_FOLLOW,
 } from "../utils/constants.js";
 import {
@@ -13,7 +12,7 @@ import {
   getCompassDiff,
   getPointAtDistance,
   dist,
-  exceeds,
+  // nf,
 } from "../utils/utils.js";
 import { changeThrottle } from "../utils/controls.js";
 import { AutoPilot } from "./autopilot.js";
@@ -45,7 +44,6 @@ export class AutoTakeoff {
 
     // EXPERIMENTAL FOR AUTO RUDDER
     this.lastDrift = 0;
-    this.staticDriftCorrection = 1;
   }
 
   /**
@@ -60,16 +58,29 @@ export class AutoTakeoff {
    * @param {*} FlightInformation
    */
   async run({ data: flightData, model }) {
+    const { autopilot } = this;
+
     const {
       isTailDragger,
       pitchTrimLimit,
       weight: totalWeight,
-      vs1,
       engineCount,
       minRotation,
       takeoffSpeed,
       title,
     } = model;
+
+    // Some planes are just impossible to work with.
+    if (title.includes(`DC-3`)) {
+      // The DC-3 refuses to play nice with auto-rudder, and instead needs
+      // an instant kick when the tail comes up, then easing off the rudder,
+      // then giving it more rudder again, in a way that just can't be done
+      // using a naive instantaneous-reading-correction approach.
+      autopilot.setTarget(AUTO_TAKEOFF, false);
+      return console.error(
+        `\nAUTO-TAKEOFF NOT SUPPORTED FOR THE DC-3 AT PRESENT\n`
+      );
+    }
 
     if (!this.trimStep) {
       let trimLimit = pitchTrimLimit[0];
@@ -97,7 +108,10 @@ export class AutoTakeoff {
       pitch,
     } = flightData;
 
-    const { pitch: dPitch } = flightData.d ?? { pitch: 0 };
+    const { pitch: dPitch, heading: dHeading } = flightData.d ?? {
+      pitch: 0,
+      heading: 0,
+    };
     const { lift: dLift, VS: dVS } = flightData.d ?? { lift: 0, VS: 0 };
 
     if (!this.takeoffAltitude) {
@@ -132,8 +146,10 @@ export class AutoTakeoff {
       lat,
       long,
       heading,
+      dHeading,
       bankAngle,
-      title
+      title,
+      totalWeight
     );
 
     // Check whether to start (or end) the rotate phase
@@ -250,8 +266,10 @@ export class AutoTakeoff {
     lat,
     long,
     heading,
+    dHeading,
     bankAngle,
-    title
+    title,
+    totalWeight
   ) {
     const { api, takeoffCoord: p1, futureCoord: p2 } = this;
 
@@ -266,77 +284,76 @@ export class AutoTakeoff {
     }
 
     // Get our airplane's drift with respect to the center line
-    const c = { lat, long };
-    const abx = p2.long - p1.long;
-    const aby = p2.lat - p1.lat;
-    const acx = c.long - p1.long;
-    const acy = c.lat - p1.lat;
-    const coeff = (abx * acx + aby * acy) / (abx * abx + aby * aby);
-    const dx = p1.long + abx * coeff;
-    const dy = p1.lat + aby * coeff;
-    const cross1 = (p2.long - p1.long) * (c.lat - p1.lat);
-    const cross2 = (p2.lat - p1.lat) * (c.long - p1.long);
-    const left = cross1 - cross2 > 0;
-    const distInMeters = 100000 * FEET_PER_METER;
-    const drift = (left ? 1 : -1) * dist(long, lat, dx, dy) * distInMeters;
-
-    // are we still drifting in the wrong direction?
-    const trackingDiff = abs(this.lastDrift) - abs(drift);
-    if (currentSpeed > 1 && trackingDiff > 0) {
-      this.staticDriftCorrection += constrainMap(trackingDiff, 0, 10, 0, 1);
-    } else {
-      if (this.staticDriftCorrection > 1.1) this.staticDriftCorrection -= 0.1;
-    }
+    const drift = (function getDistanceToCenterLine() {
+      const c = { lat, long };
+      const abx = p2.long - p1.long;
+      const aby = p2.lat - p1.lat;
+      const acx = c.long - p1.long;
+      const acy = c.lat - p1.lat;
+      const coeff = (abx * acx + aby * acy) / (abx * abx + aby * aby);
+      const dx = p1.long + abx * coeff;
+      const dy = p1.lat + aby * coeff;
+      const cross1 = (p2.long - p1.long) * (c.lat - p1.lat);
+      const cross2 = (p2.lat - p1.lat) * (c.long - p1.long);
+      const left = cross1 - cross2 > 0;
+      // We can ignore great circles over short distances
+      const signedDist = (left ? 1 : -1) * dist(long, lat, dx, dy);
+      // but this number is degrees and we want feet. Which needs a
+      // little magic factor for reasons I would love to understand.
+      return signedDist * FEET_PER_DEGREE * 1.818;
+    })();
 
     // Then turn that into an error term that we add to "how far off from heading we are":
     const limit = constrainMap(currentSpeed, 0, minRotate, 120, 4);
-    const driftCorrection =
-      constrainMap(drift, -130, 130, -limit, limit) *
-      this.staticDriftCorrection;
+    const driftCorrection = constrainMap(drift, -130, 130, -limit, limit);
 
     // Get our heading diff, with a drift correction worked in.
-    const diff = getCompassDiff(heading, this.takeoffHeading + driftCorrection);
+    const diffLimit = constrainMap(totalWeight, 1500, 6000, 3, 10);
+    const diff = constrain(
+      getCompassDiff(heading, this.takeoffHeading + driftCorrection),
+      -diffLimit,
+      diffLimit
+    );
 
     // The faster we're moving, the less rudder we want, but we want
     // the effect to fall off as we get closer to our rotation speed.
-    const speedFactor = constrain(
-      1.5 - (currentSpeed / minRotate) ** 1,
-      0.2,
-      1.5
-    );
+    const sfMax = 1.0;
+    const sfMin = 0.2;
+    const sfRatio = currentSpeed / minRotate;
+    const speedFactor = constrain(sfMax - sfRatio ** 1, sfMin, sfMax);
 
-    // Is there a way we can turn this into something relative to 1?
+    // This is basically a magic constant that we found experimentally,
+    // and I don't like the fact that we need it.
+    const magic = 1 / 8;
+
+    // Tail draggers need more rudder than tricycles.
     let tailFactor = isTailDragger ? 1 : 0.5;
+
+    // special affordances for problematic airplanes:
     if (title.includes(`maule-m7`)) {
+      // This plane is twitchy as hell
       tailFactor /= 4;
     }
 
-    // This is basically a magic constant that we found experimentally,
-    const magic = 1 / 8;
+    let rudder = diff * speedFactor * tailFactor * magic;
 
-    const rudder = diff * speedFactor * tailFactor * magic;
-
-    // FIXME: this goes "wrong" for the Kodiak 100, which immediately banks left on take-off
-    // FIXME: this does "nothing" for the Cessna 172, unless we add the static drift correction.
-
-    // console.log({
-    //   STAGE: `auto-rudder`,
-    //   drift,
-    //   currentSpeed,
-    //   minRotate,
-    //   limit,
-    //   driftCorrection,
-    //   staticDriftCorrection: this.staticDriftCorrection,
-    //   diff,
-    //   stallFactor,
-    //   speedFactor,
-    //   tailFactor,
-    //   rudder,
-    // });
+    // console.log(
+    //   `STAGE: auto-rudder`,
+    //   `dHeading: ${nf(dHeading)}, drift: ${nf(drift)}, currentSpeed: ${nf(
+    //     currentSpeed
+    //   )}, minRotate: ${nf(minRotate)}, limit: ${nf(
+    //     limit
+    //   )}, driftCorrection: ${nf(driftCorrection)}, diff ${nf(
+    //     diff
+    //   )}, speedFactor ${nf(speedFactor)}, tailFactor ${nf(
+    //     tailFactor
+    //   )}, rudder ${nf(rudder)}`
+    // );
 
     this.lastDrift = drift;
 
-    api.set(`RUDDER_POSITION`, rudder);
+    const rudderMinimum = constrainMap(currentSpeed, 0, 30, 0.001, 0.01);
+    if (abs(rudder) > rudderMinimum) api.set(`RUDDER_POSITION`, rudder);
   }
 
   /**

@@ -1,4 +1,4 @@
-import url from "url";
+import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../../.env` });
@@ -161,12 +161,14 @@ export class ServerClass {
    */
   async #checkFlying(client) {
     if (!MSFS) return;
+
     // console.log(`are we flying?`);
     const data = await this.api.get(
       client,
       `CAMERA_STATE`,
       `CAMERA_SUBSTATE`,
       `SIM_ON_GROUND`,
+      `ELECTRICAL_AVIONICS_BUS_VOLTAGE`,
       `ELECTRICAL_TOTAL_LOAD_AMPS`
     );
 
@@ -178,7 +180,8 @@ export class ServerClass {
       CAMERA_STATE: camera,
       CAMERA_SUBSTATE: camerasub,
       SIM_ON_GROUND: onGround,
-      ELECTRICAL_TOTAL_LOAD_AMPS: load,
+      ELECTRICAL_AVIONICS_BUS_VOLTAGE: load,
+      ELECTRICAL_TOTAL_LOAD_AMPS: amps,
     } = data;
 
     if (client) {
@@ -188,7 +191,8 @@ export class ServerClass {
     }
 
     const wasFlying = flying;
-    flying = 2 <= camera && camera < 9 && (onGround === 0 || load !== 0);
+    flying =
+      2 <= camera && camera < 9 && (onGround === 0 || load !== 0 || amps !== 0);
 
     if (flying !== wasFlying) {
       autopilot.reset();
