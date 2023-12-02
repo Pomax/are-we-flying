@@ -1,5 +1,4 @@
 import {
-  exceeds,
   radians,
   constrainMap,
   getCompassDiff,
@@ -7,7 +6,6 @@ import {
 
 import { AUTO_TAKEOFF, HEADING_MODE } from "../utils/constants.js";
 import { AutoPilot } from "./autopilot.js";
-import { State } from "./utils/ap-state.js";
 
 const { abs } = Math;
 const DEFAULT_TARGET_BANK = 0;
@@ -36,7 +34,6 @@ export const LOAD_TIME = Date.now();
  * trim adjustments: positive numbers tip us to the right, negative to the left.
  *.get(
  * @param {*} autopilot
- * @param {*} flightData
  */
 export async function flyLevel(autopilot, { data: flightData }) {
   const { trim } = autopilot;
@@ -85,8 +82,6 @@ export async function flyLevel(autopilot, { data: flightData }) {
  * the closer the target bank angle should get to zero.
  *
  * @param {*} autopilot
- * @param {*} state
- * @param {*} maxBank
  * @returns
  */
 function getTargetBankAndTurnRate(
@@ -137,7 +132,6 @@ function getTargetBankAndTurnRate(
  * we'll need to check  what heading we actually need to fly.
  *
  * @param {AutoPilot} autopilot
- * @param {State} state
  * @returns
  */
 function updateHeadingFromWaypoint(
