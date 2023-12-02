@@ -98,11 +98,7 @@ export class AutoTakeoff {
     } = flightData;
 
     const { pitch: dPitch } = flightData.d ?? { pitch: 0 };
-
     const { lift: dLift, VS: dVS } = flightData.d ?? { lift: 0, VS: 0 };
-
-    // Mystery value: this shouldn't really be used =(
-    const vs12 = vs1 ** 2;
 
     if (!this.takeoffAltitude) {
       this.takeoffAltitude = altitude;
@@ -131,7 +127,6 @@ export class AutoTakeoff {
     this.autoRudder(
       onGround,
       isTailDragger,
-      vs12,
       minRotate,
       currentSpeed,
       lat,
@@ -250,7 +245,6 @@ export class AutoTakeoff {
   async autoRudder(
     onGround,
     isTailDragger,
-    vs12,
     minRotate,
     currentSpeed,
     lat,
@@ -261,7 +255,7 @@ export class AutoTakeoff {
   ) {
     const { api, takeoffCoord: p1, futureCoord: p2 } = this;
 
-    // If we're actually in the air, we want to ease the rudder back to neutral.
+    // If we're actually in the air, we want to slolwy easy the rudder back to neutral.
     if (!onGround) {
       const { RUDDER_POSITION: rudder } = await api.get(`RUDDER_POSITION`);
       this.rudderEasement ??= rudder / 200;
@@ -302,19 +296,25 @@ export class AutoTakeoff {
 
     // Get our heading diff, with a drift correction worked in.
     const diff = getCompassDiff(heading, this.takeoffHeading + driftCorrection);
-    let stallFactor = 0.25; //constrainMap(vs12, 2500, 6000, 0.05, 0.3);
 
+    // The faster we're moving, the less rudder we want, but we want
+    // the effect to fall off as we get closer to our rotation speed.
+    const speedFactor = constrain(
+      1.5 - (currentSpeed / minRotate) ** 1,
+      0.2,
+      1.5
+    );
+
+    // Is there a way we can turn this into something relative to 1?
+    let tailFactor = isTailDragger ? 1 : 0.5;
     if (title.includes(`maule-m7`)) {
-      stallFactor = 0.125;
+      tailFactor /= 4;
     }
 
-    const speedFactor = constrain(
-      1 - (currentSpeed / minRotate) ** 0.5,
-      0.2,
-      1
-    );
-    const tailFactor = isTailDragger ? 1 : 0.5;
-    const rudder = diff * stallFactor * speedFactor * tailFactor;
+    // This is basically a magic constant that we found experimentally,
+    const magic = 1 / 8;
+
+    const rudder = diff * speedFactor * tailFactor * magic;
 
     // FIXME: this goes "wrong" for the Kodiak 100, which immediately banks left on take-off
     // FIXME: this does "nothing" for the Cessna 172, unless we add the static drift correction.
