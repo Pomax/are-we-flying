@@ -222,7 +222,7 @@ export class Plane {
    * ...docs go here...
    */
   updateChart(flightData, now) {
-    const { alt, bank, groundAlt, pitch, speed, heading } = flightData;
+    const { alt, bank, groundAlt, pitch, speed, heading, rudder } = flightData;
     const { VS, pitchTrim, aileronTrim, turnRate, rudderTrim } = flightData;
     const nullDelta = { VS: 0, pitch: 0, bank: 0 };
     const { VS: dVS, pitch: dPitch, bank: dBank } = flightData.d ?? nullDelta;
@@ -242,6 +242,7 @@ export class Plane {
       bank,
       dBank,
       turnRate,
+      rudder,
       //trim
       pitchTrim,
       aileronTrim,

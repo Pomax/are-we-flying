@@ -80,7 +80,7 @@ export async function altitudeHold(autopilot, { data: flightData, model }) {
     const pitchExcess = exceeds(dPitch, dPitchLimit);
     if (pitchExcess !== 0 && sign(direction) !== sign(VS)) {
       console.log(`emergency recovery (1) - pitchExcess: ${pitchExcess}`);
-      return updateTrim(pitchExcess * trimStep);
+      return updateTrim(pitchExcess * trimStep / 10);
     }
 
     // Second quick check: even if we're not pitching like crazy, are we

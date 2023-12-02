@@ -68,7 +68,8 @@ export class AutoPilot {
     // Set up values we need during the autopilot main loop
     this.paused = false;
     this.resetTrim();
-    this.waypoints = new WayPoints(this);
+    this.waypoints ??= new WayPoints(this);
+    this.waypoints.resetWaypoints();
 
     // set up a new flight information object and instantiate it.
     this.flightInformation = new FlightInformation(this.api);

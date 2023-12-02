@@ -39,6 +39,7 @@ export function initCharts(container) {
     bank: { unit: `degrees`, fixed: 2, limits: [30, -30] },
     dBank: { unit: `deg/s`, fixed: 4 },
     turnRate: { label: `turn rate`, unit: `deg/s`, fixed: 2 },
+    rudder: { label: `rudder`, unit: `%`, fixed: 2 },
     // trim settings
     pitchTrim: { label: `pitch trim`, unit: `%`, fixed: 3 },
     aileronTrim: { label: `aileron trim`, unit: `%`, fixed: 3 },

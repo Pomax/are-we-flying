@@ -78,6 +78,7 @@ export const FLIGHT_DATA = [
   `PLANE_LATITUDE`,
   `PLANE_LONGITUDE`,
   `PLANE_PITCH_DEGREES`,
+  `RUDDER_POSITION`,
   `RUDDER_TRIM_PCT`,
   `SIM_ON_GROUND`,
   `TURN_INDICATOR_RATE`,
@@ -108,6 +109,7 @@ export const BOOLEAN_VALUES = [
 export const PERCENT_VALUES = [
   `AILERON_TRIM_PCT`,
   `ELEVATOR_TRIM_PCT`,
+  `RUDDER_POSITION`,
   `RUDDER_TRIM_PCT`,
 ];
 
@@ -160,6 +162,7 @@ export const NAME_MAPPING = {
   PLANE_LATITUDE: `lat`,
   PLANE_LONGITUDE: `long`,
   PLANE_PITCH_DEGREES: `pitch`,
+  RUDDER_POSITION: `rudder`,
   RUDDER_TRIM_PCT: `rudderTrim`,
   SIM_ON_GROUND: `onGround`,
   STATIC_CG_TO_GROUND: `cg`,

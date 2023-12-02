@@ -13,6 +13,7 @@ import {
   getCompassDiff,
   getPointAtDistance,
   dist,
+  exceeds,
 } from "../utils/utils.js";
 import { changeThrottle } from "../utils/controls.js";
 import { AutoPilot } from "./autopilot.js";
@@ -67,6 +68,7 @@ export class AutoTakeoff {
       engineCount,
       minRotation,
       takeoffSpeed,
+      title,
     } = model;
 
     if (!this.trimStep) {
@@ -92,7 +94,10 @@ export class AutoTakeoff {
       trimPosition: pitchTrim,
       trueHeading,
       VS: vs,
+      pitch,
     } = flightData;
+
+    const { pitch: dPitch } = flightData.d ?? { pitch: 0 };
 
     const { lift: dLift, VS: dVS } = flightData.d ?? { lift: 0, VS: 0 };
 
@@ -112,7 +117,8 @@ export class AutoTakeoff {
         lat,
         long,
         heading,
-        trueHeading
+        trueHeading,
+        title
       );
     }
 
@@ -131,7 +137,8 @@ export class AutoTakeoff {
       lat,
       long,
       heading,
-      bankAngle
+      bankAngle,
+      title
     );
 
     // Check whether to start (or end) the rotate phase
@@ -145,6 +152,8 @@ export class AutoTakeoff {
       vs,
       dVS,
       totalWeight,
+      pitch,
+      dPitch,
       pitchTrim,
       isTailDragger,
       engineCount
@@ -163,7 +172,8 @@ export class AutoTakeoff {
     lat,
     long,
     heading,
-    trueHeading
+    trueHeading,
+    title
   ) {
     const { api, autopilot } = this;
 
@@ -190,7 +200,7 @@ export class AutoTakeoff {
     // Set flaps to zero.
     let flaps = await api.get(`FLAPS_HANDLE_INDEX:1`);
     flaps = flaps[`FLAPS_HANDLE_INDEX:1`];
-    if (flaps !== 0) api.set(`FLAPS_HANDLE_INDEX:1`, 0);
+    api.set(`FLAPS_HANDLE_INDEX:1`, title.includes("maule-m7") ? 1 : 0);
 
     // Reset all trim values
     api.set(`AILERON_TRIM_PCT`, 0);
@@ -228,8 +238,8 @@ export class AutoTakeoff {
     if (maxed) return;
 
     const newThrottle = await changeThrottle(api, engineCount, 1);
-    console.log(`Throttle up to ${newThrottle | 0}%`);
-    if (newThrottle === 100) {
+    // console.log(`Throttle up to ${newThrottle | 0}%`);
+    if ((newThrottle | 0) === 100) {
       this.maxed = true;
     }
   }
@@ -246,21 +256,18 @@ export class AutoTakeoff {
     lat,
     long,
     heading,
-    bankAngle
+    bankAngle,
+    title
   ) {
     const { api, takeoffCoord: p1, futureCoord: p2 } = this;
 
     // If we're actually in the air, we want to ease the rudder back to neutral.
     if (!onGround) {
       const { RUDDER_POSITION: rudder } = await api.get(`RUDDER_POSITION`);
-      // // opposite rudder if we're veering.
-      // if (abs(bankAngle) > 0.02) {
-      //   api.set(`RUDDER_POSITION`, rudder + bankAngle);
-      // }
-      // // otherwise, ease off the rudder
-      // else {
-      api.set(`RUDDER_POSITION`, rudder * 0.96);
-      // }
+      this.rudderEasement ??= rudder / 200;
+      if (abs(rudder) > abs(this.rudderEasement)) {
+        api.set(`RUDDER_POSITION`, rudder - this.rudderEasement);
+      }
       return;
     }
 
@@ -295,7 +302,12 @@ export class AutoTakeoff {
 
     // Get our heading diff, with a drift correction worked in.
     const diff = getCompassDiff(heading, this.takeoffHeading + driftCorrection);
-    const stallFactor = constrainMap(vs12, 2500, 6000, 0.05, 0.3);
+    let stallFactor = 0.25; //constrainMap(vs12, 2500, 6000, 0.05, 0.3);
+
+    if (title.includes(`maule-m7`)) {
+      stallFactor = 0.125;
+    }
+
     const speedFactor = constrain(
       1 - (currentSpeed / minRotate) ** 0.5,
       0.2,
@@ -307,20 +319,20 @@ export class AutoTakeoff {
     // FIXME: this goes "wrong" for the Kodiak 100, which immediately banks left on take-off
     // FIXME: this does "nothing" for the Cessna 172, unless we add the static drift correction.
 
-    console.log({
-      STAGE: `auto-rudder`,
-      drift,
-      currentSpeed,
-      minRotate,
-      limit,
-      driftCorrection,
-      staticDriftCorrection: this.staticDriftCorrection,
-      diff,
-      stallFactor,
-      speedFactor,
-      tailFactor,
-      rudder,
-    });
+    // console.log({
+    //   STAGE: `auto-rudder`,
+    //   drift,
+    //   currentSpeed,
+    //   minRotate,
+    //   limit,
+    //   driftCorrection,
+    //   staticDriftCorrection: this.staticDriftCorrection,
+    //   diff,
+    //   stallFactor,
+    //   speedFactor,
+    //   tailFactor,
+    //   rudder,
+    // });
 
     this.lastDrift = drift;
 
@@ -344,27 +356,34 @@ export class AutoTakeoff {
     vs,
     dVs,
     totalWeight,
+    pitch,
+    dPitch,
     pitchTrim,
     isTailDragger,
     engineCount
   ) {
-    const { autopilot, trimStep } = this;
+    const { api, autopilot, trimStep } = this;
     const rotateSpeed = minRotate + 5;
 
     // Are we in a rotation situation?
     if (!onGround || currentSpeed > rotateSpeed) {
-      // if we're still on the ground, trim up
-      if (onGround) {
+      console.log(`vs: ${vs}, dvs: ${dVs}, pitch: ${pitch}, dPitch: ${dPitch}`);
+
+      // if we're still on the ground, trim up. However, only until we just barely
+      // seem to be lifting off, because by the time our code registers that, the
+      // trim hasn't fully taken effect yet, and if we keep adding trim, we'll end
+      // up launching the plane into a stall.
+      if (onGround && (vs < 50 || dVs < 25)) {
         console.log(`on ground, trim up by ${trimStep}`);
         autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep);
       }
 
       // if we're in the air:
       else {
-        // Are we climbing fast enough?
-        if (vs > 1000) {
-          console.log(`VS too high, trim down`);
-          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim - trimStep / 10);
+        // Ensure that the wing leveler is turned on
+        if (!autopilot.modes[LEVEL_FLIGHT]) {
+          autopilot.setTarget(LEVEL_FLIGHT, true);
+          console.log(`turn on wing leveler`);
         }
 
         // Are we high enough up? Switch to autopilot
@@ -372,18 +391,42 @@ export class AutoTakeoff {
           this.switchToAutopilot(altitude, isTailDragger, engineCount);
         }
 
-        // Do we not have a positive enough rate yet? Trim more
-        else if (dLift <= 0.2 && lift <= 300 && vs < 200) {
-          console.log(`need more positive rate (dlift: ${dLift}), trim up`);
-          this.trimStep += 0.01;
-
-          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep / 10);
+        // Are we ascending fast enough that we should gear-up?
+        if (vs > 500 && !this.gearIsUp) {
+          console.log(`gear up`);
+          api.trigger(`GEAR_UP`);
+          if (isTailDragger) {
+            const { TAILWHEEL_LOCK_ON } = await api.get(`TAILWHEEL_LOCK_ON`);
+            if (TAILWHEEL_LOCK_ON === 1) api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
+          }
+          this.gearIsUp = true;
         }
 
-        // Ensure that the wing leveler is turned on
-        if (!autopilot.modes[LEVEL_FLIGHT]) {
-          autopilot.setTarget(LEVEL_FLIGHT, true);
-          console.log(`turn on wing leveler`);
+        // Pitch protection
+        if (pitch < -10 || dPitch < -5) {
+          console.log(`to the moon - let's not`);
+          autopilot.set(
+            "ELEVATOR_TRIM_POSITION",
+            pitchTrim + (pitch / 5) * trimStep
+          );
+        }
+
+        // dVS protection
+        if (dVs > 200) {
+          console.log(`dVS too large, trim down`);
+          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim - trimStep / 2);
+        }
+
+        // VS protection
+        else if (vs > 1500) {
+          console.log(`VS too high, trim down`);
+          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim - trimStep / 10);
+        }
+
+        // Are we still trying to get positive rate going?
+        else if (dLift <= 0.2 && lift <= 300 && (vs < 25 || dVs < -100)) {
+          console.log(`need more positive rate (dlift: ${dLift}), trim up`);
+          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep / 2);
         }
       }
     }
@@ -394,11 +437,6 @@ export class AutoTakeoff {
 
     console.log(`reset rudder, gear up, unlock tailwheel.`);
     api.set(`RUDDER_POSITION`, 0);
-    api.trigger(`GEAR_UP`);
-    if (isTailDragger) {
-      const { TAILWHEEL_LOCK_ON } = await api.get(`TAILWHEEL_LOCK_ON`);
-      if (TAILWHEEL_LOCK_ON === 1) api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
-    }
 
     for (let i = 1; i <= engineCount; i++) {
       api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 90);

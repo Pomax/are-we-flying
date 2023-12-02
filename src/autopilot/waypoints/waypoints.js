@@ -39,6 +39,8 @@ export class WayPoints {
   }
 
   reset() {
+    console.log(`RESETTING WAYPOINTS`);
+    console.trace();
     this.points = [];
     this.currentWaypoint = undefined;
   }
