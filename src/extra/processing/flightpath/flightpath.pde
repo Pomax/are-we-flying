@@ -26,21 +26,6 @@ void setup() {
   size(1200, 800);
   restart();
   restart();
-}
-
-void restart() {
-  double x = 164.0;
-  double y = 285.0;
-  if (plane == null || plane.x != x || plane.y != y) {
-    plane = new Plane(x, y, 50., PI/4, 1.);
-    playing = false;
-    mode = INTERCEPT_MODE;
-    trace.add(new Point(-1,-1));
-    current = 0;
-  } else {
-    trace.clear();
-    pts.clear();
-  }
 
   /*
   addPoint(303, 148);
@@ -54,6 +39,30 @@ void restart() {
    addPoint(403, 472);
    addPoint(243, 468);
    */
+
+  addPoint(232.0, 180.0);
+  addPoint(300.0, 685.0);
+  addPoint(322.0, 180.0);
+  addPoint(379.0, 661.0);
+  addPoint(432.0, 362.0);
+  addPoint(906.0, 352.0);
+  addPoint(783.0, 596.0);
+  addPoint(687.0, 481.0);
+}
+
+void restart() {
+  double x = 164.0;
+  double y = 285.0;
+  current = 0;
+  if (plane == null || plane.x != x || plane.y != y) {
+    plane = new Plane(x, y, 50., PI/4, 1.);
+    playing = false;
+    mode = INTERCEPT_MODE;
+    trace.add(new Point(-1, -1));
+  } else {
+    trace.clear();
+    pts.clear();
+  }
 }
 
 void draw() {
@@ -79,7 +88,7 @@ void draw() {
 
   // draw the plane
   fill(255, 150);
-  plane.draw(); 
+  plane.draw();
   trace.add(new Point(plane));
 
   // draw the plane's path so far
@@ -118,7 +127,7 @@ void draw() {
  */
 Point getTarget() {
   if (current < 0) return null;
-  
+
   Point target = null;
   Point p1 = null;
   Point p2 = null;
@@ -139,7 +148,7 @@ Point getTarget() {
   // ===============================
 
   if (mode == TARGET_MODE && p1 != null) {
-    if (dist(plane, p1) < plane.r) {
+    if (dist(plane, p1) < plane.r/10) {
       current++;
     }
     return p1;
@@ -191,10 +200,24 @@ Point getTarget() {
       stroke(GREEN);
       line(p2, pr2);
       pr2.draw();
-
-      if (dist(plane, pr2) <= plane.r) {
+      
+      if (i1 != null && dist(plane, pr2) < plane.r/2) {
         current++;
         return i2;
+      }
+
+      if (i1 != null && dist(plane, pr2) <= plane.r) {
+        // push us out of the way
+        double dx = pr2.x - i1.x;
+        double dy = pr2.y - i1.y;
+        target = new Point(
+          pr2.x - 2 * dx,
+          pr2.y - 2 * dy
+          );
+        target.draw();
+        target.lock();
+        //current++;
+        //return i2;
       }
     }
 
@@ -202,7 +225,7 @@ Point getTarget() {
     //     target closer radius
     // ===============================
 
-    if (CLOSE_TARGET) {
+    if (CLOSE_TARGET && !target.locked) {
       // If we get here, we want to target a point on the "current
       // flightpath segment" that is only a little bit ahead of us,
       // so that we get onto the path itself nice and cleanly.

@@ -1,5 +1,6 @@
 class Point {
 
+  boolean locked = false;
   double x, y;
   boolean active = false;
 
@@ -16,6 +17,14 @@ class Point {
   void draw(String label) {
     draw();
     text(label, x+15, y-8);
+  }
+  
+  void lock() {
+    locked = true;
+  }
+  
+  void unlock() {
+    locked = false;
   }
 
   void draw() {
