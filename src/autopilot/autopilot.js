@@ -57,9 +57,7 @@ export class AutoPilot {
       [AUTO_THROTTLE]: false,
       [TERRAIN_FOLLOW]: false,
       [AUTO_TAKEOFF]: false,
-      // we're going to ignore these two for now.
-      [ACROBATIC]: false, // use the special acrobatic code instead?
-      [INVERTED_FLIGHT]: false, // fly upside down?
+      [INVERTED_FLIGHT]: false, // TODO: fly upside down. It has to happen again. It's just too good.
     };
     this.onChange(await this.getParameters);
   }
@@ -177,11 +175,11 @@ export class AutoPilot {
     this.api.set(name, value);
   }
 
-  async trigger(name) {
+  async trigger(name, value) {
     if (!this.api.connected) {
       return;
     }
-    this.api.trigger(name);
+    this.api.trigger(name, value);
   }
 
   async getParameters() {
@@ -304,7 +302,8 @@ export class AutoPilot {
 
     // Do we need to level the wings / fly a specific heading?
     if (this.modes[LEVEL_FLIGHT]) {
-      this.flyLevel(this, this.flightInformation);
+      const { noAileronTrim } = this.flightInformation.model;
+      this.flyLevel(this, this.flightInformation, noAileronTrim);
     }
 
     // Do we need to hold our altitude / fly a specific altitude?
@@ -315,7 +314,9 @@ export class AutoPilot {
         this.followTerrain(this, this.flightInformation);
       }
 
-      this.altitudeHold(this, this.flightInformation);
+      const { noElevatorTrim } = this.flightInformation.model;
+      console.log(`noElevatorTrim: ${noElevatorTrim}`);
+      this.altitudeHold(this, this.flightInformation, noElevatorTrim);
     }
   }
 }

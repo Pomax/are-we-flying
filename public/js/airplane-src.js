@@ -12,7 +12,7 @@ export function getAirplaneSrc(title = ``) {
   else if (plane.includes(` dc-3`)) pic = `dc3.png`;
   else if (plane.includes(`103 solo`)) pic = `top-rudder.png`;
   else if (plane.includes(` bonanza`)) pic = `bonanza.png`;
-  else if (plane.includes(` vertigo`)) pic = `vertigo.png`;
+  else if (plane.includes(`vertigo`)) pic = `vertigo.png`;
   else if (plane.includes(` d18`)) pic = `model-18.png`;
   else if (plane.includes(` citation`)) pic = `citation.png`;
   else if (plane.includes(` king air`)) pic = `king-air.png`;
@@ -21,11 +21,12 @@ export function getAirplaneSrc(title = ``) {
   else if (plane.includes(` mb-339`)) pic = `mb-339.png`;
   else if (plane.includes(` searey`)) pic = `searey.png`;
   else if (plane.includes(` 930`)) pic = `930.png`;
+  else if (plane.includes(`super hornet`)) pic = `F18.png`;
+  else if (plane.includes(` r3`)) pic = `gbr3.png`;
   else if (plane.includes(`wilga`)) {
     pic = `wilga.png`;
     if (plane.match(/\d+h/)) pic = `wilga-float.png`;
-  }
-  else if (plane.includes(`kodiak `)) pic = `kodiak.png`;
+  } else if (plane.includes(`kodiak `)) pic = `kodiak.png`;
   else if (plane.includes(` p-750`)) pic = `p-750.png`;
   else if (plane.includes(` islander`)) pic = `islander.png`;
   else if (plane.includes(` trislander`)) pic = `trislander.png`;

@@ -334,8 +334,7 @@ function startBraking(plane, approach) {
       0.2
     );
     const declination = getCompassDiff(h1, h2);
-    let targetHeading = getHeadingFromTo(lat, long, target.y, target.x);
-    targetHeading = (targetHeading + 360 - declination) % 360;
+    const targetHeading = getHeadingFromTo(lat, long, target.y, target.x, declination);
     const headingDiff = getCompassDiff(plane.lastUpdate.heading, targetHeading);
     const diff = constrain(headingDiff, -2, 2);
     const rudder = RUDDER_FACTOR * diff;

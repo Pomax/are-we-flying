@@ -51,6 +51,7 @@ export const FLIGHT_MODEL = [
 ];
 
 export const FLIGHT_DATA = [
+  `AILERON_POSITION`,
   `AILERON_TRIM_PCT`,
   `AIRSPEED_INDICATED`,
   `AIRSPEED_TRUE`,
@@ -61,6 +62,7 @@ export const FLIGHT_DATA = [
   `CRASH_FLAG`,
   `CRASH_SEQUENCE`,
   `ELECTRICAL_TOTAL_LOAD_AMPS`,
+  `ELEVATOR_POSITION`,
   `ELEVATOR_TRIM_PCT`,
   `ELEVATOR_TRIM_POSITION`,
   `ENG_COMBUSTION:1`,
@@ -107,7 +109,9 @@ export const BOOLEAN_VALUES = [
 
 // percent over 100 to percent
 export const PERCENT_VALUES = [
+  `AILERON_POSITION`,
   `AILERON_TRIM_PCT`,
+  `ELEVATOR_POSITION`,
   `ELEVATOR_TRIM_PCT`,
   `RUDDER_POSITION`,
   `RUDDER_TRIM_PCT`,
@@ -125,6 +129,7 @@ export const KNOT_VALUES = [
 ];
 
 export const NAME_MAPPING = {
+  AILERON_POSITION: `aileron`,
   AILERON_TRIM_PCT: `aileronTrim`,
   AIRSPEED_INDICATED: `speed`,
   AIRSPEED_TRUE: `trueSpeed`,
@@ -142,6 +147,7 @@ export const NAME_MAPPING = {
   DESIGN_SPEED_VS0: `vs0`,
   DESIGN_SPEED_VS1: `vs1`,
   DESIGN_TAKEOFF_SPEED: `takeoffSpeed`,
+  ELEVATOR_POSITION: `elevator`,
   ELEVATOR_TRIM_DOWN_LIMIT: `trimDownLimit`,
   ELEVATOR_TRIM_PCT: `pitchTrim`,
   ELEVATOR_TRIM_POSITION: `trimPosition`,

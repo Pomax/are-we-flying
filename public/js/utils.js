@@ -143,7 +143,7 @@ export function getDistanceBetweenPoints(lat1, long1, lat2, long2, R = 6371) {
   return R * c;
 }
 
-export function getHeadingFromTo(lat1, long1, lat2, long2) {
+export function getHeadingFromTo(lat1, long1, lat2, long2, declination = 0) {
   lat1 = radians(parseFloat(lat1));
   long1 = radians(parseFloat(long1));
   lat2 = radians(parseFloat(lat2));
@@ -151,7 +151,7 @@ export function getHeadingFromTo(lat1, long1, lat2, long2) {
   const dLon = long2 - long1;
   const x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
   const y = cos(lat2) * sin(dLon);
-  return degrees(atan2(y, x));
+  return (degrees(atan2(y, x)) - declination + 360) % 360;
 }
 
 export function projectPointOntoLine(ax, ay, bx, by, cx, cy) {

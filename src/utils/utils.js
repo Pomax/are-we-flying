@@ -110,7 +110,7 @@ export function getDistanceBetweenPoints(lat1, long1, lat2, long2, R = 6371) {
   return R * c;
 }
 
-export function getHeadingFromTo(lat1, long1, lat2, long2) {
+export function getHeadingFromTo(lat1, long1, lat2, long2, declination = 0) {
   lat1 = radians(parseFloat(lat1));
   long1 = radians(parseFloat(long1));
   lat2 = radians(parseFloat(lat2));
@@ -118,7 +118,7 @@ export function getHeadingFromTo(lat1, long1, lat2, long2) {
   const dLon = long2 - long1;
   const x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
   const y = cos(lat2) * sin(dLon);
-  return degrees(atan2(y, x));
+  return (degrees(atan2(y, x)) - declination + 360) % 360;
 }
 
 export class AvgWindow {
@@ -200,4 +200,37 @@ export function rootRelative(filepath) {
     .split(path.win32.sep)
     .join(path.posix.sep)
     .replace(__root, `./`);
+}
+
+/**
+ * Given a line p1--p2 and a point P,
+ * get the intersection "nearest to" p2
+ * of that line and a circle around P
+ * with the specified radius
+ * @param {point} P
+ * @param {point} p1
+ * @param {point} p2
+ * @param {number in feet} r
+ * @returns
+ */
+export function getLineCircleIntersection(
+  { x, y },
+  { x: x1, y: y1 },
+  { x: x2, y: y2 },
+  r
+) {
+  // work relative to (0,0)
+  x1 -= x;
+  y1 -= y;
+  x2 -= x;
+  y2 -= y;
+  const dy = y2 - y1;
+  const dx = x2 - x1;
+  const m = (dx * dx + dy * dy) ** 0.5;
+  const A = x1 * y2 - x2 * y1;
+  const d = (r * r * m * m - A * A) ** 0.5;
+  return {
+    x: x + (d * dx + A * dy) / (m * m),
+    y: y + (d * dy - A * dx) / (m * m),
+  };
 }

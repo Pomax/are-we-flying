@@ -189,6 +189,7 @@
   transform-origin: center center;
   transform: rotate(calc(1deg * var(--bank)));
   border: 2px solid #eee;
+  background: #507f93;
 }
 
 #attitude .box .gyro .sky {

@@ -1,8 +1,4 @@
-import {
-  radians,
-  constrainMap,
-  getCompassDiff,
-} from "../utils/utils.js";
+import { radians, constrainMap, getCompassDiff } from "../utils/utils.js";
 
 import { AUTO_TAKEOFF, HEADING_MODE } from "../utils/constants.js";
 import { AutoPilot } from "./autopilot.js";
@@ -35,17 +31,37 @@ export const LOAD_TIME = Date.now();
  *.get(
  * @param {*} autopilot
  */
-export async function flyLevel(autopilot, { data: flightData }) {
+export async function flyLevel(
+  autopilot,
+  { data: flightData, model },
+  useStickInstead = false
+) {
   const { trim } = autopilot;
   const { bank, speed, heading, lat, long, declination } = flightData;
+  const { weight, isAcrobatic } = model;
   const { bank: dBank } = flightData.d ?? { bank: 0 };
 
   // Our bank/roll information:
   const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
-  const maxdBank = DEFAULT_MAX_TURN_RATE;
+  let maxdBank = DEFAULT_MAX_TURN_RATE;
 
   // How big our corrections are going to be:
-  const step = constrainMap(speed, 50, 150, radians(1), radians(5));
+  let step = constrainMap(speed, 50, 150, radians(1), radians(5));
+
+  // Are we "trimming" on the stick?
+  let aileron = 0;
+  if (useStickInstead) {
+    console.log(`LVL on stick`);
+    autopilot.set("AILERON_TRIM_PCT", 0);
+    // FIXME: TODO: is weight the most appropriate controller?
+    step = constrainMap(weight, 1000, 6000, 1, 15);
+    maxdBank = 3 * maxdBank;
+    // The following value is in the range [-1, 1]
+    aileron = (await autopilot.get(`AILERON_POSITION`)).AILERON_POSITION;
+  }
+
+  // acrobatic planes need smaller corrections than regular planes
+  if (isAcrobatic) step /= 2;
 
   // Our "how much are we off" information:
   const { targetBank } = getTargetBankAndTurnRate(
@@ -64,13 +80,16 @@ export async function flyLevel(autopilot, { data: flightData }) {
   update -= constrainMap(diff, -maxBank, maxBank, -step, step);
   update += constrainMap(dBank, -maxdBank, maxdBank, -step / 2, step / 2);
 
-  if (FEATURES.EMERGENCY_PROTECTION) {
-    // ...what would be a good policy to pr
-  }
-
   if (!isNaN(update)) {
-    trim.roll += update;
-    autopilot.set("AILERON_TRIM_PCT", trim.roll);
+    if (useStickInstead) {
+      // add the update, scaled to [-1, 1]
+      const newValue = aileron + update / 100;
+      // then trigger an aileron set action, scaled to the sim's [-16k, 16k] range
+      autopilot.trigger("AILERON_SET", (-16000 * newValue) | 0);
+    } else {
+      trim.roll += update;
+      autopilot.set("AILERON_TRIM_PCT", trim.roll);
+    }
   }
 }
 

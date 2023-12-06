@@ -52,7 +52,7 @@ export class FlightInformation {
       console.log(`bootstrapped flight information`);
       return { flightModel, flightData };
     } catch (e) {
-      // console.warn(e);
+      console.warn(e);
     }
   }
 
@@ -73,7 +73,43 @@ export class FlightInformation {
       modelData.trimDownLimit ?? -10,
     ];
 
+    // Check whether this plane has shitty trimming
+    this.checkTrimCapability(modelData);
+
     return (this.model = modelData);
+  }
+
+  /**
+   * Some planes need different trimming mechanism.
+   *
+   * FIXME: it would be wonderful if we could determine this
+   * without needing to hardcode lists of planes...
+   */
+  checkTrimCapability(data) {
+    // Nothing like immediately diving into a turn on takeoff...
+    const noAileronTrim = [
+      `ae145`,
+      `ae45`,
+      `fox`,
+      `kodiak 100`,
+      `pa28`,
+      `zenith 701`,
+    ].some((fragment) => data.title.toLowerCase().includes(fragment));
+    if (noAileronTrim) data.noAileronTrim = true;
+
+    // Mostly fighter jets, which may technically have trim,
+    // but you're not going to fly with it.
+    const noElevatorTrim = [`super hornet`].some((fragment) =>
+      data.title.toLowerCase().includes(fragment)
+    );
+    if (noElevatorTrim) data.noElevatorTrim = true;
+
+    // Zooooom! Which means that we need to use drastically smaller steps
+    // for both the wing leveler and the altitude hold corrections.
+    const forAcrobatics = [`gee bee r3`, `super hornet`, `vertigo`].some(
+      (fragment) => data.title.toLowerCase().includes(fragment)
+    );
+    if (forAcrobatics) data.isAcrobatic = true;
   }
 
   /**

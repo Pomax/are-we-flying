@@ -5,6 +5,8 @@ import {
   FEET_PER_DEGREE,
   ALTITUDE_HOLD,
   TERRAIN_FOLLOW,
+  AUTO_THROTTLE,
+  FEET_PER_METER,
 } from "../utils/constants.js";
 import {
   constrain,
@@ -12,7 +14,9 @@ import {
   getCompassDiff,
   getPointAtDistance,
   dist,
-  // nf,
+  nf,
+  getLineCircleIntersection,
+  getHeadingFromTo,
 } from "../utils/utils.js";
 import { changeThrottle } from "../utils/controls.js";
 import { AutoPilot } from "./autopilot.js";
@@ -70,18 +74,6 @@ export class AutoTakeoff {
       title,
     } = model;
 
-    // Some planes are just impossible to work with.
-    if (title.includes(`DC-3`)) {
-      // The DC-3 refuses to play nice with auto-rudder, and instead needs
-      // an instant kick when the tail comes up, then easing off the rudder,
-      // then giving it more rudder again, in a way that just can't be done
-      // using a naive instantaneous-reading-correction approach.
-      autopilot.setTarget(AUTO_TAKEOFF, false);
-      return console.error(
-        `\nAUTO-TAKEOFF NOT SUPPORTED FOR THE DC-3 AT PRESENT\n`
-      );
-    }
-
     if (!this.trimStep) {
       let trimLimit = pitchTrimLimit[0];
       trimLimit = trimLimit === 0 ? 10 : trimLimit;
@@ -106,6 +98,7 @@ export class AutoTakeoff {
       trueHeading,
       VS: vs,
       pitch,
+      declination,
     } = flightData;
 
     const { pitch: dPitch, heading: dHeading } = flightData.d ?? {
@@ -146,10 +139,12 @@ export class AutoTakeoff {
       lat,
       long,
       heading,
+      trueHeading,
       dHeading,
       bankAngle,
       title,
-      totalWeight
+      totalWeight,
+      declination
     );
 
     // Check whether to start (or end) the rotate phase
@@ -167,7 +162,8 @@ export class AutoTakeoff {
       dPitch,
       pitchTrim,
       isTailDragger,
-      engineCount
+      engineCount,
+      title
     );
   }
 
@@ -197,7 +193,8 @@ export class AutoTakeoff {
     if (!this.takeoffHeading) {
       this.takeoffHeading = heading;
       this.takeoffCoord = { lat, long };
-      this.futureCoord = getPointAtDistance(lat, long, 2, trueHeading);
+      this.startCoord = getPointAtDistance(lat, long, -0.1, trueHeading);
+      this.endCoord = getPointAtDistance(lat, long, 0.1, trueHeading);
       autopilot.setTarget(HEADING_MODE, this.takeoffHeading);
     }
 
@@ -211,6 +208,7 @@ export class AutoTakeoff {
     // Set flaps to zero.
     let flaps = await api.get(`FLAPS_HANDLE_INDEX:1`);
     flaps = flaps[`FLAPS_HANDLE_INDEX:1`];
+    api.trigger(`FLAPS_UP`);
     api.set(`FLAPS_HANDLE_INDEX:1`, title.includes("maule-m7") ? 1 : 0);
 
     // Reset all trim values
@@ -266,12 +264,14 @@ export class AutoTakeoff {
     lat,
     long,
     heading,
+    trueHeading,
     dHeading,
     bankAngle,
     title,
-    totalWeight
+    totalWeight,
+    declination
   ) {
-    const { api, takeoffCoord: p1, futureCoord: p2 } = this;
+    const { api, startCoord: p1, endCoord: p2 } = this;
 
     // If we're actually in the air, we want to slolwy easy the rudder back to neutral.
     if (!onGround) {
@@ -283,37 +283,25 @@ export class AutoTakeoff {
       return;
     }
 
-    // Get our airplane's drift with respect to the center line
-    const drift = (function getDistanceToCenterLine() {
-      const c = { lat, long };
-      const abx = p2.long - p1.long;
-      const aby = p2.lat - p1.lat;
-      const acx = c.long - p1.long;
-      const acy = c.lat - p1.lat;
-      const coeff = (abx * acx + aby * acy) / (abx * abx + aby * aby);
-      const dx = p1.long + abx * coeff;
-      const dy = p1.lat + aby * coeff;
-      const cross1 = (p2.long - p1.long) * (c.lat - p1.lat);
-      const cross2 = (p2.lat - p1.lat) * (c.long - p1.long);
-      const left = cross1 - cross2 > 0;
-      // We can ignore great circles over short distances
-      const signedDist = (left ? 1 : -1) * dist(long, lat, dx, dy);
-      // but this number is degrees and we want feet. Which needs a
-      // little magic factor for reasons I would love to understand.
-      return signedDist * FEET_PER_DEGREE * 1.818;
+    // Get the difference in "heading we are on now" and "heading
+    // required to stay on the center line":
+    const limit = NaN;
+    const drift = NaN;
+    const driftCorrection = NaN;
+    const diff = (function () {
+      const plane = { x: long, y: lat };
+      const start = { x: p1.long, y: p1.lat };
+      const end = { x: p2.long, y: p2.lat };
+      const radius = 1000 / FEET_PER_DEGREE;
+      const i = getLineCircleIntersection(plane, start, end, radius);
+      const h1 = getHeadingFromTo(lat, long, i.y, i.x);
+      const h2 = trueHeading;
+      return getCompassDiff(h2, h1);
     })();
 
-    // Then turn that into an error term that we add to "how far off from heading we are":
-    const limit = constrainMap(currentSpeed, 0, minRotate, 120, 4);
-    const driftCorrection = constrainMap(drift, -130, 130, -limit, limit);
-
-    // Get our heading diff, with a drift correction worked in.
-    const diffLimit = constrainMap(totalWeight, 1500, 6000, 3, 10);
-    const diff = constrain(
-      getCompassDiff(heading, this.takeoffHeading + driftCorrection),
-      -diffLimit,
-      diffLimit
-    );
+    if (isNaN(diff)) {
+      return this.abortTakeoff();
+    }
 
     // The faster we're moving, the less rudder we want, but we want
     // the effect to fall off as we get closer to our rotation speed.
@@ -329,26 +317,17 @@ export class AutoTakeoff {
     // Tail draggers need more rudder than tricycles.
     let tailFactor = isTailDragger ? 1 : 0.5;
 
-    // special affordances for problematic airplanes:
-    if (title.includes(`maule-m7`)) {
-      // This plane is twitchy as hell
-      tailFactor /= 4;
-    }
-
+    // The rudder position is now a product of factors.
     let rudder = diff * speedFactor * tailFactor * magic;
 
-    // console.log(
-    //   `STAGE: auto-rudder`,
-    //   `dHeading: ${nf(dHeading)}, drift: ${nf(drift)}, currentSpeed: ${nf(
-    //     currentSpeed
-    //   )}, minRotate: ${nf(minRotate)}, limit: ${nf(
-    //     limit
-    //   )}, driftCorrection: ${nf(driftCorrection)}, diff ${nf(
-    //     diff
-    //   )}, speedFactor ${nf(speedFactor)}, tailFactor ${nf(
-    //     tailFactor
-    //   )}, rudder ${nf(rudder)}`
-    // );
+    console.log(
+      `[STAGE: auto-rudder]`,
+      `dHeading: ${nf(dHeading)}, currentSpeed: ${nf(
+        currentSpeed
+      )}, minRotate: ${nf(minRotate)}, diff ${nf(diff)}, speedFactor ${nf(
+        speedFactor
+      )}, tailFactor ${nf(tailFactor)}, rudder ${nf(rudder)}`
+    );
 
     this.lastDrift = drift;
 
@@ -377,7 +356,8 @@ export class AutoTakeoff {
     dPitch,
     pitchTrim,
     isTailDragger,
-    engineCount
+    engineCount,
+    title
   ) {
     const { api, autopilot, trimStep } = this;
     const rotateSpeed = minRotate + 5;
@@ -392,7 +372,7 @@ export class AutoTakeoff {
       // up launching the plane into a stall.
       if (onGround && (vs < 50 || dVs < 25)) {
         console.log(`on ground, trim up by ${trimStep}`);
-        autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep);
+        autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep / 2);
       }
 
       // if we're in the air:
@@ -404,12 +384,7 @@ export class AutoTakeoff {
         }
 
         // Are we high enough up? Switch to autopilot
-        if (lift > 300) {
-          this.switchToAutopilot(altitude, isTailDragger, engineCount);
-        }
-
-        // Are we ascending fast enough that we should gear-up?
-        if (vs > 500 && !this.gearIsUp) {
+        if (lift > 100) {
           console.log(`gear up`);
           api.trigger(`GEAR_UP`);
           if (isTailDragger) {
@@ -417,21 +392,27 @@ export class AutoTakeoff {
             if (TAILWHEEL_LOCK_ON === 1) api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
           }
           this.gearIsUp = true;
+          this.switchToAutopilot(altitude, isTailDragger, engineCount);
         }
 
         // Pitch protection
-        if (pitch < -10 || dPitch < -5) {
+        if (dVs > 100 && (pitch < -10 || dPitch < -5)) {
           console.log(`to the moon - let's not`);
           autopilot.set(
             "ELEVATOR_TRIM_POSITION",
-            pitchTrim + (pitch / 5) * trimStep
+            pitchTrim + (pitch * trimStep) / 10
           );
         }
 
         // dVS protection
         if (dVs > 200) {
           console.log(`dVS too large, trim down`);
-          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim - trimStep / 2);
+          let factor = constrainMap(dVs, 200, 1000, 1, 5);
+
+          autopilot.set(
+            "ELEVATOR_TRIM_POSITION",
+            pitchTrim - (factor * trimStep) / 10
+          );
         }
 
         // VS protection
@@ -463,7 +444,22 @@ export class AutoTakeoff {
     autopilot.setParameters({
       [AUTO_TAKEOFF]: false,
       [TERRAIN_FOLLOW]: true,
+      [AUTO_THROTTLE]: true,
       [ALTITUDE_HOLD]: targetAltitude,
+    });
+  }
+
+  async abortTakeoff() {
+    const { api, autopilot } = this;
+
+    for (let i = 1; i <= engineCount; i++) {
+      api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
+    }
+
+    console.log(`switching off autopilot.`);
+    autopilot.setParameters({
+      MASTER: false,
+      [AUTO_TAKEOFF]: false,
     });
   }
 }

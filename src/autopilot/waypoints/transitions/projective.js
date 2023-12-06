@@ -34,8 +34,7 @@ export function getHeading(waypoints, heading, cy, cx, speed, declination) {
       waypoints.transition();
       return;
     }
-    heading = getHeadingFromTo(cy, cx, p1y, p1x);
-    return (heading - declination + 360) % 360;
+    return getHeadingFromTo(cy, cx, p1y, p1x, declination);
   }
 
   p2.activate();
@@ -78,6 +77,5 @@ export function getHeading(waypoints, heading, cy, cx, speed, declination) {
   }
 
   // Update our heading to align us with our flight path.
-  heading = getHeadingFromTo(cy, cx, target.y, target.x);
-  return (heading - declination + 360) % 360;
+  return getHeadingFromTo(cy, cx, target.y, target.x, declination);
 }

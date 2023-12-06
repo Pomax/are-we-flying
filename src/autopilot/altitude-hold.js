@@ -24,7 +24,7 @@ const DEFAULT_MAX_VS = 1000;
 
 // Test constants
 const FEATURES = {
-  EMERGENCY_PROTECTION: true,
+  EMERGENCY_PROTECTION: false,
   COUNTER_SPEED_PROTECTION: true,
   DROP_PROTECTION: true,
   DAMPEN_CLOSE_TO_ZERO: true,
@@ -35,6 +35,9 @@ const FEATURES = {
   BOOST_SMALL_CORRECTIONS: true,
 };
 
+// how much above/below the current VS we want to peg target speeds
+const PLATEAU = 200;
+
 // The elevator trim uses a super weird unit, where +/- 100% maps
 // to "pi divided by 10", i.e. +/- 0.31415[...], so we need to
 // have steps that make sense in radians: our small step roughly
@@ -44,10 +47,22 @@ const LARGE_TRIM = radians(0.035);
 
 export const LOAD_TIME = Date.now();
 
-export async function altitudeHold(autopilot, { data: flightData, model }) {
+/**
+ * TODO: add stick-based alternative to trim
+ * @param {*} autopilot
+ * @param {*} param1
+ * @returns
+ */
+export async function altitudeHold(
+  autopilot,
+  { data: flightData, model },
+  useStickInstead = false
+) {
+  console.log(`useStickInstead: ${useStickInstead}`);
+
   // The local and state values we'll be working with:
   const { trim } = autopilot;
-  const { VS, speed } = flightData;
+  const { VS, speed, pitch } = flightData;
   const { VS: dVS, pitch: dPitch } = flightData.d ?? { VS: 0, pitch: 0 };
 
   // A helper function that lets us update the trim vector
@@ -58,13 +73,29 @@ export async function altitudeHold(autopilot, { data: flightData, model }) {
   };
 
   // How big should our trim steps be?
-  let trimLimit = model.pitchTrimLimit[0];
+  const { weight, pitchTrimLimit, isAcrobatic } = model;
+  let trimLimit = pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
   const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
   let trimStep = constrainMap(speed, 50, 200, 5, 20) * small;
 
+  // Are we "trimming" on the stick?
+  let elevator = 0;
+  if (useStickInstead) {
+    console.log(`ALT on stick`);
+    autopilot.set("ELEVATOR_TRIM_POSITION", 0);
+    // FIXME: TODO: what's this value based on?
+    trimStep = 5;
+    // The following value is in the range [-1, 1]
+    elevator = (await autopilot.get(`ELEVATOR_POSITION`)).ELEVATOR_POSITION;
+    console.log(`elevator: ${elevator}`);
+  }
+
+  // acrobatic planes need smaller corrections than regular planes
+  else if (model.isAcrobatic) trimStep /= 5;
+
   // What are our VS parameters?
-  let maxVS = DEFAULT_MAX_VS;
+  let maxVS = (isAcrobatic ? 2 : 1) * DEFAULT_MAX_VS;
   maxVS = constrainMap(speed, 30, 100, maxVS / 10, maxVS);
   let { targetVS, altDiff, direction } = await getTargetVS(
     autopilot,
@@ -73,41 +104,26 @@ export async function altitudeHold(autopilot, { data: flightData, model }) {
     maxVS
   );
 
-  // Quick check: are we pitching *way* out of control?
-  if (FEATURES.EMERGENCY_PROTECTION) {
-    const DELTA_PITCH_LIMIT = constrainMap(speed, 50, 200, 1, 5);
-    const dPitchLimit = VS < 0 ? DELTA_PITCH_LIMIT / 2 : DELTA_PITCH_LIMIT;
-    const pitchExcess = exceeds(dPitch, dPitchLimit);
-    if (pitchExcess !== 0 && sign(direction) !== sign(VS)) {
-      console.log(`emergency recovery (1) - pitchExcess: ${pitchExcess}`);
-      return updateTrim(pitchExcess * trimStep / 10);
-    }
-
-    // Second quick check: even if we're not pitching like crazy, are we
-    // moving in the wrong direction too fast?
-    if (
-      FEATURES.COUNTER_SPEED_PROTECTION &&
-      direction !== sign(VS) &&
-      abs(VS) > 200 &&
-      abs(targetVS) > 200
-    ) {
-      console.log(`emergency recovery (2) - targetVS: ${targetVS}, VS: ${VS}`);
-      // note that we want to pitch up, so to add a positive number we use -VS:
-      let factor = -VS / (VS < 0 ? 500 : 1000);
-      if (abs(VS) > 2 * maxVS) factor *= 2;
-      return updateTrim(factor * trimStep);
-    }
-
-    // Third quick check: are we descending (possibly *way*) too fast?
-    if (FEATURES.DROP_PROTECTION && VS < -2 * maxVS) {
-      console.log(
-        `emergency recovery (3) - VS: ${VS}, threshold: ${-2 * maxVS}`
-      );
-      return updateTrim((-VS / 500) * trimStep);
-    }
-  }
+  // Restrict the target to always be within reason with respect
+  // to VS, unless VS itself was unreasonable already, of course.
+  targetVS = constrain(
+    //constrain(
+    targetVS,
+    // VS - PLATEAU, VS + PLATEAU),
+    -maxVS,
+    maxVS
+  );
 
   const diff = targetVS - VS;
+
+  // Do some console stats
+  console.log(
+    `pitch = ${nf(pitch)}, dPitch = ${nf(dPitch)}, maxVS: ${nf(
+      maxVS
+    )}, targetVS: ${nf(targetVS)}, VS: ${nf(VS)}, dVS: ${nf(dVS)}, diff: ${nf(
+      diff
+    )}, speed: ${nf(speed)}`
+  );
 
   // Nudge us towards the correct vertical speed
   let update = 0;
@@ -141,13 +157,6 @@ export async function altitudeHold(autopilot, { data: flightData, model }) {
   if (!isNaN(update)) {
     const updateMagnitude = update / trimStep;
 
-    // Do some console stats
-    console.log(
-      `dPitch = ${nf(dPitch)}, maxVS: ${nf(maxVS)}, targetVS: ${nf(
-        targetVS
-      )}, VS: ${nf(VS)}, dVS: ${nf(dVS)}, update: ${nf(updateMagnitude)}`
-    );
-
     // Skip tiny updates if we're already moving in the right direction
     if (FEATURES.SKIP_TINY_UPDATES) {
       if (sign(targetVS) === sign(VS) && abs(updateMagnitude) < 0.001) return;
@@ -159,7 +168,14 @@ export async function altitudeHold(autopilot, { data: flightData, model }) {
         update *= 2;
     }
 
-    updateTrim(update);
+    if (useStickInstead) {
+      // add the update, scaled to [-1, 1]
+      const newValue = elevator + update / 100;
+      // then trigger an aileron set action, scaled to the sim's [-16k, 16k] range
+      autopilot.trigger("ELEVATOR_SET", (-16000 * newValue) | 0);
+    } else {
+      updateTrim(update);
+    }
   }
 }
 
@@ -186,6 +202,7 @@ async function getTargetVS(autopilot, flightData, model, maxVS) {
   let targetVS = DEFAULT_TARGET_VS;
   let direction = undefined;
   let altDiff = undefined;
+  const PLATEAU = 200;
 
   // Are we flying using waypoints?
   updateAltitudeFromWaypoint(autopilot);
@@ -197,66 +214,62 @@ async function getTargetVS(autopilot, flightData, model, maxVS) {
 
     // positive = we need +VS, negative = we need -VS
     direction = sign(altDiff);
-    const plateau = 200;
 
     if (FEATURES.SMOOTH_RAMP_UP) {
       // If we're more than 200 feet away from our target, ramp
       // our target up to maxVS, and keep it there.
-      if (abs(altDiff) > plateau) {
+      if (abs(altDiff) > PLATEAU) {
         // start ramping up our vertical speed until we're at maxVS
         if (abs(VS) < maxVS) {
           // if we haven't reached maxVS yet, slowly ramp up by 10fpm each iteration
-          const step = direction * plateau;
+          const step = direction * PLATEAU;
           targetVS = constrain(VS + step, -maxVS, maxVS);
         } else {
           // otherwise our target is simply max VS
           targetVS = direction * maxVS;
         }
+
+        // FIXME: we can probably improve things here to make sure we don't hang
+        //        around in the "drifting away from the target" territory.
       }
 
       // Else, if we're close to the target, start reducing our target
       // speed such that our target VS is zero at our target altitude.
       else {
-        targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
+        targetVS = constrainMap(altDiff, -PLATEAU, PLATEAU, -maxVS, maxVS);
       }
     }
 
     // if we're not smooth-ramping, we just target maxVs
     else {
-      targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
+      targetVS = constrainMap(altDiff, -PLATEAU, PLATEAU, -maxVS, maxVS);
     }
 
     // If we are, then we also want to boost our ability to control
     // vertical speed, by using a (naive) auto-throttle procedure.
     if (autopilot.modes[AUTO_THROTTLE]) {
-      targetVS = await autoThrottle(
-        flightData,
-        model,
-        autopilot.api,
-        altDiff,
-        targetVS
-      );
+      autoThrottle(flightData, model, autopilot.api, altDiff, targetVS);
     }
   }
 
-  if (FEATURES.STALL_PROTECTION && targetVS > 0) {
-    // And of course: if we're close to our stall speed, and we need to
-    // climb, *CLIMB LESS FAST*. A simple rule, but really important.
-    let { DESIGN_SPEED_VS1, DESIGN_SPEED_CLIMB } = await autopilot.api.get(
-      `DESIGN_SPEED_CLIMB`,
-      `DESIGN_SPEED_VS1`
-    );
-    // We don't want feet per second, we want knots:
-    const cruiseSpeed = DESIGN_SPEED_CLIMB * FPS_IN_KNOTS;
-    const stallSpeed = DESIGN_SPEED_VS1 * FPS_IN_KNOTS;
-    targetVS = constrainMap(
-      speed,
-      stallSpeed,
-      cruiseSpeed,
-      targetVS / 2,
-      targetVS
-    );
-  }
+  // if (FEATURES.STALL_PROTECTION && targetVS > 0) {
+  //   // And of course: if we're close to our stall speed, and we need to
+  //   // climb, *CLIMB LESS FAST*. A simple rule, but really important.
+  //   let { DESIGN_SPEED_VS1, DESIGN_SPEED_CLIMB } = await autopilot.api.get(
+  //     `DESIGN_SPEED_CLIMB`,
+  //     `DESIGN_SPEED_VS1`
+  //   );
+  //   // We don't want feet per second, we want knots:
+  //   const cruiseSpeed = DESIGN_SPEED_CLIMB * FPS_IN_KNOTS;
+  //   const stallSpeed = DESIGN_SPEED_VS1 * FPS_IN_KNOTS;
+  //   targetVS = constrainMap(
+  //     speed,
+  //     stallSpeed,
+  //     cruiseSpeed,
+  //     targetVS / 2,
+  //     targetVS
+  //   );
+  // }
 
   return { targetVS, altDiff, direction };
 }
@@ -273,80 +286,42 @@ const ATT_PROPERTIES = [
  * damaging the plane, whereas if we're flying up, we need max throttle, and in
  * level flight we want to cruise at "our rated cruise speed".
  *
+ * FIXME: this code needs to take Vne into account, but we don't know what that
+ *        value is. So instead, we want to make sure planes never exceed their
+ *        cruise speed.
+ *
  * @param {*} api
  * @param {*} altDiff
  */
 async function autoThrottle(flightData, model, api, altDiff, targetVS) {
   const speed = round(flightData.speed);
-  const { VS, overSpeed } = flightData;
   const { climbSpeed, cruiseSpeed, engineCount } = model;
 
-  const throttleStep = 0.2;
-  const tinyStep = throttleStep / 10;
-  const ALT_LIMIT = 200;
-  const BRACKET = 2;
+  const throttleStep = 0.2; // in percentages
+  const throttle = (f = 1) =>
+    changeThrottle(api, engineCount, throttleStep * f);
 
-  const adjustment = constrainMap(
-    abs(altDiff),
-    0,
-    ALT_LIMIT,
-    tinyStep,
-    throttleStep
-  );
+  let adjusted = false;
 
-  const change = (v) => changeThrottle(api, engineCount, v);
-
-  // Are we at/near cruise altitude with a VS that's stable enough that we can throttle?
-  if (abs(altDiff) < ALT_LIMIT) {
-    // console.log(`at/near cruise altitude`);
-    if (speed < cruiseSpeed - BRACKET && VS < 15) {
-      // console.log(`throttle up from ${speed} to cruise speed (${cruiseSpeed})`);
-      change(
-        constrainMap(cruiseSpeed - speed, 0, 10, adjustment, throttleStep)
-      );
-    }
-    if (speed > cruiseSpeed + BRACKET && VS > -15) {
-      // console.log(`throttle down from ${speed} to cruise speed (${cruiseSpeed})`);
-      change(
-        -constrainMap(speed - cruiseSpeed, 0, 10, adjustment, throttleStep)
-      );
-    }
+  // Are we descending too fast?
+  if (speed > cruiseSpeed + 1 && targetVS < 0) {
+    const f = -speed / cruiseSpeed;
+    console.log(`slow down (${f})`);
+    adjusted = throttle(f);
   }
 
-  // If we're not, and we need to climb, throttle the plane up to optimal climb speed.
-  else if (altDiff > ALT_LIMIT) {
-    // console.log(`altDiff > ${ALT_LIMIT}`);
-    if (speed < climbSpeed) {
-      // console.log(`throttle up from ${speed} to climb speed (${climbSpeed})`);
-      change(adjustment);
-    } else if (VS < 0.8 * targetVS) {
-      // console.log(`throttle up to increase VS from ${VS} to ${targetVS}`);
-      change(adjustment);
-    }
+  // Are we climbing too slow?
+  if (speed < climbSpeed + 1 && targetVS > 0) {
+    const f = climbSpeed / speed;
+    console.log(`speed up (${f})`);
+    adjusted = throttle(f);
   }
 
-  // If we're not, and we need to descend, throttle (mostly) down to maintain a safe speed.
-  else if (altDiff < -ALT_LIMIT) {
-    // console.log(`altDiff < -${ALT_LIMIT}`);
-    if (speed > cruiseSpeed + BRACKET) {
-      // console.log(`throttle down from ${speed} to cruise speed (${cruiseSpeed})`);
-      change(-adjustment / 2);
-    } else if (speed < cruiseSpeed - BRACKET) {
-      // console.log(`throttle up from ${speed} to cruise speed (${cruiseSpeed})`);
-      change(adjustment / 4);
-    }
-    // Also, as this represents a potentially dangerous situation, we should be aiming for a slower descent.
-    return constrainMap(speed, climbSpeed - 20, climbSpeed, 0, targetVS);
+  // Are we not flying at regular cruise speed?
+  if (!adjusted && speed < cruiseSpeed - 2) {
+    console.log(`get back to cruise`);
+    throttle();
   }
-
-  // If the over-speed warning is going off, drastically reduce speed
-  // (although over-speeding is mostly a jumbo jet issue).
-  if (overSpeed === 1) {
-    // console.log(`!!! over-speed !!!`);
-    change(-5 * throttleStep);
-  }
-
-  return targetVS;
 }
 
 /**
