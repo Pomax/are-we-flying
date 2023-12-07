@@ -14,6 +14,8 @@ export async function changeThrottle(
   floor = 0,
   ceiling = 100
 ) {
+
+  // FIXME: TODO: add a flag that uses trigger(`THROTTLE_SET`)? Maybe?
   let newThrottle;
   for (let count = 1; count <= engineCount; count++) {
     const simVar = `GENERAL_ENG_THROTTLE_LEVER_POSITION:${count}`;

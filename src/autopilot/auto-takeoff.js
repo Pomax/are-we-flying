@@ -443,7 +443,7 @@ export class AutoTakeoff {
     console.log(`switch to autopilot.`);
     autopilot.setParameters({
       [AUTO_TAKEOFF]: false,
-      [TERRAIN_FOLLOW]: true,
+      [TERRAIN_FOLLOW]: autopilot.modes[TERRAIN_FOLLOW] ?? 500,
       [AUTO_THROTTLE]: true,
       [ALTITUDE_HOLD]: targetAltitude,
     });

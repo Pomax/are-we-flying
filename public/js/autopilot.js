@@ -37,6 +37,10 @@ export class Autopilot {
             value =
               document.querySelector(`#autopilot .altitude`).value ?? 1500;
           }
+          if (key === `TER`) {
+            value =
+              document.querySelector(`#autopilot .terrain`).value ?? 500;
+          }
           if (key === `HDG`) {
             value = document.querySelector(`#autopilot .heading`).value ?? 360;
           }
@@ -51,6 +55,14 @@ export class Autopilot {
       ?.addEventListener(`change`, (evt) => {
         const { value } = evt.target;
         server.autopilot.update({ ALT: value });
+        evt.target.blur();
+      });
+
+    document
+      .querySelector(`#autopilot .terrain`)
+      ?.addEventListener(`change`, (evt) => {
+        const { value } = evt.target;
+        server.autopilot.update({ TER: value });
         evt.target.blur();
       });
 
@@ -77,6 +89,12 @@ export class Autopilot {
         const altitude = document.querySelector(`#autopilot .altitude`);
         if (!altitude || altitude === document.activeElement) return;
         altitude.value = parseFloat(value).toFixed(1);
+      }
+
+      if (value && key === `TER`) {
+        const terrain = document.querySelector(`#autopilot .terrain`);
+        if (!terrain || terrain === document.activeElement) return;
+        terrain.value = parseFloat(value).toFixed(1);
       }
 
       if (value && key === `HDG`) {

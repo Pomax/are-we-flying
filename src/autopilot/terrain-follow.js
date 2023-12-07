@@ -4,6 +4,7 @@ import {
   ALTITUDE_HOLD,
   FEET_PER_METER,
   KMS_PER_KNOT,
+  TERRAIN_FOLLOW,
 } from "../utils/constants.js";
 import {
   ALOS_VOID_VALUE,
@@ -29,10 +30,9 @@ export const LOAD_TIME = Date.now();
 export async function followTerrain(
   autopilot,
   { data: flightData },
-  altitude = 500
 ) {
+  const altitude = parseFloat(autopilot.modes[TERRAIN_FOLLOW] ?? 500);
   const { lat, long, trueHeading, speed } = flightData;
-
   const distance = getDistanceGivenSpeed(speed);
   const { lat: lat2, long: long2 } = getPointAtDistance(
     lat,

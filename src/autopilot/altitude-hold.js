@@ -319,7 +319,7 @@ async function autoThrottle(flightData, model, api, altDiff, targetVS) {
 
   // Are we not flying at regular cruise speed?
   if (!adjusted && speed < cruiseSpeed - 2) {
-    console.log(`get back to cruise`);
+    console.log(`get back to cruise (${cruiseSpeed | 0} kts)`);
     throttle();
   }
 }
