@@ -81,8 +81,8 @@ export async function altitudeHold(
     const percent = (v) => (1000 * v) / Math.PI;
     const position = (v) => (Math.PI * v) / 1000;
     const current = percent(currentPosition);
-    const lower = current - 1;
-    const higher = current + 1;
+    const lower = current - constrainMap(weight, 1000, 6000, 1, 3);
+    const higher = current + constrainMap(weight, 1000, 6000, 1, 3);
     const lowPos = position(lower);
     const highPos = position(higher);
     trim.pitch = constrain(trim.pitch + update, lowPos, highPos);

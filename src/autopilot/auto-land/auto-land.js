@@ -189,6 +189,10 @@ class AutoLand {
 
     if (stage === GETTING_TO_APPROACH) {
       if (remainingWaypoints < 4) {
+        autopilot.setParameters({
+          // we do NOT want auto-throttle to interfere with the auto-lander.
+          [AUTO_THROTTLE]: false,
+        });
         stageManager.nextStage();
       }
     }
@@ -235,10 +239,15 @@ class AutoLand {
         changeThrottle(api, engineCount, +1);
       } else if (speed > climbSpeed + 2) {
         console.log(`throttle down`);
-        changeThrottle(api, engineCount, -0.5);
+        changeThrottle(api, engineCount, -1);
       }
 
-      if (trackLeft <= 1) {
+      // FIXME: limit how low we can set the throttle, so we don't get
+      //        "NOT ENOUGH THROTTLE HALP HALP" beeps in the cockpit.
+
+      // When we get to within "I can travel this many NM in a minute",
+      // gear down and start getting onto the runway.
+      if (trackLeft <= speed / 60) {
         console.log(`Gear down`);
         api.trigger(`GEAR_DOWN`);
         stageManager.nextStage();
@@ -266,7 +275,7 @@ class AutoLand {
 
       if (speed > climbSpeed - 10) {
         console.log(`please throttle down`);
-        changeThrottle(api, engineCount, -2);
+        changeThrottle(api, engineCount, -1);
       }
 
       if (overRunway) {
@@ -306,7 +315,6 @@ class AutoLand {
         [LEVEL_FLIGHT]: false,
         [ALTITUDE_HOLD]: false,
         [HEADING_MODE]: false,
-        [AUTO_THROTTLE]: false,
       });
 
       await autorudder(
