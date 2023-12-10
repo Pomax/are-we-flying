@@ -10,6 +10,7 @@ import {
   TERRAIN_FOLLOW,
 } from "../../utils/constants.js";
 import { ALLOW_SELF_SIGNED_CERTS } from "socketless";
+import { getDistanceBetweenPoints } from "../../utils/utils.js";
 
 export const LOAD_TIME = Date.now();
 const { abs } = Math;
@@ -27,7 +28,7 @@ export class WayPoints {
     this.autopilot = autopilot;
     this.reset();
     if (original) Object.assign(this, original);
-    watch(`${__dirname}waypoint.js`, (lib) => {
+    watch(__dirname, `waypoint.js`, (lib) => {
       Waypoint = lib.Waypoint;
       const { points } = this;
       points.forEach((p) => Object.setPrototypeOf(p, Waypoint.prototype));
@@ -109,7 +110,7 @@ export class WayPoints {
     const { points } = this;
     const nearest = { distance: Number.MAX_SAFE_INTEGER, pos: -1 };
     points.forEach((p, pos) => {
-      p.reset();
+      p.reset(p.landing);
       const d = getDistanceBetweenPoints(lat, long, p.lat, p.long);
       if (abs(d) < nearest.distance) {
         nearest.distance = d;

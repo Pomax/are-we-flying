@@ -11,6 +11,9 @@ import { watch } from "../../utils/reload-watcher.js";
 import { AutoPilot as ap } from "../../autopilot/autopilot.js";
 let AutoPilot = ap;
 
+import { FlightInformation as fi } from "../../utils/flight-information.js";
+let FlightInformation = fi;
+
 // routers
 import { APIRouter } from "./routers/api-router.js";
 import { AutopilotRouter } from "./routers/autopilot-router.js";
@@ -29,6 +32,7 @@ let autopilot = false;
  */
 export class ServerClass {
   clients = [];
+  #flightInformation = {};
 
   /**
    * ...docs go here...
@@ -38,10 +42,20 @@ export class ServerClass {
   }
 
   async init() {
-    watch(`${__dirname}../../autopilot/autopilot.js`, (lib) => {
+    watch(__dirname, `../../autopilot/autopilot.js`, (lib) => {
       AutoPilot = lib.AutoPilot;
       if (autopilot) {
         Object.setPrototypeOf(autopilot, AutoPilot.prototype);
+      }
+    });
+
+    watch(__dirname, `../../utils/flight-information.js`, (module) => {
+      FlightInformation = module.FlightInformation;
+      if (this.#flightInformation) {
+        Object.setPrototypeOf(
+          this.#flightInformation,
+          FlightInformation.prototype
+        );
       }
     });
 
@@ -87,6 +101,8 @@ export class ServerClass {
     console.log(
       `${(await api.get(`ALL_AIRPORTS`)).ALL_AIRPORTS.length} airports loaded`
     );
+    this.#flightInformation = new FlightInformation(api);
+    this.#flightInformation.update();
     this.#registerWithAPI(api, autopilot);
     this.clients.forEach((client) => client.onMSFS(MSFS));
     this.#poll();
@@ -149,6 +165,12 @@ export class ServerClass {
    * Run an "are we flying?" check every few seconds
    */
   async #poll() {
+    if (!autopilot.autoPilotEnabled) {
+      // if the autopilot is running, it will be updating
+      // the flight information more frequently than the
+      // server would otherwise be updating it.
+      this.sendFlightInformation(await this.#flightInformation.update());
+    }
     this.#checkFlying();
     setTimeout(() => this.#poll(), 5000);
   }
@@ -195,11 +217,23 @@ export class ServerClass {
       2 <= camera && camera < 9 && (onGround === 0 || load !== 0 || amps !== 0);
 
     if (flying !== wasFlying) {
-      autopilot.reset();
+      autopilot.reset(this.#flightInformation, (data) =>
+        this.sendFlightInformation(data)
+      );
       this.clients.forEach((client) => client.setFlying(flying));
     } else if (client) {
       client.setFlying(flying);
     }
+  }
+
+  /**
+   * Send updated flight information to each client
+   * @param {*} flightInformation
+   */
+  sendFlightInformation(flightInformation) {
+    this.clients.forEach((client) =>
+      client.setFlightInformation(flightInformation)
+    );
   }
 
   /**

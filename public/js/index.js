@@ -6,20 +6,10 @@ class BrowserClient {
 
   async init() {
     this.plane = new Plane(this.server);
-    const URLqueries = new URLSearchParams(window.location.search);
-    const experiment = URLqueries.get(`experiment`);
-    if (experiment) {
-      this.loadExperiment(experiment);
-    }
-  }
-
-  async loadExperiment(experiment) {
-    import(`./experiments/${experiment}/index.js`).then(
-      ({ Experiment }) => new Experiment(this.plane)
-    );
   }
 
   async update(prevState) {
+    document.body.classList.toggle(`connected`, this.state.serverConnection);
     this.plane.updateState(this.state);
   }
 }

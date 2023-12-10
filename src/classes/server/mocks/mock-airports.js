@@ -1,3 +1,5 @@
+// FIXME: TODO: now that MSFS has all airports bundled, we shouldn't need this file
+
 // Victoria International Airport
 export const airports = [
   {

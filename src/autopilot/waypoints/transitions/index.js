@@ -12,15 +12,18 @@ const TransitionModes = {
 };
 
 watch(
-  `${__dirname}naive.js`,
+  __dirname,
+  `naive.js`,
   (lib) => (TransitionModes.getNaiveHeading = lib.getHeading)
 );
 watch(
-  `${__dirname}projective.js`,
+  __dirname,
+  `projective.js`,
   (lib) => (TransitionModes.getProjectiveHeading = lib.getHeading)
 );
 watch(
-  `${__dirname}double-projective.js`,
+  __dirname,
+  `double-projective.js`,
   (lib) => (TransitionModes.getDoubleProjectiveHeading = lib.getHeading)
 );
 

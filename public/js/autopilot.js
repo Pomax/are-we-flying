@@ -6,12 +6,13 @@ autopilot.innerHTML = content;
 
 export const AP_DEFAULT = {
   MASTER: false,
-  LVL: false,
-  ALT: false,
-  ATT: false,
-  TER: false,
-  HDG: false,
-  ATO: false,
+  LVL: false, // wing level
+  ALT: false, // altitude hold
+  ATT: false, // auto throttle
+  TER: false, // terrain follow
+  HDG: false, // heading mode
+  ATO: false, // auto takeoff
+  ATL: false, // autoland
 };
 
 /**
@@ -38,8 +39,7 @@ export class Autopilot {
               document.querySelector(`#autopilot .altitude`).value ?? 1500;
           }
           if (key === `TER`) {
-            value =
-              document.querySelector(`#autopilot .terrain`).value ?? 500;
+            value = document.querySelector(`#autopilot .terrain`).value ?? 500;
           }
           if (key === `HDG`) {
             value = document.querySelector(`#autopilot .heading`).value ?? 360;

@@ -1,13 +1,4 @@
-import url from "node:url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-import { AutoPilot } from "../../autopilot/autopilot.js";
-
-import { watch } from "../../utils/reload-watcher.js";
-import { FlightInformation as fi } from "../../utils/flight-information.js";
-let FlightInformation = fi;
-
 const RECONNECT_TIMEOUT_IN_MS = 5000;
-const POLL_RATE_IN_MS = 1000;
 
 // Do we have a flight owner key that we need to authenticate with?
 let fok = undefined;
@@ -22,22 +13,11 @@ export class ClientClass {
   #reconnection;
 
   /**
-   * @type {FlightInformation}
-   */
-  #flightInfo;
-
-  /**
    * When our client starts up, also start a reconnect
    * attempt
    */
   init() {
     this.#resetState();
-    watch(`${__dirname}../../utils/flight-information.js`, (module) => {
-      FlightInformation = module.FlightInformation;
-      if (this.#flightInfo) {
-        Object.setPrototypeOf(this.#flightInfo, FlightInformation.prototype);
-      }
-    });
     setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
   }
 
@@ -49,7 +29,7 @@ export class ClientClass {
       flightModel: false,
       flying: false,
       MSFS: false,
-      offline: true,
+      serverConnection: false,
       paused: true,
     });
   }
@@ -85,7 +65,7 @@ export class ClientClass {
     this.setState({
       autopilot:
         this.state.autopilot ?? (await this.server.autopilot.getParameters()),
-      offline: false,
+      serverConnection: true,
     });
     if (fok) {
       this.setState({
@@ -99,8 +79,8 @@ export class ClientClass {
     console.log(`disconnected`);
     this.setState({
       flying: false,
-      offline: true,
       MSFS: false,
+      serverConnection: true,
     });
     this.#tryReconnect();
   }
@@ -110,7 +90,7 @@ export class ClientClass {
    * @param {*} browser
    */
   async onBrowserConnect(browser) {
-    this.setState({ connected: true });
+    this.setState({ browserConnected: true });
   }
 
   /**
@@ -118,7 +98,7 @@ export class ClientClass {
    * @param {*} browser
    */
   async onBrowserDisconnect(browser) {
-    this.setState({ connected: false });
+    this.setState({ browserConnected: false });
   }
 
   /**
@@ -189,19 +169,14 @@ export class ClientClass {
     if (flying && !wasFlying) {
       console.log(`starting a new flight...`);
       this.setState({ crashed: false, MSFS: true, paused: false });
-      this.#flightInfo = new FlightInformation(this.server.api);
-      this.setState(await this.#flightInfo.update());
-      this.#poll();
     }
   }
 
   /**
    * ...docs go here...
+   * @param {*} param0
    */
-  async #poll() {
-    if (!this.state.flying) return;
-    const flightData = await this.#flightInfo.updateFlight();
-    if (flightData) this.setState({ flightData });
-    setTimeout(() => this.#poll(), POLL_RATE_IN_MS);
+  async setFlightInformation({ flightData, flightModel }) {
+    this.setState({ flightData, flightModel });
   }
 }

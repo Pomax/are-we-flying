@@ -1,6 +1,6 @@
-import { execSync } from "child_process";
-import { existsSync, readFileSync, copyFileSync } from "fs";
-import { basename, join } from "path";
+import { execSync } from "node:child_process";
+import { existsSync, readFileSync, copyFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import tiff from "tiff";
 import { ALOS_VOID_VALUE, CACHE_DIR } from "./alos-constants.js";
 

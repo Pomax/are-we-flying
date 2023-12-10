@@ -1145,7 +1145,7 @@ let Something = s;
 
 // We can then set up our reload watched to update that mutable variable
 // every time something changes in our module file:
-watch(`${__dirname}some-module.js`, (lib) => {
+watch(__dirname, `some-module.js`, (lib) => {
   Something = lib.Something
 });
 ```
@@ -1159,7 +1159,7 @@ let instance = new Something();
 
 // We can then set up our reload watched to update that mutable variable
 // every time something changes in our module file:
-watch(`${__dirname}some/dir/with/some-module.js`, (lib) => {
+watch(__dirname, `some/dir/with/some-module.js`, (lib) => {
   Something = lib.Something;
   if (instance) {
     // This swaps the old prototype for the new code, without affecting
@@ -2502,7 +2502,7 @@ import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
 import { watch } from "../../api/autopilot/reload-watcher.js";
 import { AutoPilot as ap } from "../../api/autopilot/autopilot.js";
 let AutoPilot = ap;
-watch(`${__dirname}../../api/autopilot/`, `autopilot.js`, (lib) => {
+watch(__dirname, `../../api/autopilot/`, `autopilot.js`, (lib) => {
   AutoPilot = lib.AutoPilot;
   if (autopilot) {
     Object.setPrototypeOf(autopilot, AutoPilot.prototype);
@@ -2814,7 +2814,7 @@ import { LEVEL_FLIGHT } from "./utils/constants.js";
 import { watch } from "./reload-watcher.js";
 import { flyLevel as fl } from "./fly-level.js";
 let flyLevel = fl;
-watch(`${__dirname}fly-level.js`, (lib) => (flyLevel = lib.flyLevel));
+watch(__dirname, `fly-level.js`, (lib) => (flyLevel = lib.flyLevel));
 
 export class Autopilot {
   constructor(...) {
@@ -2924,7 +2924,7 @@ import { LEVEL_FLIGHT, ALTITUDE_HOLD } from "./utils/constants.js";
 // We'll be doing some hot-reload-watching here too:
 import { altitudeHold as ah } from "./altitude-hold.js";
 let altitudeHold = ah;
-watch(`${__dirname}altitude-hold.js` (lib) => (altitudeHold = lib.altitudeHold));
+watch(__dirname, `altitude-hold.js` (lib) => (altitudeHold = lib.altitudeHold));
 
 export class Autopilot {
   constructor(...) {
@@ -5510,7 +5510,7 @@ export class AutoPilot {
 
   watchForUpdates() {
     ...
-    watch(`${__dirname}auto-takeoff.js`, (lib) => {
+    watch(__dirname, `auto-takeoff.js`, (lib) => {
       AutoTakeoff = lib.AutoTakeoff;
       // since this is a class instance, run a copy construction:
       this.autoTakeoff = new AutoTakeoff(this, this.autoTakeoff);

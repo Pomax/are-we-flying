@@ -19,7 +19,7 @@ export function initCharts(container) {
 
   const chartables = {
     // basics
-    ground: { unit: `feet`, positive: true, fixed: 1, max: 1500, filled: true },
+    ground: { unit: `feet`, positive: true, fixed: 1, max: 1500 },
     altitude: { unit: `feet`, positive: true, fixed: 1 },
     speed: { unit: `knots`, positive: true, fixed: 2 },
     // elevator

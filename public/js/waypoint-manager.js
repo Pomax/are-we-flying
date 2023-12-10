@@ -37,10 +37,11 @@ export class WaypointOverlay {
     document
       .querySelector(`button[name="save"]`)
       .addEventListener(`click`, () => {
-        const points = this.waypoints.map(({ lat, long, alt }) => ({
+        const points = this.waypoints.map(({ lat, long, alt, landing }) => ({
           lat,
           long,
           alt,
+          landing,
         }));
         const data = JSON.stringify(points, null, 2);
         const downloadLink = document.createElement(`a`);
@@ -56,18 +57,25 @@ export class WaypointOverlay {
       .addEventListener(`change`, (evt) => {
         const file = evt.target.files[0];
         var reader = new FileReader();
-        reader.onload = () => {
+        reader.onload = async () => {
           var text = reader.result;
           try {
             const data = JSON.parse(text);
             console.log(`data parsed`);
             try {
-              data.forEach(({ lat, long, alt }) =>
-                this.owner.server.autopilot.addWaypoint(lat, long, alt)
-              );
+              data.forEach(({ lat, long, alt, landing }) => {
+                this.owner.server.autopilot.addWaypoint(
+                  lat,
+                  long,
+                  alt,
+                  landing
+                );
+              });
               console.log(`waypoints added`);
               try {
-                this.owner.server.autopilot.revalidateWaypoints();
+                await this.owner.server.autopilot.resetWaypoints();
+                // TODO: FIXME: only revalidate if we're in the air.
+                // await this.owner.server.autopilot.revalidateWaypoints();
                 console.log(`Loaded flight path from file.`);
               } catch (e) {
                 console.error(`Problem revalidating`);
@@ -125,7 +133,7 @@ export class WaypointOverlay {
    */
   addNewWaypointToMap(waypoint) {
     waypoint = new Waypoint(waypoint);
-    const { lat, long, completed, NM } = waypoint;
+    const { active, completed, landing, lat, long } = waypoint;
 
     const wpClass = `waypoint-marker${completed ? ` completed` : ``}`;
     const icon = L.divIcon({
@@ -181,6 +189,9 @@ export class WaypointOverlay {
       );
       waypoint.trail.add(lat, long);
     }
+
+    // And make sure things are coloured correctly
+    this.setClasses(waypoint, { landing, active, completed });
   }
 
   // A helper function for building waypoint-connecting trails
@@ -216,7 +227,7 @@ export class WaypointOverlay {
       }
       const next = known.next;
       if (next) {
-        next.trail.remove();
+        next.trail?.remove();
         next.trail = this.addNewTrail(lat, long);
         next.trail.add(next.lat, next.long);
       }
@@ -238,34 +249,32 @@ export class WaypointOverlay {
       }
     }
 
-    const classes = known.marker?._icon?.classList ?? {
+    // And make sure things are coloured correctly
+    this.setClasses(known, { landing, active, completed });
+  }
+
+  /**
+   * Set the appropriate CSS classes
+   * @param {*} waypoint
+   * @param {*} param1
+   */
+  setClasses(waypoint, { landing, active, completed }) {
+    const classes = waypoint.marker?._icon?.classList ?? {
       add: noop,
       remove: noop,
     };
 
     // Regular waypoint or landing point?
-    known.landing = landing;
-    if (landing) {
-      classes.add(`landing`);
-    } else {
-      classes.remove(`landing`);
-    }
+    waypoint.landing = landing;
+    classes.toggle(`landing`, !!landing);
 
     // Are we in the transition radius?
-    known.active = active;
-    if (active) {
-      classes.add(`active`);
-    } else {
-      classes.remove(`active`);
-    }
+    waypoint.active = active;
+    classes.toggle(`active`, !!active);
 
     // did we complete this waypoint?
-    known.completed = completed;
-    if (completed) {
-      classes.add(`completed`);
-    } else {
-      classes.remove(`completed`);
-    }
+    waypoint.completed = completed;
+    classes.toggle(`completed`, !!completed);
   }
 
   /**
@@ -325,7 +334,7 @@ export class WaypointOverlay {
     const prev = waypoint.prev;
     const next = waypoint.next;
     if (next) {
-      next.trail.remove();
+      next.trail?.remove();
       if (prev) {
         next.trail = new Trail(
           this.map,

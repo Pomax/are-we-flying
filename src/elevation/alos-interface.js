@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
-import { mkdir } from "fs/promises";
-import { win32, sep, join } from "path";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { win32, sep, join } from "node:path";
 
 import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));

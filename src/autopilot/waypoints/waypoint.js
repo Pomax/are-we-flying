@@ -1,6 +1,5 @@
 import { degrees, getDistanceBetweenPoints } from "../../utils/utils.js";
 
-
 // a silly little id function, but it's less code than writing a generator.
 const nextId = (() => {
   let id = 1;
@@ -13,16 +12,16 @@ export class Waypoint {
     else {
       this.id = nextId();
       this.owner = owner;
-      this.reset(landing);
+      this.reset();
       this.move(lat, long);
       this.elevate(alt);
+      if (landing) this.markForLanding();
     }
   }
 
-  reset(landing = false) {
+  reset() {
     this.completed = false;
     this.active = false;
-    this.landing = landing;
     this.next = undefined;
   }
 
@@ -30,6 +29,10 @@ export class Waypoint {
   move(lat, long) {
     this.lat = lat;
     this.long = long;
+  }
+
+  markForLanding() {
+    this.landing = true;
   }
 
   setNumber(number) {

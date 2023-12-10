@@ -13,6 +13,7 @@ import {
   KNOT_IN_FPS,
   TERRAIN_FOLLOW,
   FPS_IN_KNOTS,
+  AUTO_LAND,
 } from "../utils/constants.js";
 
 const { abs, round, sign } = Math;
@@ -55,29 +56,38 @@ export const LOAD_TIME = Date.now();
  */
 export async function altitudeHold(
   autopilot,
-  { data: flightData, model },
+  { flightData, flightModel },
   useStickInstead = false
 ) {
-  console.log(`useStickInstead: ${useStickInstead}`);
-
   // The local and state values we'll be working with:
   const { trim } = autopilot;
   const { VS, speed, pitch } = flightData;
   const { VS: dVS, pitch: dPitch } = flightData.d ?? { VS: 0, pitch: 0 };
 
-  // A helper function that lets us update the trim vector
-  // and then set the plane's trim based on the new value:
-  const updateTrim = (update) => {
-    trim.pitch += update;
-    autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
-  };
-
   // How big should our trim steps be?
-  const { weight, pitchTrimLimit, isAcrobatic } = model;
+  const { weight, pitchTrimLimit, isAcrobatic } = flightModel;
   let trimLimit = pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
   const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
   let trimStep = constrainMap(speed, 50, 200, 5, 20) * small;
+
+  // A helper function that lets us update the trim vector
+  // and then set the plane's trim based on the new value,
+  // while making sure we never trim more than 1% per tick.
+  const updateTrim = async (update) => {
+    const { ELEVATOR_TRIM_POSITION: currentPosition } = await autopilot.get(
+      "ELEVATOR_TRIM_POSITION"
+    );
+    const percent = (v) => (1000 * v) / Math.PI;
+    const position = (v) => (Math.PI * v) / 1000;
+    const current = percent(currentPosition);
+    const lower = current - 1;
+    const higher = current + 1;
+    const lowPos = position(lower);
+    const highPos = position(higher);
+    trim.pitch = constrain(trim.pitch + update, lowPos, highPos);
+    autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
+  };
 
   // Are we "trimming" on the stick?
   let elevator = 0;
@@ -92,7 +102,7 @@ export async function altitudeHold(
   }
 
   // acrobatic planes need smaller corrections than regular planes
-  else if (model.isAcrobatic) trimStep /= 5;
+  else if (flightModel.isAcrobatic) trimStep /= 5;
 
   // What are our VS parameters?
   let maxVS = (isAcrobatic ? 2 : 1) * DEFAULT_MAX_VS;
@@ -100,7 +110,7 @@ export async function altitudeHold(
   let { targetVS, altDiff, direction } = await getTargetVS(
     autopilot,
     flightData,
-    model,
+    flightModel,
     maxVS
   );
 
@@ -191,7 +201,7 @@ export async function altitudeHold(
  * @param {*} maxVS
  * @returns
  */
-async function getTargetVS(autopilot, flightData, model, maxVS) {
+async function getTargetVS(autopilot, flightData, flightModel, maxVS) {
   if (!FEATURES.TARGET_TO_HOLD) {
     return {
       targetVS: DEFAULT_TARGET_VS,
@@ -248,7 +258,7 @@ async function getTargetVS(autopilot, flightData, model, maxVS) {
     // If we are, then we also want to boost our ability to control
     // vertical speed, by using a (naive) auto-throttle procedure.
     if (autopilot.modes[AUTO_THROTTLE]) {
-      autoThrottle(flightData, model, autopilot.api, altDiff, targetVS);
+      autoThrottle(flightData, flightModel, autopilot.api, altDiff, targetVS);
     }
   }
 
@@ -293,9 +303,9 @@ const ATT_PROPERTIES = [
  * @param {*} api
  * @param {*} altDiff
  */
-async function autoThrottle(flightData, model, api, altDiff, targetVS) {
+async function autoThrottle(flightData, flightModel, api, altDiff, targetVS) {
   const speed = round(flightData.speed);
-  const { climbSpeed, cruiseSpeed, engineCount } = model;
+  const { climbSpeed, cruiseSpeed, engineCount } = flightModel;
 
   const throttleStep = 0.2; // in percentages
   const throttle = (f = 1) =>
@@ -339,6 +349,9 @@ function updateAltitudeFromWaypoint(autopilot) {
 
   // Or if we're in terrain-follow more, which trumps waypoints.
   if (autopilot.modes[TERRAIN_FOLLOW]) return;
+
+  // Or if we're flying an auto-landing
+  if (autopilot.modes[AUTO_LAND]) return;
 
   // In fact, do we even have any waypoints to work with?
   const { waypoints } = autopilot;

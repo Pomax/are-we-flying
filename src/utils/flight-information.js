@@ -7,12 +7,15 @@ import {
   FLIGHT_MODEL,
   FPM_VALUES,
   KNOT_VALUES,
+  MTF_VALUES,
   NAME_MAPPING,
   PERCENT_VALUES,
   SECOND_DERIVATIVES,
 } from "./flight-values.js";
-import { FPS_IN_KNOTS } from "./constants.js";
+import { FEET_PER_DEGREE, FEET_PER_METER, FPS_IN_KNOTS } from "./constants.js";
 import { exists } from "./utils.js";
+
+const noop = () => {};
 
 /**
  *
@@ -36,8 +39,8 @@ export class FlightInformation {
    * ...docs go here...
    */
   reset() {
-    this.model = false;
-    this.data = false;
+    this.flightModel = false;
+    this.flightData = false;
   }
 
   /**
@@ -49,7 +52,6 @@ export class FlightInformation {
         this.updateModel(),
         this.updateFlight(),
       ]);
-      console.log(`bootstrapped flight information`);
       return { flightModel, flightData };
     } catch (e) {
       console.warn(e);
@@ -62,7 +64,7 @@ export class FlightInformation {
   async updateModel() {
     const modelData = await this.api.get(...FLIGHT_MODEL);
     if (!modelData) {
-      return (this.model = false);
+      return (this.flightModel = false);
     }
     this.convertValues(modelData);
     this.rebindData(modelData);
@@ -76,7 +78,7 @@ export class FlightInformation {
     // Check whether this plane has shitty trimming
     this.checkTrimCapability(modelData);
 
-    return (this.model = modelData);
+    return (this.flightModel = modelData);
   }
 
   /**
@@ -117,7 +119,7 @@ export class FlightInformation {
    */
   async updateFlight() {
     const flightData = await this.api.get(...FLIGHT_DATA);
-    if (!flightData) return (this.data = false);
+    if (!flightData) return (this.flightData = false);
 
     this.convertValues(flightData);
 
@@ -130,12 +132,12 @@ export class FlightInformation {
     // Create a convenience value for "is the plane powered on?"
     flightData.POWERED_UP = flightData.ELECTRICAL_TOTAL_LOAD_AMPS !== 0;
 
-    this.rebindData(flightData, this.data);
+    this.rebindData(flightData, this.flightData);
 
     // Create a convenience value for compass correction:
     flightData.declination = flightData.trueHeading - flightData.heading;
 
-    return (this.data = flightData);
+    return (this.flightData = flightData);
   }
 
   /**
@@ -145,15 +147,18 @@ export class FlightInformation {
   convertValues(data) {
     // Convert values to the units they're supposed to be:
     BOOLEAN_VALUES.forEach((p) =>
-      exists(data[p]) ? (data[p] = !!data[p]) : ``
+      exists(data[p]) ? (data[p] = !!data[p]) : noop
     );
     DEGREE_VALUES.forEach((p) =>
-      exists(data[p]) ? (data[p] *= 180 / Math.PI) : ``
+      exists(data[p]) ? (data[p] *= 180 / Math.PI) : noop
     );
-    PERCENT_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 100) : ``));
-    FPM_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 60) : ``));
+    PERCENT_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 100) : noop));
+    FPM_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 60) : noop));
     KNOT_VALUES.forEach((p) =>
-      exists(data[p]) ? (data[p] *= FPS_IN_KNOTS) : ``
+      exists(data[p]) ? (data[p] *= FPS_IN_KNOTS) : noop
+    );
+    MTF_VALUES.forEach((p) =>
+      exists(data[p]) ? (data[p] *= FEET_PER_METER) : noop
     );
   }
 
@@ -166,7 +171,7 @@ export class FlightInformation {
     // Whether or not we have previous values for delta computation,
     // just preallocate the values we _might_ need for that.
     const d = {};
-    const before = this.data.__datetime;
+    const before = this.flightData.__datetime;
     const now = Date.now();
     const dt = (now - before) / 1000; // delta per second seconds
 

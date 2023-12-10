@@ -120,6 +120,9 @@ export const PERCENT_VALUES = [
 // fps to fpm
 export const FPM_VALUES = [`VERTICAL_SPEED`];
 
+// meters to feet
+export const MTF_VALUES = [`GROUND_ALTITUDE`];
+
 // fps to knots
 export const KNOT_VALUES = [
   `DESIGN_SPEED_MIN_ROTATION`,

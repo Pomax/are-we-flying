@@ -1,6 +1,10 @@
 import { Attitude } from "./attitude.js";
 import { Autopilot } from "./autopilot.js";
-import { getDistanceBetweenPoints, waitFor } from "./utils.js";
+import {
+  getPointAtDistance,
+  getDistanceBetweenPoints,
+  waitFor,
+} from "./utils.js";
 import { Duncan } from "./locations.js";
 import { getAirplaneSrc } from "./airplane-src.js";
 import { initCharts } from "./dashboard/charts.js";
@@ -131,10 +135,37 @@ export class Plane {
     Attitude.setPitchBank(flightData.pitch, flightData.bank);
 
     // Update the autopilot
-    const { waypoints, elevation, ...params } = state.autopilot ?? {};
+    const { landingTarget, waypoints, elevation, ...params } =
+      state.autopilot ?? {};
     this.autopilot.update(params);
     this.manageWaypoints(waypoints);
     this.setElevationProbe(elevation);
+
+    // If we're in auto-landing, show that airport on the map
+    if (landingTarget && !this.landingTarget) {
+      this.landingTarget = landingTarget;
+      const runway = landingTarget.runways[0];
+      const { coordinates, bbox } = runway;
+      let runwayOutline = new Trail(this.map, bbox[0], `red`);
+      runwayOutline.add(...bbox[1]);
+      runwayOutline.add(...bbox[2]);
+      runwayOutline.add(...bbox[3]);
+      runwayOutline.add(...bbox[0]);
+
+      let centerLine = new Trail(this.map, coordinates[0], `black`);
+      centerLine.add(...coordinates[1]);
+
+      // runway.approach.forEach((approach, idx) => {
+      //   let from = runway.coordinates[1 - idx];
+      //   let to = approach.anchor;
+      //   let approachLine = new Trail(this.map, from, `gold`);
+      //   approachLine.add(...to);
+
+      //   const { offsets } = approach;
+      //   let offsetline = new Trail(this.map, offsets[0], `gold`);
+      //   offsetline.add(...offsets[1]);
+      // });
+    }
 
     // Update our science
     this.updateChart(flightData, now);

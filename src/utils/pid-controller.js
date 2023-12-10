@@ -35,7 +35,7 @@ export class PIDController {
    * @param {*} maxError maximum (absolute) value for the accumulated error. Defaults to 0. Can be updated using `.setMaxError(num)`
    * @param {*} maxSamples The maximum number of updates that the error should be computed over. Can be updated using `.setMaxSamples(num)`
    */
-  constructor(P = 1, I = 0, D = 0, target = 0, dt, maxError, maxSamples) {
+  constructor({ P = 1, I = 0, D = 0, target = 0, dt, maxError, maxSamples }) {
     this.reset();
     this.setParameters(P, I, D);
     this.target = target;

@@ -1,3 +1,6 @@
+import url from "node:url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+
 import {
   AUTO_TAKEOFF,
   HEADING_MODE,
@@ -18,7 +21,14 @@ import {
   getLineCircleIntersection,
   getHeadingFromTo,
 } from "../utils/utils.js";
-import { changeThrottle } from "../utils/controls.js";
+
+import { watch } from "../utils/reload-watcher.js";
+import { changeThrottle as ct } from "../utils/controls.js";
+let changeThrottle = ct;
+watch(__dirname, `../utils/controls.js`, (module) => {
+  changeThrottle = module.changeThrottle;
+});
+
 import { AutoPilot } from "./autopilot.js";
 
 const { abs } = Math;
@@ -47,7 +57,6 @@ export class AutoTakeoff {
     if (original) Object.assign(this, original);
 
     // EXPERIMENTAL FOR AUTO RUDDER
-    this.lastDrift = 0;
   }
 
   /**
@@ -61,7 +70,7 @@ export class AutoTakeoff {
    *
    * @param {*} FlightInformation
    */
-  async run({ data: flightData, model }) {
+  async run({ flightData, flightModel }) {
     const { autopilot } = this;
 
     const {
@@ -72,7 +81,7 @@ export class AutoTakeoff {
       minRotation,
       takeoffSpeed,
       title,
-    } = model;
+    } = flightModel;
 
     if (!this.trimStep) {
       let trimLimit = pitchTrimLimit[0];
@@ -285,9 +294,6 @@ export class AutoTakeoff {
 
     // Get the difference in "heading we are on now" and "heading
     // required to stay on the center line":
-    const limit = NaN;
-    const drift = NaN;
-    const driftCorrection = NaN;
     const diff = (function () {
       const plane = { x: long, y: lat };
       const start = { x: p1.long, y: p1.lat };
@@ -328,8 +334,6 @@ export class AutoTakeoff {
         speedFactor
       )}, tailFactor ${nf(tailFactor)}, rudder ${nf(rudder)}`
     );
-
-    this.lastDrift = drift;
 
     const rudderMinimum = constrainMap(currentSpeed, 0, 30, 0.001, 0.01);
     if (abs(rudder) > rudderMinimum) api.set(`RUDDER_POSITION`, rudder);

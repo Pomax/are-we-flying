@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
 import { SystemEvents } from "msfs-simconnect-api-wrapper";
 import { AutoPilot } from "../../../autopilot/autopilot.js";
 

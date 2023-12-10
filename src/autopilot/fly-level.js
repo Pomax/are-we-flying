@@ -1,6 +1,6 @@
 import { radians, constrainMap, getCompassDiff } from "../utils/utils.js";
 
-import { AUTO_TAKEOFF, HEADING_MODE } from "../utils/constants.js";
+import { AUTO_LAND, AUTO_TAKEOFF, HEADING_MODE } from "../utils/constants.js";
 import { AutoPilot } from "./autopilot.js";
 
 const { abs } = Math;
@@ -33,13 +33,13 @@ export const LOAD_TIME = Date.now();
  */
 export async function flyLevel(
   autopilot,
-  { data: flightData, model },
+  { flightData, flightModel },
   useStickInstead = false
 ) {
   const { trim } = autopilot;
   const { bank, speed, heading, lat, long, declination } = flightData;
-  const { weight, isAcrobatic } = model;
   const { bank: dBank } = flightData.d ?? { bank: 0 };
+  const { weight, isAcrobatic } = flightModel;
 
   // Our bank/roll information:
   const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
@@ -64,7 +64,7 @@ export async function flyLevel(
   if (isAcrobatic) step /= 2;
 
   // Our "how much are we off" information:
-  const { targetBank } = getTargetBankAndTurnRate(
+  const { targetBank } = await getTargetBankAndTurnRate(
     autopilot,
     heading,
     lat,
@@ -103,7 +103,7 @@ export async function flyLevel(
  * @param {*} autopilot
  * @returns
  */
-function getTargetBankAndTurnRate(
+async function getTargetBankAndTurnRate(
   autopilot,
   heading,
   lat,
@@ -117,7 +117,7 @@ function getTargetBankAndTurnRate(
 
   // Are we flying using waypoints?
   if (FEATURES.UPDATE_FROM_WAYPOINTS) {
-    updateHeadingFromWaypoint(
+    await updateHeadingFromWaypoint(
       autopilot,
       heading,
       lat,
@@ -153,7 +153,7 @@ function getTargetBankAndTurnRate(
  * @param {AutoPilot} autopilot
  * @returns
  */
-function updateHeadingFromWaypoint(
+async function updateHeadingFromWaypoint(
   autopilot,
   heading,
   lat,
@@ -167,6 +167,9 @@ function updateHeadingFromWaypoint(
   const N = waypoints.length;
   if (N === 0) return;
 
+  const { currentWaypoint } = waypoints;
+  if (!currentWaypoint) return;
+
   const waypointHeading = waypoints.getHeading(
     heading,
     lat,
@@ -176,5 +179,13 @@ function updateHeadingFromWaypoint(
   );
   if (waypointHeading) {
     autopilot.setTarget(HEADING_MODE, waypointHeading);
+  }
+
+  // If the next waypoint is a landing waypoint, and the autolander
+  // is not engaged, engage the autolander but don't add any new
+  // waypoints to the flight path. We're already flying them.
+  if (currentWaypoint.landing && !autopilot.modes[AUTO_LAND]) {
+    await autopilot.engageAutoLand(false);
+    autopilot.onChange();
   }
 }

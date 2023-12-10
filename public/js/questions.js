@@ -39,7 +39,7 @@ const elements = Object.fromEntries(
 
 export const Questions = {
   update(state) {
-    elements.serverOnline.checked = !state.offline;
+    elements.serverOnline.checked = !!state.serverConnection;
     elements.msfsRunning.checked = state.MSFS;
     elements.inGame.checked = state.camera?.main < 9;
     elements.poweredUp.checked = state.flightData?.POWERED_UP;

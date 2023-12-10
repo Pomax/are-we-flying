@@ -1,3 +1,5 @@
+import { constrain } from "./utils.js";
+
 /**
  * Change the throttle lever position by adding a percentage point delta to its current percentage value.
  * @param {MSFS_API} api Our MSFS_API instance.
@@ -14,7 +16,6 @@ export async function changeThrottle(
   floor = 0,
   ceiling = 100
 ) {
-
   // FIXME: TODO: add a flag that uses trigger(`THROTTLE_SET`)? Maybe?
   let newThrottle;
   for (let count = 1; count <= engineCount; count++) {
@@ -24,7 +25,7 @@ export async function changeThrottle(
       (byHowMuch < 0 && throttle > floor) ||
       (byHowMuch > 0 && throttle < ceiling)
     ) {
-      newThrottle = throttle + byHowMuch;
+      newThrottle = constrain(throttle + byHowMuch, floor, ceiling);
       api.set(simVar, newThrottle);
     }
   }

@@ -1,4 +1,4 @@
-import { join, resolve } from "path";
+import { join, resolve } from "node:path";
 import url from "node:url";
 
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));

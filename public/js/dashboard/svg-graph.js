@@ -313,7 +313,7 @@ const templateCode = `
     <text class="bottom-marker" x="0" y="0">0</text>
     <line class="hidden limit" x1="-100%" x2="100%" y1="100%" y2="100%" />
     <!-- data plot, scaling handled on the JS side -->
-    <g class="plot-region""><path class="data"  vector-effect="non-scaling-stroke" d=""/></g>
+    <g class="plot-region"><path class="data"  vector-effect="non-scaling-stroke" d=""/></g>
     <!-- main axis is on top of everything -->
     <line class="main x-axis" x1="-100%" x2="100%" y1="50%" y2="50%" />
     <!-- label and current value -->
