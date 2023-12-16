@@ -182,7 +182,12 @@ export class FlightInformation {
     // and is a numeric type (and isn't in the FIXED_PROPERTIES list).
     Object.entries(data).forEach(([simName, value]) => {
       const jsName = NAME_MAPPING[simName];
+
+      if (jsName === undefined) return;
+      if (!exists(data[simName])) return;
+
       data[jsName] = value;
+      delete data[simName];
 
       // Do we need to compute derivatives?
       if (previousValues && DERIVATIVES.includes(jsName)) {

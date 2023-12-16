@@ -23,3 +23,8 @@
 - auto-takeoff check: close the windows???? (looking at you islander/trislander)
 - elevation server as Leaflet map tile source (hill shaded)?
 - why does slew mode lock up the api server?
+
+
+---------------------
+
+Autolanding: why does the 310R drop below runway+safety altitude?

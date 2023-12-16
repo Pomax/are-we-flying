@@ -12,7 +12,7 @@ import {
   LEVEL_FLIGHT,
   TERRAIN_FOLLOW,
 } from "../utils/constants.js";
-import { degrees } from "../utils/utils.js";
+import { degrees, runLater } from "../utils/utils.js";
 import { ALOSInterface } from "../elevation/alos-interface.js";
 
 // allow hot-reloading of flyLevel and altitudeHold code,
@@ -21,21 +21,15 @@ import { watch } from "../utils/reload-watcher.js";
 
 import { flyLevel as fl } from "./fly-level.js";
 let flyLevel = fl;
-watch(__dirname, `fly-level.js`, (module) => {
-  flyLevel = module.flyLevel;
-});
 
 import { altitudeHold as ah } from "./altitude-hold.js";
 let altitudeHold = ah;
-watch(__dirname, `altitude-hold.js`, (module) => {
-  altitudeHold = module.altitudeHold;
-});
+
+import { autoThrottle as at } from "./auto-throttle.js";
+let autoThrottle = at;
 
 import { followTerrain as ft } from "./terrain-follow.js";
 let followTerrain = ft;
-watch(__dirname, `terrain-follow.js`, (module) => {
-  followTerrain = module.followTerrain;
-});
 
 import { AutoTakeoff as ato } from "./auto-takeoff.js";
 let AutoTakeoff = ato;
@@ -44,6 +38,7 @@ import { AutoLand as atl } from "./auto-land/auto-land.js";
 let AutoLand = atl;
 
 import { WayPoints as wp } from "./waypoints/waypoints.js";
+import { changeThrottle } from "../utils/controls.js";
 let WayPoints = wp;
 
 // ---- hot reloads end ---
@@ -60,6 +55,12 @@ export class AutoPilot {
     this.onChange = onChange;
     this.AP_INTERVAL = REGULAR_AUTOPILOT;
     this.reset();
+
+    // control functions
+    this.flyLevel = flyLevel;
+    this.altitudeHold = altitudeHold;
+    this.autoThrottle = autoThrottle;
+    this.followTerrain = followTerrain;
     this.watchForUpdates();
   }
 
@@ -76,13 +77,13 @@ export class AutoPilot {
     this.autoPilotEnabled = false;
     this.autoTakeoff = false;
     this.modes = {
-      [LEVEL_FLIGHT]: false,
-      [HEADING_MODE]: false,
       [ALTITUDE_HOLD]: false,
-      [AUTO_THROTTLE]: false,
-      [TERRAIN_FOLLOW]: false,
-      [AUTO_TAKEOFF]: false,
       [AUTO_LAND]: false,
+      [AUTO_TAKEOFF]: false,
+      [AUTO_THROTTLE]: false,
+      [HEADING_MODE]: false,
+      [LEVEL_FLIGHT]: false,
+      [TERRAIN_FOLLOW]: false,
       [INVERTED_FLIGHT]: false, // TODO: fly upside down. It has to happen again. It's just too good.
     };
     // this.onChange(await this.getParameters);
@@ -105,8 +106,24 @@ export class AutoPilot {
     };
   }
 
+  test() {
+    console.log(`AutoPilot.test(): there is currently no test code defined.`);
+  }
+
   // Hot-reload watching
   watchForUpdates() {
+    watch(__dirname, `fly-level.js`, (module) => {
+      this.flyLevel = module.flyLevel;
+    });
+    watch(__dirname, `altitude-hold.js`, (module) => {
+      this.altitudeHold = module.altitudeHold;
+    });
+    watch(__dirname, `auto-throttle.js`, (module) => {
+      this.autoThrottle = module.autoThrottle;
+    });
+    watch(__dirname, `terrain-follow.js`, (module) => {
+      this.followTerrain = module.followTerrain;
+    });
     watch(__dirname, `auto-takeoff.js`, (module) => {
       AutoTakeoff = module.AutoTakeoff;
       if (this.autoTakeoff) {
@@ -115,7 +132,9 @@ export class AutoPilot {
     });
     watch(__dirname, `auto-land/auto-land.js`, (module) => {
       AutoLand = module.AutoLand;
-      this.autoland = AutoLand.from(this.autoland);
+      if (this.autoland) {
+        Object.setPrototypeOf(this.autoland, AutoLand.prototype);
+      }
     });
     watch(__dirname, `waypoints/waypoints.js`, (module) => {
       WayPoints = module.WayPoints;
@@ -202,7 +221,8 @@ export class AutoPilot {
   }
 
   async engageAutoLand(Add_WAYPOINTS = true) {
-    this.modes[AUTO_LAND] = true;
+    // Note we do not turn autoland "on", that'll happen automatically
+    // once we hit a waypoint that's marked as a landing waypoint.
     this.autoland = new AutoLand(this.api, this);
     this.landingTarget = await this.autoland.land(
       this.flightInformation,
@@ -250,6 +270,9 @@ export class AutoPilot {
     const { modes } = this;
     if (modes[type] === undefined) return;
     const prev = modes[type];
+    if (value == parseFloat(value)) {
+      value = parseFloat(value);
+    }
     // ignore changes that are too small, unless we're in auto
     // take-off, or autolanding mode. Then every decimal matters.
     if (
@@ -309,16 +332,29 @@ export class AutoPilot {
     // are errors due to MSFS glitching, or the DLL
     // handling glitching, or values somehow having
     // gone missing etc. etc: schedule the next call
-    setTimeout(() => this.runAutopilot(), this.AP_INTERVAL);
+    runLater(() => this.runAutopilot(), this.AP_INTERVAL);
 
     //  Are we flying, or paused/in menu/etc?
     if (this.paused) return;
 
+    // Do *not* crash the server.
+    try {
+      await this.run();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async run() {
     // get the up to date flight information
     this.flightInfoUpdateHandler(await this.flightInformation.update());
     const { flightData, flightModel } = this.flightInformation;
 
-    if (!this.modes[AUTO_TAKEOFF] && !this.modes[AUTO_LAND] && flightData.speed < 15) {
+    if (
+      !this.modes[AUTO_TAKEOFF] &&
+      !this.modes[AUTO_LAND] &&
+      flightData.speed < 15
+    ) {
       // disengage autopilot, but preserve all settings
       // in case we want to turn it back on momentarily.
       return;
@@ -339,7 +375,7 @@ export class AutoPilot {
     // Do we need to level the wings / fly a specific heading?
     if (this.modes[LEVEL_FLIGHT]) {
       const { noAileronTrim } = flightModel;
-      flyLevel(this, this.flightInformation, noAileronTrim);
+      this.flyLevel(this, this.flightInformation, noAileronTrim);
     }
 
     // Do we need to hold our altitude / fly a specific altitude?
@@ -347,11 +383,16 @@ export class AutoPilot {
       if (this.modes[TERRAIN_FOLLOW] !== false && this.alos.loaded) {
         // If we are in terrain-follow mode, make sure the correct
         // altitude is set before running the ALT pass.
-        followTerrain(this, this.flightInformation);
+        this.followTerrain(this, this.flightInformation);
       }
 
       const { noElevatorTrim } = flightModel;
-      altitudeHold(this, this.flightInformation, noElevatorTrim);
+      this.altitudeHold(this, this.flightInformation, noElevatorTrim);
+    }
+
+    // Do we need to throttle to a specific speed?
+    if (this.modes[AUTO_THROTTLE]) {
+      this.autoThrottle(this, this.flightInformation);
     }
   }
 }

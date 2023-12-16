@@ -80,10 +80,16 @@ export function calculateRunwayApproaches(flightInformation, runway) {
     const altDiff = alt - runway.altitude; // in feet
     const distance = tan(radians(3)) * altDiff; // in feet
     const approachDistance = distance / FEET_PER_METER / 1000; // in km
+
     // we want at least 8NM of approach so we can slow down enough
     const d = Math.max(approachDistance, 5 * KM_PER_NM);
-    let { lat, long } = getPointAtDistance(from[0], from[1], d, heading);
+    const { lat, long } = getPointAtDistance(...from, d, heading);
     approach.anchor = [lat, long];
+
+    // and we want a "stable" 2km prior to the runway
+    const d2 = Math.max(approachDistance, 2 * KM_PER_NM);
+    let { lat: latm, long: longm } = getPointAtDistance(...from, d2, heading);
+    approach.stable = [latm, longm];
 
     // calculate offsets
     const { lat: olat1, long: olong1 } = getPointAtDistance(

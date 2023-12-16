@@ -24,9 +24,17 @@ export class Plane {
   constructor(server, map = defaultMap, location = Duncan, heading = 135) {
     console.log(`building plane`);
     this.server = server;
-    this.map = map;
     this.autopilot = new Autopilot(this);
-    this.waypoints = new WaypointOverlay(this, map);
+    this.charts = initCharts(document.querySelector(`#science`));
+
+    // Set up our map
+    this.map = map;
+
+    // We always want our plane on top, so we organize our
+    // visualization using three separate layers.
+    this.trailLayer = this.flightPathLayer = this.flightLayer = map;
+    this.waypoints = new WaypointOverlay(this, this.flightPathLayer);
+    this.addPlaneIconToMap(this.flightLayer, location, heading);
 
     // initial bootstrap
     const [lat, long] = (this.lastPos = Duncan);
@@ -40,8 +48,6 @@ export class Plane {
         PLANE_LONGITUDE: long,
       },
     };
-    this.addPlaneIconToMap(map, location, heading);
-    this.charts = initCharts(document.querySelector(`#science`));
   }
 
   /**
@@ -49,7 +55,7 @@ export class Plane {
    * @param {*} location
    */
   startNewTrail(location) {
-    this.trail = new Trail(this.map, location);
+    this.trail = new Trail(this.trailLayer, location);
     return this.trail;
   }
 
@@ -75,7 +81,7 @@ export class Plane {
     const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } =
       this.state.flightData;
     this.elevationProbe = new Trail(
-      this.map,
+      this.trailLayer,
       [lat, long],
       `#4F87`, // lime
       undefined,
@@ -90,7 +96,7 @@ export class Plane {
    * @param {*} location
    * @param {*} heading
    */
-  async addPlaneIconToMap(map, location = Duncan, heading = 0) {
+  async addPlaneIconToMap(flightLayer, location = Duncan, heading = 0) {
     const props = {
       icon: L.divIcon({
         iconSize: [73 / 2, 50 / 2],
@@ -100,8 +106,7 @@ export class Plane {
         html: MapMarker.getHTML(heading),
       }),
     };
-    this.map = map;
-    this.marker = L.marker(location, props).addTo(map);
+    this.marker = L.marker(location, props).addTo(flightLayer);
     this.planeIcon = document.querySelector(`#plane-icon`);
     this.planeIcon.offsetParent.offsetParent.style.zIndex = 99999;
   }
@@ -146,23 +151,23 @@ export class Plane {
       this.landingTarget = landingTarget;
       const runway = landingTarget.runways[0];
       const { coordinates, bbox } = runway;
-      let runwayOutline = new Trail(this.map, bbox[0], `red`);
+      let runwayOutline = new Trail(this.trailLayer, bbox[0], `red`);
       runwayOutline.add(...bbox[1]);
       runwayOutline.add(...bbox[2]);
       runwayOutline.add(...bbox[3]);
       runwayOutline.add(...bbox[0]);
 
-      let centerLine = new Trail(this.map, coordinates[0], `black`);
+      let centerLine = new Trail(this.trailLayer, coordinates[0], `black`);
       centerLine.add(...coordinates[1]);
 
       // runway.approach.forEach((approach, idx) => {
       //   let from = runway.coordinates[1 - idx];
       //   let to = approach.anchor;
-      //   let approachLine = new Trail(this.map, from, `gold`);
+      //   let approachLine = new Trail(this.trailLayer, from, `gold`);
       //   approachLine.add(...to);
 
       //   const { offsets } = approach;
-      //   let offsetline = new Trail(this.map, offsets[0], `gold`);
+      //   let offsetline = new Trail(this.trailLayer, offsets[0], `gold`);
       //   offsetline.add(...offsets[1]);
       // });
     }
@@ -211,7 +216,7 @@ export class Plane {
 
     // update our plane "icon"
     this.planeIcon?.classList.toggle(`paused`, paused);
-    const pic = getAirplaneSrc(flightModel.TITLE);
+    const pic = getAirplaneSrc(flightModel.title);
     [...planeIcon.querySelectorAll(`img`)].forEach(
       (img) => (img.src = `planes/${pic}`)
     );
@@ -226,20 +231,18 @@ export class Plane {
    */
   updateMarker(planeIcon, flightData) {
     const css = planeIcon.style;
-    const { alt, headingBug, cg, groundAlt, altAboveGround } = flightData;
+    const { alt, headingBug, groundAlt, lift } = flightData;
     const { heading, speed, trueHeading } = flightData;
 
-    const palt = altAboveGround - cg;
-
-    css.setProperty(`--altitude`, max(palt, 0));
-    css.setProperty(`--sqrt-alt`, sqrt(max(palt, 0)));
+    css.setProperty(`--altitude`, lift | 0);
+    css.setProperty(`--sqrt-alt`, sqrt(lift) | 0);
     css.setProperty(`--speed`, speed | 0);
     css.setProperty(`--north`, trueHeading - heading);
     css.setProperty(`--heading`, heading);
     css.setProperty(`--heading-bug`, headingBug);
 
     const altitudeText =
-      (groundAlt | 0) === 0 ? `${alt | 0}'` : `${palt | 0}' (${alt | 0}')`;
+      (groundAlt | 0) === 0 ? `${alt | 0}'` : `${lift | 0}' (${alt | 0}')`;
     planeIcon.querySelector(`.alt`).textContent = altitudeText;
     planeIcon.querySelector(`.speed`).textContent = `${speed | 0}kts`;
 
@@ -256,13 +259,19 @@ export class Plane {
     const { alt, bank, groundAlt, pitch, speed, heading, rudder } = flightData;
     const { VS, pitchTrim, aileronTrim, turnRate, rudderTrim } = flightData;
     const nullDelta = { VS: 0, pitch: 0, bank: 0 };
-    const { VS: dVS, pitch: dPitch, bank: dBank } = flightData.d ?? nullDelta;
+    const {
+      VS: dVS,
+      pitch: dPitch,
+      bank: dBank,
+      speed: dV,
+    } = flightData.d ?? nullDelta;
 
     this.charts.update({
       // basics
       ground: groundAlt,
       altitude: alt,
       speed,
+      dV,
       // elevator
       VS,
       dVS,

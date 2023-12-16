@@ -309,14 +309,14 @@ const templateCode = `
     <-- limit -->
     <!-- extent markers -->
     <line class="top-line" x1="-100%" x2="100%" y1="-49.5%" y2="-49.5%" />
-    <text class="top-marker" x="0" y="0" >+0</text>
-    <text class="bottom-marker" x="0" y="0">0</text>
     <line class="hidden limit" x1="-100%" x2="100%" y1="100%" y2="100%" />
     <!-- data plot, scaling handled on the JS side -->
     <g class="plot-region"><path class="data"  vector-effect="non-scaling-stroke" d=""/></g>
     <!-- main axis is on top of everything -->
     <line class="main x-axis" x1="-100%" x2="100%" y1="50%" y2="50%" />
-    <!-- label and current value -->
+    <!-- labels go on top of everything -->
+    <text class="top-marker" x="0" y="0" >+0</text>
+    <text class="bottom-marker" x="0" y="0">0</text>
     <text class="graph-label" x="0" y="0"></text>
     <text class="value-marker" x="0" y="0">+0</text>
 </svg>
@@ -354,14 +354,14 @@ const templateCode = `
     <line class="x-axis" x1="-100%" x2="100%" y1="40%" y2="40%" />
     <!-- extent markers -->
     <line class="top-line"  x1="-100%" x2="100%" y1="-49.5%" y2="-49.5%" />
-    <text class="top-marker" x="0" y="0">+0</text>
     <line class="bottom-line" x1="-100%" x2="100%" y1="50%" y2="50%" />
-    <text class="bottom-marker">-0</text>
     <line class="hidden limit" x1="-100%" x2="100%" y1="100%" y2="100%" />
     <line class="hidden limit" x1="-100%" x2="100%" y1="100%" y2="100%" />
     <!-- data plot, scaling handled on the JS side -->
     <g class="plot-region"><path class="data" vector-effect="non-scaling-stroke" d=""/></g>
-    <!-- label and current value -->
+    <!-- labels go on top of everything -->
+    <text class="top-marker" x="0" y="0">+0</text>
+    <text class="bottom-marker">-0</text>
     <text class="graph-label" x="0" y="0"></text>
     <text class="value-marker" x="0" y="0">+0</text>
   </svg>

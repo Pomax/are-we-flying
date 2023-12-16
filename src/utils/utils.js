@@ -234,3 +234,13 @@ export function getLineCircleIntersection(
     y: y + (d * dy - A * dx) / (m * m),
   };
 }
+
+export function runLater(fn, timeoutInMillis) {
+  setTimeout(() => {
+    try {
+      fn();
+    } catch (e) {
+      console.error(e);
+    }
+  }, timeoutInMillis);
+}

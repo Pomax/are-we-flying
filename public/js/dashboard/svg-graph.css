@@ -15,6 +15,7 @@
   --svg-graph-plot-offset: 0px;
   --svg-graph-plot-scale: 1;
   --svg-graph-plot-color: lime;
+  --svg-graph-plot-fill-color: #0F83;
   --svg-graph-plot-width: 1px;
 }
 
@@ -63,7 +64,7 @@ svg.svg-graph g.plot-region path.data {
 }
 
 svg.svg-graph g.plot-region path.filled.data {
-  fill: var(--svg-graph-plot-color);
+  fill: var(--svg-graph-plot-fill-color);
 }
 
 svg.svg-graph line.x-axis {

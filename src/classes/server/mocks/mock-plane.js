@@ -4,6 +4,7 @@ import {
   degrees,
   getPointAtDistance,
   radians,
+  runLater,
 } from "../../../utils/utils.js";
 import { FEET_PER_METER } from "../../../utils/constants.js";
 import {
@@ -83,7 +84,7 @@ export class MockPlane {
 
   run(now = Date.now()) {
     this.lastCall = now;
-    setTimeout(() => this.update(), UPDATE_FREQUENCY);
+    runLater(() => this.update(), UPDATE_FREQUENCY);
   }
 
   /**

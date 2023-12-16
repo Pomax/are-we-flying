@@ -1,47 +1,54 @@
 import { performAirportCalculations } from "./helpers.js";
 
 import {
-  constrain,
+  radians,
   constrainMap,
   getCompassDiff,
   getHeadingFromTo,
   getDistanceBetweenPoints,
   getLineCircleIntersection,
   map,
+  nf,
 } from "../../utils/utils.js";
 import {
   ALTITUDE_HOLD,
   AUTO_LAND,
   AUTO_THROTTLE,
   FEET_PER_DEGREE,
+  FEET_PER_METER,
   HEADING_MODE,
+  KM_PER_NM,
   LEVEL_FLIGHT,
+  TERRAIN_FOLLOW,
 } from "../../utils/constants.js";
 import { changeThrottle } from "../../utils/controls.js";
 
-const { abs } = Math;
+const { abs, round, ceil, tan } = Math;
 
 // Stages of our autolander - we can't use Symbols because we need
 // something that can still compare as "true" after a hot-reload.
-const GETTING_TO_APPROACH = `autoland: getting onto the approach`;
-const FLYING_APPROACH = `autoland: flying the approach`;
-const GET_TO_RUNWAY = `autoland: getting to the runway start`;
-const INITIATE_STALL = `autoland: initiating stall`;
-const STALL_LANDING = `autoland: riding out the stall`;
-const ROLLING = `autoland: rolling down the runway`;
-const LANDING_COMPLETE = `autoland: landing complete`;
+export const GETTING_TO_APPROACH = `autoland: getting onto the approach`;
+export const FLYING_APPROACH = `autoland: flying the approach`;
+export const GET_TO_RUNWAY = `autoland: getting to the runway start`;
+export const INITIATE_STALL = `autoland: initiating stall`;
+export const STALL_LANDING = `autoland: riding out the stall`;
+export const GET_TO_GROUND = `autoland: get the plane on the ground`;
+export const ROLLING = `autoland: rolling down the runway`;
+export const LANDING_COMPLETE = `autoland: landing complete`;
 
 /**
  *
  */
 class StageManager {
-  constructor() {
+  constructor(api) {
+    this.api = api;
     this.reset();
   }
   reset() {
     this.currentStage = GETTING_TO_APPROACH;
   }
   nextStage() {
+    // this.api?.trigger(`PAUSE_ON`);
     if (this.currentStage === GETTING_TO_APPROACH)
       return (this.currentStage = FLYING_APPROACH);
     if (this.currentStage === FLYING_APPROACH)
@@ -51,6 +58,8 @@ class StageManager {
     if (this.currentStage === INITIATE_STALL)
       return (this.currentStage = STALL_LANDING);
     if (this.currentStage === STALL_LANDING)
+      return (this.currentStage = GET_TO_GROUND);
+    if (this.currentStage === GET_TO_GROUND)
       return (this.currentStage = ROLLING);
     if (this.currentStage === ROLLING)
       return (this.currentStage = LANDING_COMPLETE);
@@ -76,8 +85,9 @@ class AutoLand {
   constructor(api, autopilot) {
     this.api = api;
     this.autopilot = autopilot;
-    this.stageManager = new StageManager();
+    this.stageManager = new StageManager(api);
     this.landing = false;
+    this.brake = 0;
   }
 
   /**
@@ -85,21 +95,28 @@ class AutoLand {
    * @param {*} flightInformation
    * @returns
    */
-  async land(flightInformation, Add_WAYPOINTS = true) {
-    this.landing = true;
-    this.stageManager.reset();
+  async land(flightInformation, WAYPOINTS = true) {
     this.flightInformation = flightInformation;
     const { flightData, flightModel } = flightInformation;
     const { title } = flightModel;
     const { lat, long } = flightData;
     const waterLanding = title.includes(`float`) || title.includes(`amphi`);
-    const airport = await this.findAirport(lat, long, waterLanding);
+    // Do we need to find a landing relative to the plane,
+    // or relative to the last waypoint in a flight path?
+    const reference = [lat, long];
+    const waypoints = this.autopilot.getWaypoints();
+    if (waypoints.length) {
+      const last = waypoints.at(-1);
+      reference[0] = last.lat;
+      reference[1] = last.long;
+    }
+    // Get the nearest airport, figure out its critical points, and find an approach:
+    const airport = await this.findAirport(...reference, waterLanding);
     performAirportCalculations(this.flightInformation, airport);
-    this.approach = await this.setupApproach(
-      flightData,
-      airport,
-      Add_WAYPOINTS
-    );
+    this.approach = await this.setupApproach(flightData, airport, WAYPOINTS);
+    // And we're done. Mark ourselves as having a landing now.
+    this.landing = true;
+    this.stageManager.reset();
     return airport;
   }
 
@@ -111,8 +128,27 @@ class AutoLand {
    * @returns
    */
   async findAirport(lat, long, waterLanding) {
-    const { NEARBY_AIRPORTS: list } = await this.api.get(`NEARBY_AIRPORTS`);
-    return list[0];
+    let { NEARBY_AIRPORTS: list } = await this.api.get(`NEARBY_AIRPORTS`);
+    // find a plane-appropriate landing
+    if (waterLanding) {
+      list = list.filter((a) =>
+        a.runways.some((r) => r.surface.startsWith(`water `))
+      );
+    } else {
+      list = list.filter((a) =>
+        a.runways.some((r) => !r.surface.startsWith(`water`))
+      );
+    }
+    // then figure out which one is actually nearest to our reference point
+    list.forEach(
+      (a) =>
+        (a.d = getDistanceBetweenPoints(lat, long, a.latitude, a.longitude))
+    );
+    list.sort((a, b) => a.d - b.d);
+    // and then return the closest one
+    const airport = list[0];
+    delete airport.d;
+    return airport;
   }
 
   /**
@@ -121,68 +157,98 @@ class AutoLand {
    * @param {*} airport
    * @returns
    */
-  async setupApproach({ lat, long, alt }, airport, Add_WAYPOINTS) {
+  async setupApproach({ lat, long }, airport, WAYPOINTS = true) {
     const candidates = [];
     airport.runways.forEach((runway) => {
       runway.approach.forEach((approach, idx) => {
         approach.offsets.forEach((offset, oidx) => {
-          candidates.push({
-            runway,
-            idx,
-            anchor: approach.anchor,
-            offset,
-            tip: approach.tips[oidx],
-            distance: getDistanceBetweenPoints(lat, long, ...offset),
-          });
+          const { anchor, stable } = approach;
+          const tip = approach.tips[oidx];
+          const distance = getDistanceBetweenPoints(lat, long, ...offset);
+          candidates.push({ runway, idx, anchor, stable, offset, tip, distance });
         });
       });
     });
     candidates.sort((a, b) => a.distance - b.distance);
+    const nearest = (this.approach = candidates[0]);
 
-    const nearest = candidates[0];
+    if (WAYPOINTS) {
+      const { runway, anchor, stable, offset, tip, idx } = nearest;
+      const runwayAlt = runway.altitude;
 
-    if (Add_WAYPOINTS) {
-      const { runway, anchor, offset, tip, idx } = nearest;
-      const altitude = runway.altitude | 0;
+      // Depending on where the reference is in relation to the
+      // approach anchor, we may need either one or two extra
+      // waypoints to get the plane cleanly onto the approach.
       this.autopilot.addWaypoint(...tip, undefined, true);
       this.autopilot.addWaypoint(...offset, undefined, true);
-      this.autopilot.addWaypoint(
-        ...anchor,
-        Math.max(altitude + 1000, alt),
-        true
-      );
-      this.autopilot.addWaypoint(
-        ...runway.coordinates[1 - idx],
-        altitude,
-        true
-      );
-      this.autopilot.addWaypoint(...runway.coordinates[idx], altitude, true);
+
+      const approachAlt = ceil(runwayAlt + 1000);
+      this.autopilot.addWaypoint(...anchor, approachAlt, true);
+
+      const stableAlt = ceil(runwayAlt + 100);
+      this.autopilot.addWaypoint(...stable, stableAlt, true);
+
+      // Get the slope across the runway, which tells us how much
+      // the start and end are higher or lower than the runway's
+      // center coordinate.
+      const slope = runway.slopeTrue;
+      const d = runway.length * FEET_PER_METER;
+      const rise = tan(radians(slope)) * d;
+
+      // TODO: we do need to figure out whether we're approaching the
+      //       runway "the right way" or not, since our "start" and "end"
+      //       are not necessarily the official start and end.
+      //       look at runway heading vs. approach marking?
+      const start = runway.coordinates[1 - idx];
+      this.autopilot.addWaypoint(...start, round(runwayAlt), true);
+
+      const end = runway.coordinates[idx];
+      this.autopilot.addWaypoint(...end, round(runwayAlt + rise), true);
     }
 
-    return (this.approach = nearest);
+    return nearest;
   }
 
   /**
    *
    */
   async run() {
+    // All the values we're going to need:
     const { api, autopilot, flightInformation, stageManager } = this;
+    const { trim, modes } = autopilot;
     const { flightData, flightModel } = flightInformation;
-    const { lat, long, speed, alt, onGround, trueHeading, groundAlt } =
-      flightData;
-    const { climbSpeed, engineCount, v1, minRotation, isTailDragger } =
+    const {
+      alt,
+      altAboveGround,
+      bank,
+      gearSpeedExceeded,
+      isGearDown,
+      lat,
+      lift,
+      long,
+      onGround,
+      speed,
+      VS,
+    } = flightData;
+    const { VS: dVS } = flightData.d;
+    const { climbSpeed, engineCount, isTailDragger, hasRetractibleGear } =
       flightModel;
+    const approachSpeed = climbSpeed + 20;
     const waypoints = (await autopilot.getWaypoints()).filter((w) => w.landing);
     const remainingWaypoints = waypoints.filter((w) => !w.completed).length;
     const approachPoints = waypoints.slice(-3).reverse();
     const [end, start, anchor] = approachPoints;
     const stage = stageManager.currentStage;
+    const altitudeSafety = 100;
+    const dropDistance = constrainMap(speed, 80, 150, 0, 1); // in km
+
+    if (!autopilot.waypoints.currentWaypoint.landing) return;
 
     // What stage are we in?
     console.log(
-      `==================================================================\n`,
-      `${stage}, track has ${remainingWaypoints} waypoints left`,
-      `\n==================================================================`
+      `\n  ==================================================================\n`,
+      `  ${stage}, track has ${remainingWaypoints} waypoints left`,
+      `\n  ==================================================================\n`
     );
 
     // ============================
@@ -190,8 +256,10 @@ class AutoLand {
     if (stage === GETTING_TO_APPROACH) {
       if (remainingWaypoints < 4) {
         autopilot.setParameters({
-          // we do NOT want auto-throttle to interfere with the auto-lander.
-          [AUTO_THROTTLE]: false,
+          // explicitly set autothrottle to target the approach speed.
+          [AUTO_THROTTLE]: approachSpeed,
+          // and turn off terrain follow, if it's on.
+          [TERRAIN_FOLLOW]: false,
         });
         stageManager.nextStage();
       }
@@ -201,9 +269,8 @@ class AutoLand {
 
     if (stage === FLYING_APPROACH) {
       // Determine what altitude we should be at while approaching the runway.
-      const approachAlt = 100; // feet
       const alt1 = anchor.alt; // feet
-      const alt2 = start.alt + approachAlt; // feet
+      const alt2 = start.alt + altitudeSafety; // feet
 
       // Distances in km
       const trackTotal = getDistanceBetweenPoints(
@@ -226,30 +293,28 @@ class AutoLand {
       targetAlt = ratio * alt1 + (1 - ratio) * alt2;
 
       // Set our target altitude, but only if it's lower than we're
-      // already at. We don't want to oscillat around the glide slope.
-      autopilot.setTarget(
-        ALTITUDE_HOLD,
-        Math.min(targetAlt, autopilot.modes[ALTITUDE_HOLD])
-      );
+      // already at. We don't want to oscillate around the glide slope.
+      autopilot.setParameters({
+        [ALTITUDE_HOLD]: Math.min(targetAlt, modes[ALTITUDE_HOLD]),
+      });
 
-      // Also try to target climb speed, which is basically the best we can do
-      // in terms of a known speed from which we can *probably* stall a landing.
-      if (speed < climbSpeed) {
-        console.log(`throttle up`);
-        changeThrottle(api, engineCount, +1);
-      } else if (speed > climbSpeed + 2) {
-        console.log(`throttle down`);
-        changeThrottle(api, engineCount, -1);
+      // gear down once we're flying the approach straight
+      // enough and our speed allows for it.
+      if (
+        hasRetractibleGear &&
+        !gearSpeedExceeded &&
+        !isGearDown &&
+        abs(bank) < 3
+      ) {
+        console.log(`Gear down and trim and throttle to compensate`);
+        api.trigger(`GEAR_DOWN`);
       }
 
-      // FIXME: limit how low we can set the throttle, so we don't get
-      //        "NOT ENOUGH THROTTLE HALP HALP" beeps in the cockpit.
-
-      // When we get to within "I can travel this many NM in a minute",
-      // gear down and start getting onto the runway.
-      if (trackLeft <= speed / 60) {
-        console.log(`Gear down`);
-        api.trigger(`GEAR_DOWN`);
+      if (altAboveGround <= start.alt + altitudeSafety) {
+        autopilot.setParameters({
+          [ALTITUDE_HOLD]: start.alt + 30,
+          [AUTO_THROTTLE]: climbSpeed + 10,
+        });
         stageManager.nextStage();
       }
     }
@@ -257,28 +322,44 @@ class AutoLand {
     // ============================
 
     if (stage === GET_TO_RUNWAY) {
-      const d = getDistanceBetweenPoints(lat, long, end.lat, end.long);
+      console.log(`drop distance = ${dropDistance}`);
+      const de = getDistanceBetweenPoints(lat, long, end.lat, end.long);
       const runway = getDistanceBetweenPoints(
         start.lat,
         start.long,
         end.lat,
         end.long
       );
-      const overRunway = d <= runway;
 
-      console.log(`>>>> get to runway data`, d, runway, overRunway);
+      const altDiff = alt - start.alt; // in feet
+      const NM = (de - runway) / KM_PER_NM;
+      const time = (NM / speed) * 60; // in minutes
+      const idealVS = -altDiff / time; // in feet per minute
 
-      // slowly drop to 20 feet?
-      autopilot.setTarget(ALTITUDE_HOLD, groundAlt + 20);
-
-      console.log(`>>>> speeds?`, speed, climbSpeed, climbSpeed - 10);
-
-      if (speed > climbSpeed - 10) {
-        console.log(`please throttle down`);
-        changeThrottle(api, engineCount, -1);
+      // DON'T FLY INTO THE FUCKING GROUND YOU STUPID PLANES
+      const vsLimit = constrainMap(de - runway, 0, 1, 0, -400);
+      console.log(
+        `checking VS: vsLimit=${nf(vsLimit)}, VS=${nf(
+          VS
+        )}, lift=${lift}, alt=${altDiff}, dist=${NM}, ideal=${idealVS}`
+      );
+      if (VS < vsLimit) {
+        console.log(`VS TOO LOW, INTERVENING`);
+        // trim up
+        trim.pitchLock = true;
+        trim.pitch += 0.001;
+        api.set("ELEVATOR_TRIM_POSITION", trim.pitch);
+        // and add power if we need to
+        if (speed < modes[AUTO_THROTTLE]) {
+          console.log(`SPEED TOO LOW, INTERVENING`);
+          changeThrottle(api, engineCount, 20);
+        }
+      } else {
+        trim.pitchLock = false;
       }
 
-      if (overRunway) {
+      // ready to drop?
+      if (de <= runway + dropDistance) {
         stageManager.nextStage();
       }
     }
@@ -287,6 +368,9 @@ class AutoLand {
 
     if (stage === INITIATE_STALL) {
       console.log(`Cut the throttle`);
+      await autopilot.setParameters({
+        [AUTO_THROTTLE]: false,
+      });
       for (let i = 1; i <= engineCount; i++) {
         await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
       }
@@ -296,26 +380,89 @@ class AutoLand {
     // ============================
 
     if (stage === STALL_LANDING) {
-      if (onGround || alt <= groundAlt + 5) {
-        console.log(`Touchdown`);
-        stageManager.nextStage();
-      }
-      console.log(`dropping...`);
-      autopilot.setTarget(ALTITUDE_HOLD, groundAlt + 5);
-      // keep cutting the throttle
+      // keep cutting those engines, just in case of timing issues
+      console.log(`Keep cutting the throttle`);
       for (let i = 1; i <= engineCount; i++) {
         await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
+      }
+
+      const de = getDistanceBetweenPoints(lat, long, end.lat, end.long);
+      const runway = getDistanceBetweenPoints(
+        start.lat,
+        start.long,
+        end.lat,
+        end.long
+      );
+
+      console.log(
+        `dropping... (speed:${nf(speed)}, alt: ${nf(
+          alt
+        )}, distance to runway: ${nf(runway - de)})`
+      );
+      if (alt <= start.alt + 10 || de < runway) {
+        autopilot.setParameters({
+          [AUTO_THROTTLE]: false,
+          [ALTITUDE_HOLD]: start.alt - 1000,
+        });
+        // in fact, bump the trim to help force that.
+        trim.pitch -= (2 * Math.PI) / 1000;
+        api.set("ELEVATOR_TRIM_POSITION", trim.pitch);
+        trim.pitchLock = true;
+        stageManager.nextStage();
+      }
+    }
+
+    // ============================
+
+    if (stage === GET_TO_GROUND) {
+      if (onGround) {
+        console.log(`Touchdown`);
+        console.log(`Setting throttle to whatever is the lowest it'll go...`);
+        for (let i = 1; i <= engineCount; i++) {
+          await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
+        }
+        console.log(`Also, deploying speed brakes, if we have them`);
+        await api.trigger(`SPOILERS_ON`);
+
+        if (isTailDragger) {
+          console.log(`flaps back up so we don't nose-over`);
+          for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 0);
+        }
+        stageManager.nextStage();
+      }
+
+      // TODO: base this on dVS? Just FUCKING STOP CRASHING
+
+      // Do we need to flare?
+      if (isTailDragger && lift < 20 && !this.flared) {
+        console.log(`FLARE, alt: ${alt}, lift: ${lift}`);
+        const elevator = (await autopilot.get(`ELEVATOR_POSITION`))
+          .ELEVATOR_POSITION;
+        const newValue = elevator + 0.05;
+        autopilot.trigger("ELEVATOR_SET", (-16384 * newValue) | 0);
+        this.flared = true;
       }
     }
 
     // ============================
 
     if (stage === ROLLING) {
-      autopilot.setParameters({
-        [LEVEL_FLIGHT]: false,
-        [ALTITUDE_HOLD]: false,
-        [HEADING_MODE]: false,
-      });
+      if (onGround) {
+        // increase brakes while we're rolling
+        console.log(`rolling brakes: ${this.brake}`);
+        this.brake = Math.min(this.brake + 5, 100);
+        this.setBrakes(api, this.brake);
+
+        // and pull back on the elevator if we're in a for tail
+        //draggers so that we don't end up in a nose-over.
+        if (isTailDragger && this.brake > 50) {
+          const elevator = constrainMap(this.brake, 0, 100, 0, -4000) | 0;
+          api.trigger("ELEVATOR_SET", elevator);
+        }
+
+        console.log(`speed on the ground:`, speed);
+        if (speed < 5) stageManager.nextStage();
+      }
 
       await autorudder(
         api,
@@ -325,22 +472,6 @@ class AutoLand {
         flightData,
         flightModel
       );
-
-      // start braking
-      this.brake += 0.1;
-      this.setBrakes(api, this.brake);
-
-      // and start pulling back on the elevator
-      const elevator = constrainMap(this.brake, 0, 50, 0, 16384) | 0;
-      api.trigger("ELEVATOR_SET", elevator);
-
-      // keep cutting the throttle
-      for (let i = 1; i <= engineCount; i++) {
-        await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
-      }
-
-      console.log(`speed on the ground:`, speed);
-      if (speed < 5) stageManager.nextStage();
     }
 
     // ============================
@@ -348,7 +479,14 @@ class AutoLand {
     if (stage === LANDING_COMPLETE) {
       console.log(`aaaaand we're done`);
       this.setBrakes(api, 0);
+      for (let i = 1; i <= engineCount; i++) {
+        await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
+      }
+      for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 0);
+      trim.pitchLock = false;
+      await api.trigger(`SPOILERS_OFF`);
       api.trigger(`ENGINE_AUTO_SHUTDOWN`);
+      api.trigger(`PARKING_BRAKES`);
       this.done();
     }
 
@@ -357,8 +495,13 @@ class AutoLand {
 
   done() {
     this.landing = false;
+    this.brake = 0;
     this.autopilot.setParameters({
       MASTER: false,
+      [ALTITUDE_HOLD]: false,
+      [LEVEL_FLIGHT]: false,
+      [AUTO_THROTTLE]: false,
+      [HEADING_MODE]: false,
       [AUTO_LAND]: false,
     });
   }
@@ -368,6 +511,15 @@ class AutoLand {
     api.trigger(`AXIS_LEFT_BRAKE_SET`, value);
     api.trigger(`AXIS_RIGHT_BRAKE_SET`, value);
   }
+
+  restrictTargetVS() {
+    const stage = this.stageManager.currentStage;
+    if (stage === FLYING_APPROACH) return true;
+    if (stage === GET_TO_RUNWAY) return true;
+    if (stage === STALL_LANDING) return true;
+    if (stage === INITIATE_STALL) return true;
+    return false;
+  }
 }
 
 export { AutoLand };
@@ -375,8 +527,10 @@ export { AutoLand };
 // FIXME: taken from auto-takeoff
 
 async function autorudder(api, plane, start, end, flightData, flightModel) {
-  const { lat, long, speed, trueHeading } = flightData;
+  const { lat, long, speed, trueHeading, onGround } = flightData;
   const { isTailDragger, minRotation } = flightModel;
+
+  if (!onGround) return;
 
   // Get the difference in "heading we are on now" and "heading
   // required to stay on the center line":
@@ -392,12 +546,10 @@ async function autorudder(api, plane, start, end, flightData, flightModel) {
     return console.log(`line check failed:`, plane, start, end, r);
   }
 
-  // The faster we're moving, the less rudder we want, but we want
-  // the effect to fall off as we get closer to our rotation speed.
-  const sfMax = 1.0;
-  const sfMin = 0.2;
-  const sfRatio = speed / minRotation;
-  const speedFactor = constrain(sfMax - sfRatio ** 1, sfMin, sfMax);
+  // On landing, we don't actually want "more rudder the slower we
+  // go", we're already coming in straight so we just want gentle
+  // rudder the entire rollout.
+  const speedFactor = constrainMap(speed, 100, 0, 0.25, 0.01);
 
   // This is basically a magic constant that we found experimentally,
   // and I don't like the fact that we need it.

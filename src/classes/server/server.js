@@ -17,6 +17,7 @@ let FlightInformation = fi;
 // routers
 import { APIRouter } from "./routers/api-router.js";
 import { AutopilotRouter } from "./routers/autopilot-router.js";
+import { runLater } from "../../utils/utils.js";
 
 const MOCKED = process.argv.includes(`--mock`);
 const { FLIGHT_OWNER_KEY } = process.env;
@@ -172,7 +173,7 @@ export class ServerClass {
       this.sendFlightInformation(await this.#flightInformation.update());
     }
     this.#checkFlying();
-    setTimeout(() => this.#poll(), 5000);
+    runLater(() => this.#poll(), 5000);
   }
 
   /**

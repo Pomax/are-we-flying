@@ -22,6 +22,10 @@ export class AutopilotRouter {
     this.#broadcastUpdate = broadcastUpdate;
   }
 
+  async test() {
+    this.#autopilot.test();
+  }
+
   /**
    * ...docs go here...
    * @param {ClientClass} client

@@ -214,7 +214,7 @@ export class AutoTakeoff {
     const { BRAKE_PARKING_POSITION } = await api.get(`BRAKE_PARKING_POSITION`);
     if (BRAKE_PARKING_POSITION === 1) api.trigger(`PARKING_BRAKES`);
 
-    // Set flaps to zero.
+    // Set flaps to take-off (or, 2 notches).
     let flaps = await api.get(`FLAPS_HANDLE_INDEX:1`);
     flaps = flaps[`FLAPS_HANDLE_INDEX:1`];
     api.trigger(`FLAPS_UP`);
@@ -255,7 +255,7 @@ export class AutoTakeoff {
     const { api, maxed } = this;
     if (maxed) return;
 
-    const newThrottle = await changeThrottle(api, engineCount, 1);
+    const newThrottle = await changeThrottle(api, engineCount, 2);
     // console.log(`Throttle up to ${newThrottle | 0}%`);
     if ((newThrottle | 0) === 100) {
       this.maxed = true;
@@ -396,7 +396,7 @@ export class AutoTakeoff {
             if (TAILWHEEL_LOCK_ON === 1) api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
           }
           this.gearIsUp = true;
-          this.switchToAutopilot(altitude, isTailDragger, engineCount);
+          this.switchToAutopilot(altitude + 500, isTailDragger, engineCount);
         }
 
         // Pitch protection
@@ -445,9 +445,15 @@ export class AutoTakeoff {
     }
 
     console.log(`switch to autopilot.`);
+
+    // if we have any waypoints with explicit elevation, don't turn on
+    // terrain follow mode. Otherwise, terrain-follow is good to go.
+    const flyExplicitAltitude = (await autopilot.getWaypoints()).some(
+      (e) => !!e.alt
+    );
     autopilot.setParameters({
       [AUTO_TAKEOFF]: false,
-      [TERRAIN_FOLLOW]: autopilot.modes[TERRAIN_FOLLOW] ?? 500,
+      [TERRAIN_FOLLOW]: flyExplicitAltitude ? false : 500,
       [AUTO_THROTTLE]: true,
       [ALTITUDE_HOLD]: targetAltitude,
     });

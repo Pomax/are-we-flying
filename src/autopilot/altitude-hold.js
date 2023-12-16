@@ -46,6 +46,9 @@ const PLATEAU = 200;
 const SMALL_TRIM = radians(0.001);
 const LARGE_TRIM = radians(0.035);
 
+// if we're in autolanding mode, we want a tracking value
+let previousTargetVS = false;
+
 export const LOAD_TIME = Date.now();
 
 /**
@@ -60,12 +63,18 @@ export async function altitudeHold(
   useStickInstead = false
 ) {
   // The local and state values we'll be working with:
-  const { trim } = autopilot;
-  const { VS, speed, pitch } = flightData;
+  const { modes, trim } = autopilot;
+
+  // are we allowed to trim?
+  if (trim.pitchLocked) return;
+
+  // TODO: trim more is the gear is down on a retractible-gear plane
+
+  const { VS, speed, pitch, alt } = flightData;
   const { VS: dVS, pitch: dPitch } = flightData.d ?? { VS: 0, pitch: 0 };
 
   // How big should our trim steps be?
-  const { weight, pitchTrimLimit, isAcrobatic } = flightModel;
+  const { pitchTrimLimit, isAcrobatic } = flightModel;
   let trimLimit = pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
   const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
@@ -75,17 +84,28 @@ export async function altitudeHold(
   // and then set the plane's trim based on the new value,
   // while making sure we never trim more than 1% per tick.
   const updateTrim = async (update) => {
+    const directUpdate = modes[AUTO_LAND];
     const { ELEVATOR_TRIM_POSITION: currentPosition } = await autopilot.get(
       "ELEVATOR_TRIM_POSITION"
     );
-    const percent = (v) => (1000 * v) / Math.PI;
-    const position = (v) => (Math.PI * v) / 1000;
-    const current = percent(currentPosition);
-    const lower = current - constrainMap(weight, 1000, 6000, 1, 3);
-    const higher = current + constrainMap(weight, 1000, 6000, 1, 3);
-    const lowPos = position(lower);
-    const highPos = position(higher);
-    trim.pitch = constrain(trim.pitch + update, lowPos, highPos);
+
+    // if we're autolanding, correct by as much as needed to get the job done.
+    if (directUpdate) {
+      trim.pitch = trim.pitch + update;
+    }
+
+    // if not, limit by how much we can change per tick
+    else {
+      const percent = (v) => (1000 * v) / Math.PI;
+      const position = (v) => (Math.PI * v) / 1000;
+      const current = percent(currentPosition);
+      const lower = current - constrainMap(speed, 100, 200, 5, 1);
+      const higher = current + constrainMap(speed, 100, 200, 5, 1);
+      const lowPos = position(lower);
+      const highPos = position(higher);
+      trim.pitch = constrain(trim.pitch + update, lowPos, highPos);
+    }
+
     autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
   };
 
@@ -119,7 +139,6 @@ export async function altitudeHold(
   targetVS = constrain(
     //constrain(
     targetVS,
-    // VS - PLATEAU, VS + PLATEAU),
     -maxVS,
     maxVS
   );
@@ -254,84 +273,9 @@ async function getTargetVS(autopilot, flightData, flightModel, maxVS) {
     else {
       targetVS = constrainMap(altDiff, -PLATEAU, PLATEAU, -maxVS, maxVS);
     }
-
-    // If we are, then we also want to boost our ability to control
-    // vertical speed, by using a (naive) auto-throttle procedure.
-    if (autopilot.modes[AUTO_THROTTLE]) {
-      autoThrottle(flightData, flightModel, autopilot.api, altDiff, targetVS);
-    }
   }
-
-  // if (FEATURES.STALL_PROTECTION && targetVS > 0) {
-  //   // And of course: if we're close to our stall speed, and we need to
-  //   // climb, *CLIMB LESS FAST*. A simple rule, but really important.
-  //   let { DESIGN_SPEED_VS1, DESIGN_SPEED_CLIMB } = await autopilot.api.get(
-  //     `DESIGN_SPEED_CLIMB`,
-  //     `DESIGN_SPEED_VS1`
-  //   );
-  //   // We don't want feet per second, we want knots:
-  //   const cruiseSpeed = DESIGN_SPEED_CLIMB * FPS_IN_KNOTS;
-  //   const stallSpeed = DESIGN_SPEED_VS1 * FPS_IN_KNOTS;
-  //   targetVS = constrainMap(
-  //     speed,
-  //     stallSpeed,
-  //     cruiseSpeed,
-  //     targetVS / 2,
-  //     targetVS
-  //   );
-  // }
 
   return { targetVS, altDiff, direction };
-}
-
-const ATT_PROPERTIES = [
-  `DESIGN_SPEED_CLIMB`,
-  `DESIGN_SPEED_VC`,
-  `NUMBER_OF_ENGINES`,
-  `OVERSPEED_WARNING`,
-];
-
-/**
- * Check our air speed: if we're descending we can easily end up over-speeding and
- * damaging the plane, whereas if we're flying up, we need max throttle, and in
- * level flight we want to cruise at "our rated cruise speed".
- *
- * FIXME: this code needs to take Vne into account, but we don't know what that
- *        value is. So instead, we want to make sure planes never exceed their
- *        cruise speed.
- *
- * @param {*} api
- * @param {*} altDiff
- */
-async function autoThrottle(flightData, flightModel, api, altDiff, targetVS) {
-  const speed = round(flightData.speed);
-  const { climbSpeed, cruiseSpeed, engineCount } = flightModel;
-
-  const throttleStep = 0.2; // in percentages
-  const throttle = (f = 1) =>
-    changeThrottle(api, engineCount, throttleStep * f);
-
-  let adjusted = false;
-
-  // Are we descending too fast?
-  if (speed > cruiseSpeed + 1 && targetVS < 0) {
-    const f = -speed / cruiseSpeed;
-    console.log(`slow down (${f})`);
-    adjusted = throttle(f);
-  }
-
-  // Are we climbing too slow?
-  if (speed < climbSpeed + 1 && targetVS > 0) {
-    const f = climbSpeed / speed;
-    console.log(`speed up (${f})`);
-    adjusted = throttle(f);
-  }
-
-  // Are we not flying at regular cruise speed?
-  if (!adjusted && speed < cruiseSpeed - 2) {
-    console.log(`get back to cruise (${cruiseSpeed | 0} kts)`);
-    throttle();
-  }
 }
 
 /**

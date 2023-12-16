@@ -12,15 +12,15 @@ class Waypoint {
 }
 
 export class WaypointOverlay {
-  constructor(owner, map) {
+  constructor(owner, layer) {
     this.owner = owner;
-    this.map = map;
+    this.layer = layer;
     this.waypoints = [];
     this.setupMapHandling();
   }
 
   setupMapHandling() {
-    this.map.on(`click`, (e) => this.add(e));
+    this.layer.on(`click`, (e) => this.add(e));
 
     document
       .querySelector(`button[name="clear"]`)
@@ -151,7 +151,7 @@ export class WaypointOverlay {
     const marker = (waypoint.marker = L.marker(
       { lat, lng: long },
       { icon, draggable: true }
-    ).addTo(this.map));
+    ).addTo(this.layer));
 
     // Add event listeners for (re)moving this waypoint
     marker.on(`drag`, (event) => (marker.__drag__latlng = event.latlng));
@@ -183,7 +183,7 @@ export class WaypointOverlay {
       waypoint.prev = prev;
       prev.next = waypoint;
       waypoint.trail = new Trail(
-        this.map,
+        this.layer,
         [prev.lat, prev.long],
         `var(--flight-path-colour)`
       );
@@ -196,7 +196,7 @@ export class WaypointOverlay {
 
   // A helper function for building waypoint-connecting trails
   addNewTrail(lat, long) {
-    return new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
+    return new Trail(this.layer, [lat, long], `var(--flight-path-colour)`);
   }
 
   /**
@@ -336,13 +336,18 @@ export class WaypointOverlay {
     if (next) {
       next.trail?.remove();
       if (prev) {
-        next.trail = new Trail(
-          this.map,
-          [prev.lat, prev.long],
-          `var(--flight-path-colour)`
-        );
-        next.trail.add(next.lat, next.long);
-        prev.next = next;
+        try {
+          next.trail = new Trail(
+            this.layer,
+            [prev.lat, prev.long],
+            `var(--flight-path-colour)`
+          );
+          next.trail.add(next.lat, next.long);
+          prev.next = next;
+        } catch (e) {
+          console.error(e);
+          console.log(next);
+        }
       }
       next.prev = prev;
     } else if (prev) {

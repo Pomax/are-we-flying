@@ -45,9 +45,10 @@ export function watch(basePath, modulePath, onChange) {
       // And then we run whatever code needs to run now that the module's been reloaded.
       onChange(module);
     } catch (e) {
+      // Never crash the server just because someone saved a file with a typo.
       console.error(`\nWatcher could not load module: ${filePath}`);
       console.error(callStack);
-      throw e;
+      console.error(e);
     }
   });
 }

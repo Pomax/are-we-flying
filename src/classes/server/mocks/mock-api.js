@@ -1,5 +1,6 @@
 import { MockPlane } from "./mock-plane.js";
 import { AIRPORTS } from "./mock-airports.js";
+import { runLater } from "../../../utils/utils.js";
 
 export class MOCK_API {
   constructor() {
@@ -15,7 +16,7 @@ export class MOCK_API {
   }
 
   async setAutopilot(autopilot) {
-    setTimeout(() => {
+    runLater(() => {
       autopilot.setParameters({
         MASTER: true,
         LVL: true,
@@ -57,7 +58,7 @@ export class MOCK_API {
 
   async on({ name }, handler) {
     if (name === `Sim`) {
-      setTimeout(() => handler(1), 1000);
+      runLater(() => handler(1), 1000);
     }
   }
 }

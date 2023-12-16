@@ -1,3 +1,5 @@
+import { runLater } from "../../utils/utils.js";
+
 const RECONNECT_TIMEOUT_IN_MS = 5000;
 
 // Do we have a flight owner key that we need to authenticate with?
@@ -18,7 +20,7 @@ export class ClientClass {
    */
   init() {
     this.#resetState();
-    setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
+    runLater(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
   }
 
   #resetState() {
@@ -47,7 +49,7 @@ export class ClientClass {
     console.log(`trying to reconnect to the server...`);
     this.#resetState();
     this.reconnect();
-    this.#reconnection = setTimeout(
+    this.#reconnection = runLater(
       () => this.#tryReconnect(),
       RECONNECT_TIMEOUT_IN_MS
     );
