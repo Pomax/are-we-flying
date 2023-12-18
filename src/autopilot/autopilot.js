@@ -52,7 +52,9 @@ export class AutoPilot {
   constructor(api, onChange = () => {}) {
     this.api = api;
     this.alos = new ALOSInterface(process.env.DATA_FOLDER);
-    this.onChange = onChange;
+    this.onChange = async (update) => {
+      onChange(update ?? (await this.getParameters()));
+    };
     this.AP_INTERVAL = REGULAR_AUTOPILOT;
     this.reset();
 
@@ -62,11 +64,6 @@ export class AutoPilot {
     this.autoThrottle = autoThrottle;
     this.followTerrain = followTerrain;
     this.watchForUpdates();
-  }
-
-  async sendParameters() {
-    const params = await this.getParameters();
-    this.onChange(params);
   }
 
   async reset(flightInformation, flightInfoUpdateHandler) {
@@ -86,8 +83,7 @@ export class AutoPilot {
       [TERRAIN_FOLLOW]: false,
       [INVERTED_FLIGHT]: false, // TODO: fly upside down. It has to happen again. It's just too good.
     };
-    // this.onChange(await this.getParameters);
-    this.sendParameters();
+    this.onChange();
   }
 
   bootstrap(flightInformation) {
@@ -156,22 +152,27 @@ export class AutoPilot {
 
   addWaypoint(lat, long, alt, landing) {
     this.waypoints.add(lat, long, alt, landing);
+    this.onChange();
   }
 
   moveWaypoint(id, lat, long) {
     this.waypoints.move(id, lat, long);
+    this.onChange();
   }
 
   elevateWaypoint(id, alt) {
     this.waypoints.elevate(id, alt);
+    this.onChange();
   }
 
   removeWaypoint(id) {
     this.waypoints.remove(id);
+    this.onChange();
   }
 
   clearWaypoints() {
     this.waypoints.reset();
+    this.onChange();
   }
 
   async revalidateFlight() {
@@ -180,10 +181,12 @@ export class AutoPilot {
       `PLANE_LONGITUDE`
     );
     this.waypoints.revalidate(degrees(lat), degrees(long));
+    this.onChange();
   }
 
   resetFlight() {
     this.waypoints.resetWaypoints();
+    this.onChange();
   }
 
   async get(...names) {
@@ -220,23 +223,13 @@ export class AutoPilot {
     return state;
   }
 
-  async engageAutoLand(Add_WAYPOINTS = true) {
-    // Note we do not turn autoland "on", that'll happen automatically
-    // once we hit a waypoint that's marked as a landing waypoint.
-    this.autoland = new AutoLand(this.api, this);
-    this.landingTarget = await this.autoland.land(
-      this.flightInformation,
-      Add_WAYPOINTS
-    );
-  }
-
   async setParameters(params) {
     try {
       if (params[AUTO_TAKEOFF] === true) {
         params.MASTER = true;
       }
-      if (params[AUTO_LAND] === true) {
-        await this.engageAutoLand();
+      if (params[AUTO_LAND] && !this.modes[AUTO_LAND]) {
+        await this.engageAutoLand(params[AUTO_LAND]);
       }
       if (params.MASTER !== undefined) {
         this.autoPilotEnabled = params.MASTER;
@@ -257,7 +250,18 @@ export class AutoPilot {
     } catch (e) {
       console.warn(e);
     }
-    return this.getParameters();
+  }
+
+  async engageAutoLand(ICAO, Add_WAYPOINTS = true) {
+    // Note we do not turn autoland "on", that'll happen automatically
+    // once we hit a waypoint that's marked as a landing waypoint.
+    this.modes[AUTO_LAND] = true;
+    this.autoland = new AutoLand(this.api, this);
+    this.landingTarget = await this.autoland.land(
+      this.flightInformation,
+      ICAO,
+      Add_WAYPOINTS
+    );
   }
 
   toggle(type) {
@@ -316,9 +320,7 @@ export class AutoPilot {
         this.set("AUTOPILOT_HEADING_LOCK_DIR", newValue);
       }
     }
-
-    //this.onChange(await this.getParameters());
-    this.sendParameters();
+    this.onChange();
   }
 
   async runAutopilot() {
@@ -340,6 +342,7 @@ export class AutoPilot {
     // Do *not* crash the server.
     try {
       await this.run();
+      this.onChange();
     } catch (e) {
       console.error(e);
     }

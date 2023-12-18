@@ -21,7 +21,8 @@ const { abs, round, sign } = Math;
 const DEFAULT_TARGET_VS = 0;
 const DEFAULT_MAX_dVS = 100;
 const DEFAULT_MAX_VS = 1000;
-// const DELTA_PITCH_LIMIT = 5;
+
+// FIXME: TODO: elevator should work a little more aggressively, so we don't crash on auto-land
 
 // Test constants
 const FEATURES = {

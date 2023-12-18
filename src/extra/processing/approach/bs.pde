@@ -114,11 +114,11 @@ class Point {
     draw();
     text(label, x+15, y-8);
   }
-
+  
   void lock() {
     locked = true;
   }
-
+  
   void unlock() {
     locked = false;
   }

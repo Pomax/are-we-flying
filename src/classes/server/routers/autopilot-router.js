@@ -17,9 +17,8 @@ export class AutopilotRouter {
    * @param {AutoPilot}} autopilot
    * @param {Function} broadcastUpdate
    */
-  constructor(autopilot, broadcastUpdate) {
+  constructor(autopilot) {
     this.#autopilot = autopilot;
-    this.#broadcastUpdate = broadcastUpdate;
   }
 
   async test() {
@@ -43,7 +42,6 @@ export class AutopilotRouter {
   async update(client, params) {
     if (!client.authenticated) return false;
     const updatedParameters = await this.#autopilot.setParameters(params);
-    this.#broadcastUpdate(updatedParameters);
   }
 
   /**
@@ -55,7 +53,6 @@ export class AutopilotRouter {
       return false;
     }
     this.#autopilot.clearWaypoints();
-    this.#broadcastUpdate(await this.#autopilot.getParameters());
   }
 
   /**
@@ -64,7 +61,6 @@ export class AutopilotRouter {
    */
   async revalidateWaypoints(client) {
     this.#autopilot.revalidateFlight();
-    this.#broadcastUpdate(await this.#autopilot.getParameters());
   }
 
   /**
@@ -76,7 +72,6 @@ export class AutopilotRouter {
       return false;
     }
     this.#autopilot.resetFlight();
-    this.#broadcastUpdate(await this.#autopilot.getParameters());
   }
 
   /**
@@ -91,7 +86,6 @@ export class AutopilotRouter {
       return false;
     }
     this.#autopilot.moveWaypoint(id, lat, long);
-    this.#broadcastUpdate(await this.#autopilot.getParameters());
   }
 
   /**
@@ -105,7 +99,6 @@ export class AutopilotRouter {
       return false;
     }
     this.#autopilot.elevateWaypoint(id, alt);
-    this.#broadcastUpdate(await this.#autopilot.getParameters());
   }
 
   /**
@@ -118,7 +111,6 @@ export class AutopilotRouter {
       return false;
     }
     this.#autopilot.removeWaypoint(id);
-    this.#broadcastUpdate(await this.#autopilot.getParameters());
   }
 
   /**
@@ -134,6 +126,5 @@ export class AutopilotRouter {
       return false;
     }
     this.#autopilot.addWaypoint(lat, long, alt, landing);
-    this.#broadcastUpdate(await this.#autopilot.getParameters());
   }
 }

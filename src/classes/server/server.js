@@ -90,6 +90,10 @@ export class ServerClass {
    * @param {*} params
    */
   async #autopilotBroadcast(params) {
+    if (!params) {
+      return console.trace();
+    }
+
     this.clients.forEach((client) => client.onAutoPilot(params));
   }
 
@@ -117,9 +121,7 @@ export class ServerClass {
     this.api = new APIRouter(api, () => MSFS);
 
     // All clients will now be able to call server.autopilot.[...]
-    this.autopilot = new AutopilotRouter(autopilot, (params) =>
-      this.clients.forEach((c) => c.onAutoPilot(params))
-    );
+    this.autopilot = new AutopilotRouter(autopilot);
   }
 
   /**

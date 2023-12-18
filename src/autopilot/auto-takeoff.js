@@ -376,7 +376,8 @@ export class AutoTakeoff {
       // up launching the plane into a stall.
       if (onGround && (vs < 50 || dVs < 25)) {
         console.log(`on ground, trim up by ${trimStep}`);
-        autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep / 2);
+        const touch = constrainMap(currentSpeed, 50, 130, trimStep/2, 2*trimStep);
+        autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + touch);
       }
 
       // if we're in the air:

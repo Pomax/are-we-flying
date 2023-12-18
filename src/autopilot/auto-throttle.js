@@ -14,7 +14,7 @@ export function autoThrottle(autopilot, { flightData, flightModel }) {
   const diff = abs(speed - targetSpeed);
   const threshold = constrainMap(diff, 0, 10, 0.01, 0.2);
   const altFactor = constrainMap(targetAlt - alt, 0, 100, 0, 0.25);
-  const step = constrainMap(diff, 0, 50, 0, 2);
+  const step = constrainMap(diff, 0, 50, 1, 5);
 
   console.log(
     `[autothrottle] speed: ${nf(speed)}, target speed: ${nf(
@@ -25,38 +25,38 @@ export function autoThrottle(autopilot, { flightData, flightModel }) {
   );
 
   // throttle up situation
-  if (speed - targetSpeed < 0) {
+  if (speed - targetSpeed - 2 < 0) {
     console.log(`throttle up`);
     if (dV <= threshold) {
-      changeThrottle(autopilot.api, engineCount, step, 25, 95);
+      changeThrottle(autopilot.api, engineCount, step, 25, 100);
     }
     // do we need to climb? then throttle up a bit more
     if (alt < targetAlt - 50) {
       console.log(`climbimg`);
-      changeThrottle(autopilot.api, engineCount, altFactor * step, 25, 95);
+      changeThrottle(autopilot.api, engineCount, altFactor * step, 25, 100);
     }
     // are we speeding up more than desired?
     if (dV > threshold) {
-      changeThrottle(autopilot.api, engineCount, -step / 4, 25, 95);
+      changeThrottle(autopilot.api, engineCount, -step / 4, 25, 100);
     }
   }
 
   // throttle down situation
-  if (targetSpeed - speed < 0) {
+  if (targetSpeed - speed + 2 < 0) {
     console.log(`throttle down`);
     if (dV >= -3 * threshold) {
       console.log(`dV range good, throttling down`);
-      changeThrottle(autopilot.api, engineCount, -step, 25, 95);
+      changeThrottle(autopilot.api, engineCount, -step, 25, 100);
     }
     // do we need to descend? then throttle down a bit more
     if (alt > targetAlt + 50) {
       console.log(`descending`);
-      changeThrottle(autopilot.api, engineCount, -altFactor * step, 25, 95);
+      changeThrottle(autopilot.api, engineCount, -altFactor * step, 25, 100);
     }
     // Are we slowing down more than desired?
     if (dV < -3 * threshold) {
       console.log(`dV too low, throttling up`);
-      changeThrottle(autopilot.api, engineCount, step / 4, 25, 95);
+      changeThrottle(autopilot.api, engineCount, step / 4, 25, 100);
     }
   }
 }

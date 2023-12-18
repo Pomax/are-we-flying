@@ -1,1 +1,3 @@
-This is the flight-path interception code.
+- `flightpath`: flight-path interception code.
+- `approach`: landing waypoint code.
+
