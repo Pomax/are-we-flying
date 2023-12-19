@@ -73,34 +73,34 @@ void draw() {
 void showConnections(int x, int y) {
   Point cursor = new Point(x, y);
 
-  double dy = anchor.y - cursor.x;
-  double dx = anchor.x - cursor.y;
   double v1 = M.x - anchor.x;
   double v2 = M.y - anchor.y;
   double w1 = cursor.x - anchor.x;
   double w2 = cursor.y - anchor.y;
-  double da = atan2(w2*v1 - w1*v2, w1*v1 + w2*v2);
-  double db = PI + angle + da;
-  double l = dist(anchor, cursor);
+
+  double r = angle;
+  double a = atan2(w2*v1 - w1*v2, w1*v1 + w2*v2);
 
   Point p = cursor.project(M, anchor);
   double d = dist(p, cursor);
 
-  if (da > PI/2 || da < - PI /2) {
-    o1 = new Point(anchor.x + 50 * cos(angle), anchor.y + 50 * sin(angle));
-    o2 = new Point(anchor.x + 50 * cos(angle), anchor.y + 50 * sin(angle));
+  if (a > PI/2 || a < - PI /2) {
+    o1 = new Point(anchor.x + 50 * cos(r), anchor.y + 50 * sin(r));
+    o2 = new Point(anchor.x + 50 * cos(r), anchor.y + 50 * sin(r));
   } else {
-    if (da > 0) {
-      o1 = new Point(anchor.x + 50 * cos(angle - PI/2), anchor.y + 50 * sin(angle - PI/2));
+    if (a > 0) {
+      r -= PI/2;
+      o1 = new Point(anchor.x + 50 * cos(r), anchor.y + 50 * sin(r));
       if (d<50) {
-        o2 = new Point(anchor.x + 60 * cos(angle - PI/2), anchor.y + 60 * sin(angle - PI/2));
+        o2 = new Point(anchor.x + 60 * cos(r), anchor.y + 60 * sin(r));
       } else {
         o2 = o1;
       }
     } else {
-      o1 = new Point(anchor.x + 50 * cos(angle + PI/2), anchor.y + 50 * sin(angle + PI/2));
+      r += PI/2;
+      o1 = new Point(anchor.x + 50 * cos(r), anchor.y + 50 * sin(r));
       if (d<50) {
-        o2 = new Point(anchor.x + 60 * cos(angle + PI/2), anchor.y + 60 * sin(angle + PI/2));
+        o2 = new Point(anchor.x + 60 * cos(r), anchor.y + 60 * sin(r));
       } else {
         o2 = o1;
       }
@@ -108,7 +108,7 @@ void showConnections(int x, int y) {
   }
 
   Point p2 = cursor.project(o1, anchor, true);
-  if (da > PI/2 || da < - PI /2) {
+  if (a > PI/2 || a < - PI /2) {
     if (p2 != null && dist(cursor, p2) < dist(cursor, o1)) {
       line(cursor, p2);
     } else {

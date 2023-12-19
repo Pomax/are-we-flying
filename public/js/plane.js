@@ -72,14 +72,14 @@ export class Plane {
    * @param {*} value
    * @returns
    */
-  async setElevationProbe(value = false) {
+  async setElevationProbe(lat, long, value = false) {
     // remove the old probe line
     if (this.elevationProbe) this.elevationProbe.remove();
 
     // then draw a new one, but only if there is a value to visualize
     if (!value) return;
-    const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } =
-      this.state.flightData;
+
+    const { lat2, long2 } = value;
     this.elevationProbe = new Trail(
       this.trailLayer,
       [lat, long],
@@ -87,7 +87,7 @@ export class Plane {
       undefined,
       { weight: 30, lineCap: `butt` }
     );
-    this.elevationProbe.add(value.lat2, value.long2);
+    this.elevationProbe.add(lat2, long2);
   }
 
   /**
@@ -144,7 +144,7 @@ export class Plane {
       state.autopilot ?? {};
     this.autopilot.update(params);
     this.manageWaypoints(waypoints);
-    this.setElevationProbe(elevation);
+    this.setElevationProbe(flightData.lat, flightData.long, elevation);
 
     // If we're in auto-landing, show that airport on the map
     if (landingTarget && !this.landingTarget) {

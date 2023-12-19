@@ -81,6 +81,7 @@ export class AutoTakeoff {
       minRotation,
       takeoffSpeed,
       title,
+      isAcrobatic,
     } = flightModel;
 
     if (!this.trimStep) {
@@ -172,7 +173,8 @@ export class AutoTakeoff {
       pitchTrim,
       isTailDragger,
       engineCount,
-      title
+      title,
+      isAcrobatic
     );
   }
 
@@ -361,7 +363,8 @@ export class AutoTakeoff {
     pitchTrim,
     isTailDragger,
     engineCount,
-    title
+    title,
+    isAcrobatic
   ) {
     const { api, autopilot, trimStep } = this;
     const rotateSpeed = minRotate + 5;
@@ -376,7 +379,13 @@ export class AutoTakeoff {
       // up launching the plane into a stall.
       if (onGround && (vs < 50 || dVs < 25)) {
         console.log(`on ground, trim up by ${trimStep}`);
-        const touch = constrainMap(currentSpeed, 50, 130, trimStep/2, 2*trimStep);
+        const touch = constrainMap(
+          currentSpeed,
+          50,
+          130,
+          trimStep / 2,
+          2 * trimStep
+        );
         autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + touch);
       }
 
@@ -449,9 +458,12 @@ export class AutoTakeoff {
 
     // if we have any waypoints with explicit elevation, don't turn on
     // terrain follow mode. Otherwise, terrain-follow is good to go.
-    const flyExplicitAltitude = (await autopilot.getWaypoints()).some(
-      (e) => !!e.alt
-    );
+    const waypoints = await autopilot.getWaypoints();
+    const flightPlan = waypoints.filter((e) => !e.landing);
+    const flyExplicitAltitude = flightPlan.some((e) => !!e.alt);
+    // console.log(`flightPlan:`, flightPlan);
+    // console.log(`flyExplicitAltitude:`, flyExplicitAltitude);
+
     autopilot.setParameters({
       [AUTO_TAKEOFF]: false,
       [TERRAIN_FOLLOW]: flyExplicitAltitude ? false : 500,

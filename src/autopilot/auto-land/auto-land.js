@@ -133,11 +133,11 @@ class AutoLand {
     // find a plane-appropriate landing
     if (waterLanding) {
       list = list.filter((a) =>
-        a.runways.some((r) => r.surface.startsWith(`water `))
+        a.runways.some((r) => r.surface?.startsWith(`water `))
       );
     } else {
       list = list.filter((a) =>
-        a.runways.some((r) => !r.surface.startsWith(`water`))
+        a.runways.some((r) => !r.surface?.startsWith(`water`))
       );
     }
     // then figure out which one is actually nearest to our reference point
@@ -286,21 +286,21 @@ class AutoLand {
     if (stageManager.currentStage === FLYING_APPROACH) {
       // Determine what altitude we should be at while approaching the runway.
       const alt1 = anchor.alt; // feet
-      const alt2 = start.alt + altitudeSafety; // feet
+      const alt2 = M.alt; // feet
 
       // Distances in km
+      const trackLeft = getDistanceBetweenPoints(lat, long, M.lat, M.long);
       const trackTotal = getDistanceBetweenPoints(
         anchor.lat,
         anchor.long,
         M.lat,
         M.long
       );
-      const trackLeft = getDistanceBetweenPoints(lat, long, M.lat, M.long);
-      console.log(`distance to runway: ${trackLeft}km`);
+      console.log(`distance to M: ${trackLeft}km`);
 
       // We want to be at a stable approach distance by the time we're 1km out.
       let targetAlt = alt2;
-      const ratio = (trackLeft - 1) / (trackTotal - 1);
+      const ratio = trackLeft / trackTotal;
       targetAlt = ratio * alt1 + (1 - ratio) * alt2;
 
       // Set our target altitude, but only if it's lower than we're
@@ -505,7 +505,7 @@ async function autorudder(api, plane, start, end, flightData, flightModel) {
   // On landing, we don't actually want "more rudder the slower we
   // go", we're already coming in straight so we just want gentle
   // rudder the entire rollout.
-  const speedFactor = constrainMap(speed, 100, 0, 0.25, 0.01);
+  const speedFactor = constrainMap(speed, 80, 0, 0.25, 0.05);
 
   // This is basically a magic constant that we found experimentally,
   // and I don't like the fact that we need it.

@@ -8,13 +8,14 @@ export function autoThrottle(autopilot, { flightData, flightModel }) {
   const { modes } = autopilot;
   const { alt, speed, vs1 } = flightData;
   const { speed: dV } = flightData.d;
-  const { engineCount } = flightModel;
+  const { engineCount, isAcrobatic } = flightModel;
   const targetAlt = modes[ALTITUDE_HOLD];
   const targetSpeed = getTargetSpeed(modes, flightModel);
   const diff = abs(speed - targetSpeed);
   const threshold = constrainMap(diff, 0, 10, 0.01, 0.2);
   const altFactor = constrainMap(targetAlt - alt, 0, 100, 0, 0.25);
-  const step = constrainMap(diff, 0, 50, 1, 5);
+  const f = isAcrobatic ? 1 / 5 : 1;
+  const step = constrainMap(diff, 0, 50, f * 1, f * 5);
 
   console.log(
     `[autothrottle] speed: ${nf(speed)}, target speed: ${nf(
@@ -36,8 +37,8 @@ export function autoThrottle(autopilot, { flightData, flightModel }) {
       changeThrottle(autopilot.api, engineCount, altFactor * step, 25, 100);
     }
     // are we speeding up more than desired?
-    if (dV > threshold) {
-      changeThrottle(autopilot.api, engineCount, -step / 4, 25, 100);
+    if (!isAcrobatic && dV > threshold) {
+      changeThrottle(autopilot.api, engineCount, step / 4, 25, 100);
     }
   }
 
@@ -54,7 +55,7 @@ export function autoThrottle(autopilot, { flightData, flightModel }) {
       changeThrottle(autopilot.api, engineCount, -altFactor * step, 25, 100);
     }
     // Are we slowing down more than desired?
-    if (dV < -3 * threshold) {
+    if (!isAcrobatic && dV < -3 * threshold) {
       console.log(`dV too low, throttling up`);
       changeThrottle(autopilot.api, engineCount, step / 4, 25, 100);
     }

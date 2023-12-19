@@ -99,6 +99,9 @@ export class AutoPilot {
       pitch: 0,
       roll: 0,
       yaw: 0,
+      pitchLocked: false, // bypass alt-hold
+      rollLocked: false, // bypass wing leveler
+      yawLocked: false, // bypass auto rudder
     };
   }
 

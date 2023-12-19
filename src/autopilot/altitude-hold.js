@@ -2,10 +2,8 @@ import {
   radians,
   constrain,
   constrainMap,
-  exceeds,
   nf,
 } from "../utils/utils.js";
-import { changeThrottle } from "../utils/controls.js";
 import {
   ALTITUDE_HOLD,
   AUTO_THROTTLE,
@@ -52,6 +50,8 @@ let previousTargetVS = false;
 
 export const LOAD_TIME = Date.now();
 
+// =================================================================================================================================
+
 /**
  * TODO: add stick-based alternative to trim
  * @param {*} autopilot
@@ -63,6 +63,38 @@ export async function altitudeHold(
   { flightData, flightModel },
   useStickInstead = false
 ) {
+  // ========================
+  // START OF INLINE FUNCTION
+  // ========================
+  async function updateTrim(update) {
+    // A helper function that lets us update the trim vector
+    // and then set the plane's trim based on the new value,
+    // while making sure we never trim more than 1% per tick.
+    const directUpdate = modes[AUTO_LAND];
+    const { ELEVATOR_TRIM_POSITION: currentPosition } = await autopilot.get(
+      "ELEVATOR_TRIM_POSITION"
+    );
+    // if we're autolanding, correct by as much as needed to get the job done.
+    if (directUpdate) {
+      trim.pitch = trim.pitch + update;
+    }
+    // if not, limit by how much we can change per tick
+    else {
+      const percent = (v) => (1000 * v) / Math.PI;
+      const position = (v) => (Math.PI * v) / 1000;
+      const current = percent(currentPosition);
+      const lower = current - constrainMap(speed, 100, 200, 5, 1);
+      const higher = current + constrainMap(speed, 100, 200, 5, 1);
+      const lowPos = position(lower);
+      const highPos = position(higher);
+      trim.pitch = constrain(trim.pitch + update, lowPos, highPos);
+    }
+    autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
+  }
+  // ======================
+  // END OF INLINE FUNCTION
+  // ======================
+
   // The local and state values we'll be working with:
   const { modes, trim } = autopilot;
 
@@ -81,35 +113,6 @@ export async function altitudeHold(
   const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
   let trimStep = constrainMap(speed, 50, 200, 5, 20) * small;
 
-  // A helper function that lets us update the trim vector
-  // and then set the plane's trim based on the new value,
-  // while making sure we never trim more than 1% per tick.
-  const updateTrim = async (update) => {
-    const directUpdate = modes[AUTO_LAND];
-    const { ELEVATOR_TRIM_POSITION: currentPosition } = await autopilot.get(
-      "ELEVATOR_TRIM_POSITION"
-    );
-
-    // if we're autolanding, correct by as much as needed to get the job done.
-    if (directUpdate) {
-      trim.pitch = trim.pitch + update;
-    }
-
-    // if not, limit by how much we can change per tick
-    else {
-      const percent = (v) => (1000 * v) / Math.PI;
-      const position = (v) => (Math.PI * v) / 1000;
-      const current = percent(currentPosition);
-      const lower = current - constrainMap(speed, 100, 200, 5, 1);
-      const higher = current + constrainMap(speed, 100, 200, 5, 1);
-      const lowPos = position(lower);
-      const highPos = position(higher);
-      trim.pitch = constrain(trim.pitch + update, lowPos, highPos);
-    }
-
-    autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
-  };
-
   // Are we "trimming" on the stick?
   let elevator = 0;
   if (useStickInstead) {
@@ -122,8 +125,8 @@ export async function altitudeHold(
     console.log(`elevator: ${elevator}`);
   }
 
-  // acrobatic planes need smaller corrections than regular planes
-  else if (flightModel.isAcrobatic) trimStep /= 5;
+  // acrobatic planes need considerably smaller corrections than regular planes
+  else if (isAcrobatic) trimStep /= 5;
 
   // What are our VS parameters?
   let maxVS = (isAcrobatic ? 2 : 1) * DEFAULT_MAX_VS;
@@ -209,6 +212,8 @@ export async function altitudeHold(
   }
 }
 
+// =================================================================================================================================
+
 /**
  * Check to see if we need to set a non-zero vertical speed based
  * pn whether or not the user turned on Altitude Hold mode with a
@@ -228,6 +233,7 @@ async function getTargetVS(autopilot, flightData, flightModel, maxVS) {
     };
   }
 
+  const { isAcrobatic } = flightModel;
   const { alt: currentAltitude, VS, speed } = flightData;
   let targetVS = DEFAULT_TARGET_VS;
   let direction = undefined;
@@ -278,6 +284,8 @@ async function getTargetVS(autopilot, flightData, flightModel, maxVS) {
 
   return { targetVS, altDiff, direction };
 }
+
+// =================================================================================================================================
 
 /**
  * Are we supposed to fly towards a specific waypoint, and are
