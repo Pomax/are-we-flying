@@ -116,7 +116,7 @@ export class ServerClass {
   /**
    * ...docs go here...
    */
-  #setupRouting() {
+  async #setupRouting() {
     // All clients will now be able to call server.api.[...]
     this.api = new APIRouter(api, () => MSFS);
 
@@ -172,7 +172,7 @@ export class ServerClass {
       // if the autopilot is running, it will be updating
       // the flight information more frequently than the
       // server would otherwise be updating it.
-      this.sendFlightInformation(await this.#flightInformation.update());
+      this.#sendFlightInformation(await this.#flightInformation.update());
     }
     this.#checkFlying();
     runLater(() => this.#poll(), 5000);
@@ -221,7 +221,7 @@ export class ServerClass {
 
     if (flying !== wasFlying) {
       autopilot.reset(this.#flightInformation, (data) =>
-        this.sendFlightInformation(data)
+        this.#sendFlightInformation(data)
       );
       this.clients.forEach((client) => client.setFlying(flying));
     } else if (client) {
@@ -233,7 +233,7 @@ export class ServerClass {
    * Send updated flight information to each client
    * @param {*} flightInformation
    */
-  sendFlightInformation(flightInformation) {
+  #sendFlightInformation(flightInformation) {
     this.clients.forEach((client) =>
       client.setFlightInformation(flightInformation)
     );

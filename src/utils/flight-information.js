@@ -11,6 +11,7 @@ import {
   NAME_MAPPING,
   PERCENT_VALUES,
   SECOND_DERIVATIVES,
+  ENGINE_TYPES,
 } from "./flight-values.js";
 import { FEET_PER_DEGREE, FEET_PER_METER, FPS_IN_KNOTS } from "./constants.js";
 import { exists } from "./utils.js";
@@ -163,6 +164,10 @@ export class FlightInformation {
     MTF_VALUES.forEach((p) =>
       exists(data[p]) ? (data[p] *= FEET_PER_METER) : noop
     );
+
+    if (exists(data.ENGINE_TYPE)) {
+      data.ENGINE_TYPE = ENGINE_TYPES[data.ENGINE_TYPE];
+    }
   }
 
   /**

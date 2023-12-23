@@ -33,6 +33,13 @@ import { AutoPilot } from "./autopilot.js";
 
 const { abs } = Math;
 
+const FEATURES = {
+  ASSYMETRIC_RUDDER: true,
+  IGNORE_TINY_RUDDER: true,
+  ROTATION_PROTECTION: true,
+  PITCH_PROTECTION: true,
+};
+
 export const LOAD_TIME = Date.now();
 
 /**
@@ -55,8 +62,6 @@ export class AutoTakeoff {
     this.autopilot = autopilot;
     this.api = autopilot.api;
     if (original) Object.assign(this, original);
-
-    // EXPERIMENTAL FOR AUTO RUDDER
   }
 
   /**
@@ -74,14 +79,16 @@ export class AutoTakeoff {
     const { autopilot } = this;
 
     const {
-      isTailDragger,
-      pitchTrimLimit,
-      weight: totalWeight,
       engineCount,
+      engineType,
+      isAcrobatic,
+      isTailDragger,
       minRotation,
+      noAileronTrim,
+      pitchTrimLimit,
       takeoffSpeed,
       title,
-      isAcrobatic,
+      weight: totalWeight,
     } = flightModel;
 
     if (!this.trimStep) {
@@ -98,17 +105,17 @@ export class AutoTakeoff {
     const {
       alt: altitude,
       bank: bankAngle,
+      declination,
       heading,
       lat,
       lift,
       long,
       onGround,
+      pitch,
       speed: currentSpeed,
       trimPosition: pitchTrim,
       trueHeading,
       VS: vs,
-      pitch,
-      declination,
     } = flightData;
 
     const { pitch: dPitch, heading: dHeading } = flightData.d ?? {
@@ -154,7 +161,10 @@ export class AutoTakeoff {
       bankAngle,
       title,
       totalWeight,
-      declination
+      declination,
+      engineCount,
+      engineType,
+      noAileronTrim
     );
 
     // Check whether to start (or end) the rotate phase
@@ -172,6 +182,7 @@ export class AutoTakeoff {
       dPitch,
       pitchTrim,
       isTailDragger,
+      noAileronTrim,
       engineCount,
       title,
       isAcrobatic
@@ -280,12 +291,16 @@ export class AutoTakeoff {
     bankAngle,
     title,
     totalWeight,
-    declination
+    declination,
+    engineCount,
+    engineType,
+    noAileronTrim
   ) {
     const { api, startCoord: p1, endCoord: p2 } = this;
 
-    // If we're actually in the air, we want to slolwy easy the rudder back to neutral.
-    if (!onGround) {
+    // If we're actually in the air, we want to slowly ease the rudder back to neutral.
+    // Unless we're in a plane with aileron trim, in which case we need that rudder to fly level.
+    if (!onGround && !noAileronTrim) {
       const { RUDDER_POSITION: rudder } = await api.get(`RUDDER_POSITION`);
       this.rudderEasement ??= rudder / 200;
       if (abs(rudder) > abs(this.rudderEasement)) {
@@ -328,17 +343,22 @@ export class AutoTakeoff {
     // The rudder position is now a product of factors.
     let rudder = diff * speedFactor * tailFactor * magic;
 
-    console.log(
-      `[STAGE: auto-rudder]`,
-      `dHeading: ${nf(dHeading)}, currentSpeed: ${nf(
-        currentSpeed
-      )}, minRotate: ${nf(minRotate)}, diff ${nf(diff)}, speedFactor ${nf(
-        speedFactor
-      )}, tailFactor ${nf(tailFactor)}, rudder ${nf(rudder)}`
-    );
-
     const rudderMinimum = constrainMap(currentSpeed, 0, 30, 0.001, 0.01);
-    if (abs(rudder) > rudderMinimum) api.set(`RUDDER_POSITION`, rudder);
+    // asymmetric rudder, to compensate for propellor torque
+    if (
+      FEATURES.ASSYMETRIC_RUDDER &&
+      engineCount === 1 &&
+      engineType !== `jet` &&
+      rudder > 0
+    ) {
+      rudder *= 3;
+    }
+
+    if (!FEATURES.IGNORE_TINY_RUDDER) {
+      api.set(`RUDDER_POSITION`, rudder);
+    } else if (abs(rudder) > rudderMinimum) {
+      api.set(`RUDDER_POSITION`, rudder);
+    }
   }
 
   /**
@@ -362,6 +382,7 @@ export class AutoTakeoff {
     dPitch,
     pitchTrim,
     isTailDragger,
+    noAileronTrim,
     engineCount,
     title,
     isAcrobatic
@@ -406,37 +427,62 @@ export class AutoTakeoff {
             if (TAILWHEEL_LOCK_ON === 1) api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
           }
           this.gearIsUp = true;
-          this.switchToAutopilot(altitude + 500, isTailDragger, engineCount);
-        }
-
-        // Pitch protection
-        if (dVs > 100 && (pitch < -10 || dPitch < -5)) {
-          console.log(`to the moon - let's not`);
-          autopilot.set(
-            "ELEVATOR_TRIM_POSITION",
-            pitchTrim + (pitch * trimStep) / 10
+          this.switchToAutopilot(
+            altitude + 500,
+            isTailDragger,
+            noAileronTrim,
+            engineCount
           );
         }
 
-        // dVS protection
-        if (dVs > 200) {
-          console.log(`dVS too large, trim down`);
-          let factor = constrainMap(dVs, 200, 1000, 1, 5);
+        let intervened = false;
 
-          autopilot.set(
-            "ELEVATOR_TRIM_POSITION",
-            pitchTrim - (factor * trimStep) / 10
-          );
-        }
+        if (FEATURES.ROTATION_PROTECTION) {
+          if (FEATURES.PITCH_PROTECTION) {
+            if (dVs > 100 && (pitch < -10 || dPitch < -5)) {
+              console.log(`to the moon - let's not?`);
+              autopilot.set(
+                "ELEVATOR_TRIM_POSITION",
+                (pitchTrim -= (-pitch * trimStep) / 20)
+              );
+              intervened = true;
+            } else if (pitch > 0) {
+              console.log(`to the ground - let's not?`);
+              autopilot.set(
+                "ELEVATOR_TRIM_POSITION",
+                (pitchTrim += (pitch * trimStep) / 2)
+              );
+              intervened = true;
+            }
+          }
 
-        // VS protection
-        else if (vs > 1500) {
-          console.log(`VS too high, trim down`);
-          autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim - trimStep / 10);
+          // dVS protection
+          if (dVs > 200) {
+            console.log(`dVS too large, trim down`);
+            let factor = constrainMap(dVs, 200, 1000, 1, 5);
+
+            autopilot.set(
+              "ELEVATOR_TRIM_POSITION",
+              pitchTrim - (factor * trimStep) / 5
+            );
+            intervened = true;
+          }
+
+          // VS protection
+          else if (vs > 1500) {
+            console.log(`VS too high, trim down`);
+            autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim - trimStep / 10);
+            intervened = true;
+          }
         }
 
         // Are we still trying to get positive rate going?
-        else if (dLift <= 0.2 && lift <= 300 && (vs < 25 || dVs < -100)) {
+        if (
+          !intervened &&
+          dLift <= 0.2 &&
+          lift <= 300 &&
+          (vs < 25 || dVs < -100)
+        ) {
           console.log(`need more positive rate (dlift: ${dLift}), trim up`);
           autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + trimStep / 2);
         }
@@ -444,11 +490,18 @@ export class AutoTakeoff {
     }
   }
 
-  async switchToAutopilot(targetAltitude, isTailDragger, engineCount) {
+  async switchToAutopilot(
+    targetAltitude,
+    isTailDragger,
+    noAileronTrim,
+    engineCount
+  ) {
     const { api, autopilot } = this;
 
-    console.log(`reset rudder, gear up, unlock tailwheel.`);
-    api.set(`RUDDER_POSITION`, 0);
+    if (!noAileronTrim) {
+      console.log(`reset rudder, gear up, unlock tailwheel.`);
+      api.set(`RUDDER_POSITION`, 0);
+    }
 
     for (let i = 1; i <= engineCount; i++) {
       api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 90);

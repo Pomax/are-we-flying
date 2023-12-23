@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import { SystemEvents } from "msfs-simconnect-api-wrapper";
 import { AutoPilot } from "../../../autopilot/autopilot.js";
+import { loadAirportDB } from "msfs-simconnect-api-wrapper";
+import { degrees } from "../../../utils/utils.js";
 
 const resultCache = {};
 const eventTracker = {};
+// load airports, but only airports (not VOR etc.)
+const airports = loadAirportDB().filter((a) => a.runways.length > 0);
 
 export class APIRouter {
   #api;
@@ -134,5 +138,29 @@ export class APIRouter {
         );
       });
     }
+  }
+
+  /**
+   *
+   * @param {*} lat
+   * @param {*} long
+   * @param {*} d
+   * @returns
+   */
+  async getNearbyAirports(client, lat, long, d = 1) {
+    if (!lat && !long) {
+      lat = degrees((await this.#api.get(`PLANE_LATITUDE`)).PLANE_LATITUDE);
+      long = degrees((await this.#api.get(`PLANE_LONGITUDE`)).PLANE_LONGITUDE);
+    }
+    // We're just doing a grid-centered-on, rather than radial
+    // distance, so that we don't need to do any "real" maths,
+    // given that we're filtering 44,000+ airports each call.
+    const nearby = (airport) => {
+      const x = airport.longitude;
+      const y = airport.latitude;
+      const g = d / 2;
+      return lat - g < y && y < lat + g && long - g < x && x < long + g;
+    };
+    return airports.filter(nearby);
   }
 }

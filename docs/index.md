@@ -1,10 +1,14 @@
+<!-- there's going to be interactive graphics here -->
+<script  type="module" src="../public/vendor/graphics-element/graphics-element.js" async></script>
+<link rel="stylesheet" href="../public/vendor/graphics-element/graphics-element.css" async>
+
 # Flying planes with JavaScript
 
-![image-20230525085232363](./masthead.png)
+![masthead image of a cockpit with browsers loaded in the cockpit screens](./images/masthead.png)
 
 To allay any concerns: this is not about running JavaScript software to control an actual aircraft.
 
- **_That would kill people_**.
+**_That would kill people_**.
 
 Instead, we're writing a web page that can control an autopilot running in JS that, in turn, controls a little virtual aeroplane. And by "little" I actually mean "most aeroplanes in [Microsoft Flight Simulator 2020](https://www.flightsimulator.com/)" because as it turns out, MSFS comes with an API that can be used to both query _*and set*_ values ranging from anything as simple as cockpit lights to something as complex as spawning a fleet of aircraft and making them fly in formation while making their smoke pattern spell out the works of Chaucer in its original middle English.
 
@@ -27,7 +31,7 @@ We'll be tackling this whole thing in four parts:
 
 And then by the time we're done, we'll have something that looks a little bit like this:
 
-<img src="./preview-shot.png" alt="image-20230531213249038" style="zoom:80%;" />
+<img src="./images/preview-shot.png" alt="image-20230531213249038" style="zoom:80%;" />
 
 If that sounds good to you, then read on!
 
@@ -45,7 +49,7 @@ As mentioned, we're going to have to do a bit of prep work before we can start w
 
 In high fidelity image media, we'll be implementing this:
 
-<img src="./server-diagram.png" alt="image-20230606182637607" style="display: inline-block; zoom: 80%;" />
+<img src="./images/server/server-diagram.png" alt="image-20230606182637607" style="display: inline-block; zoom: 80%;" />
 
 And to make our lives a little easier, we're going to be using the [socketless](https://www.npmjs.com/package/socketless) library to take care of the actual client/server management, so we can just focus on writing the code that's going to let us show a UI based on talking to MSFS. The nice thing about this library is that it does some magic that lets clients and servers call functions on each other "without knowing there's a network". If the server has a function called `test` then the client can just call `const testResult = await this.server.test()` and done, as far as the client knows, the server is just a local variable. Similarly, if the client has a function called `test` then server can call that with a `const testResult = await this.clients[...].test()` and again, as far as the server knows it's just working with a local variable.
 
@@ -175,7 +179,7 @@ export class ServerClass {
 And then we'll create a quick `public/index.html` page for the browser:
 
 ```html
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en-GB">
   <head>
     <meta charset="utf-8" />
@@ -600,7 +604,10 @@ export class ClientClass {
     }
     // If we get here, we're not (re)connected yet...
     this.reconnect();
-    this.#reconnection = setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
+    this.#reconnection = setTimeout(
+      () => this.#tryReconnect(),
+      RECONNECT_TIMEOUT_IN_MS
+    );
   }
 
   /**
@@ -654,11 +661,21 @@ export class ClientClass {
   }
 
   // Then a set of self-explanatory "state copies" based on server events:
-  async onMSFS(value) { this.setState({ MSFS: value }); }
-  async pause()       { this.setState({ paused: true }); }
-  async unpause()     { this.setState({ paused: false }); }
-  async crashed()     { this.setState({ crashed: true }); }
-  async crashReset()  { this.setState({ crashed: false }); }
+  async onMSFS(value) {
+    this.setState({ MSFS: value });
+  }
+  async pause() {
+    this.setState({ paused: true });
+  }
+  async unpause() {
+    this.setState({ paused: false });
+  }
+  async crashed() {
+    this.setState({ crashed: true });
+  }
+  async crashReset() {
+    this.setState({ crashed: false });
+  }
 
   /**
    * Then the function that matters most: the one that tells the client
@@ -767,10 +784,10 @@ The list of variables we'll be working with is as follows (with the `BOOLEAN_VAL
 ```js
 export const FLIGHT_MODEL = [
   `ENGINE_TYPE`,
-  `IS_GEAR_FLOATS`,      // Is this a normal plane or a water plane?
+  `IS_GEAR_FLOATS`, // Is this a normal plane or a water plane?
   `NUMBER_OF_ENGINES`,
   `STATIC_CG_TO_GROUND`, // How many feet above the ground is the center of gravity for this plane?
-  `TITLE`,               // What's the name of this plane?
+  `TITLE`, // What's the name of this plane?
 ];
 
 // And most of these should be relatively self-explanatory:
@@ -1184,18 +1201,45 @@ Nothing particularly fancy (although we can pretty much use any amount of CSS to
 
 ```html
 <h1>Are we flying?</h1>
-<p>Let's see if we're currently flying around in Microsoft Flight Simulator 2020...</p>
+<p>
+  Let's see if we're currently flying around in Microsoft Flight Simulator
+  2020...
+</p>
 <ul>
-  <li>Is our API server running? <input type="checkbox" disabled class="server-online" /></li>
-  <li>Is MSFS running? <input type="checkbox" disabled class="msfs-running" /></li>
-  <li>Which plane did we pick? <span class="specific-plane">... nothing yet?</span></li>
-  <li>Are we actually "in a game"? <input type="checkbox" disabled class="in-game" /></li>
-  <li>Do we have power? <input type="checkbox" disabled class="powered-up" /></li>
-  <li>Are the engines running? <input type="checkbox" disabled class="engines-running" /></li>
+  <li>
+    Is our API server running?
+    <input type="checkbox" disabled class="server-online" />
+  </li>
+  <li>
+    Is MSFS running? <input type="checkbox" disabled class="msfs-running" />
+  </li>
+  <li>
+    Which plane did we pick?
+    <span class="specific-plane">... nothing yet?</span>
+  </li>
+  <li>
+    Are we actually "in a game"?
+    <input type="checkbox" disabled class="in-game" />
+  </li>
+  <li>
+    Do we have power? <input type="checkbox" disabled class="powered-up" />
+  </li>
+  <li>
+    Are the engines running?
+    <input type="checkbox" disabled class="engines-running" />
+  </li>
   <li>Are we flying?? <input type="checkbox" disabled class="in-the-air" /></li>
-  <li><em>Where</em> are we flying? <span class="latitude">-</span>, <span class="longitude">-</span></li>
-  <li>Are we on the in-game autopilot? <input type="checkbox" disabled class="using-ap" /></li>
-  <li>(... did we crash? <input type="checkbox" disabled class="plane-crashed" />)</li>
+  <li>
+    <em>Where</em> are we flying? <span class="latitude">-</span>,
+    <span class="longitude">-</span>
+  </li>
+  <li>
+    Are we on the in-game autopilot?
+    <input type="checkbox" disabled class="using-ap" />
+  </li>
+  <li>
+    (... did we crash? <input type="checkbox" disabled class="plane-crashed" />)
+  </li>
 </ul>
 ```
 
@@ -1257,11 +1301,14 @@ export const Questions = {
     elements.inGame.checked = state.camera?.main < 9;
     elements.poweredUp.checked = state.flightData?.POWERED_UP;
     elements.enginesRunning.checked = state.flightData?.ENGINES_RUNNING;
-    elements.inTheAir.checked = state.flightData && !state.flightData.SIM_ON_GROUND;
+    elements.inTheAir.checked =
+      state.flightData && !state.flightData.SIM_ON_GROUND;
     elements.usingAp.checked = state.flightData?.AUTOPILOT_MASTER;
     elements.planeCrashed.checked = state.crashed;
-    elements.latitude.textContent = state.flightData?.PLANE_LATITUDE.toFixed(6) ?? `-`;
-    elements.longitude.textContent = state.flightData?.PLANE_LONGITUDE.toFixed(6) ?? `-`;
+    elements.latitude.textContent =
+      state.flightData?.PLANE_LATITUDE.toFixed(6) ?? `-`;
+    elements.longitude.textContent =
+      state.flightData?.PLANE_LONGITUDE.toFixed(6) ?? `-`;
     this.modelLoaded(state.flightModel?.TITLE);
   },
 
@@ -1273,7 +1320,7 @@ export const Questions = {
       model = `...Looks like ${article} ${modelName}. Nice!`;
     }
     elements.specificPlane.textContent = model;
-  }
+  },
 };
 ```
 
@@ -1329,22 +1376,20 @@ And then let's write a `public/js/map.js` that we can import to take care of the
 ```javascript
 import { waitFor } from "./utils.js";
 
-const DUNCAN_AIRPORT = [48.75660, -123.71134];
+const DUNCAN_AIRPORT = [48.7566, -123.71134];
 
 // Leaflet creates a global "L" object to work with, so use that to tie into the <div id="map"></div> we have sitting
 // in our index.html. However, because independent page scripts can't be imported, we need to wait for it to be available:
-const L = await waitFor(async() => window.L);
+const L = await waitFor(async () => window.L);
 
 // With our "L" object available, ler's make a map, centered on Duncan airport:
 export const map = L.map("map").setView(DUNCAN_AIRPORT, 15);
 
 // Of course, this won't *show* anything: we still need an actual map tile layer:
-L.tileLayer(
-  `https://tile.openstreetmap.org/{z}/{x}/{y}.png`, {
-    maxZoom: 19,
-    attribution: `© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>`
-  }
-).addTo(map);
+L.tileLayer(`https://tile.openstreetmap.org/{z}/{x}/{y}.png`, {
+  maxZoom: 19,
+  attribution: `© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>`,
+}).addTo(map);
 ```
 
 With a quick look at that `waitFor` function:
@@ -1369,9 +1414,9 @@ export function waitFor(fn, timeout = 5000, retries = 100) {
 
 We use this because we don't want to do any map work until Leaflet's been loaded in, and as an external third party library, we have no idea when that might be. We can now add an `import { map: defaultMap } from "./maps.js"` to our `plane.js` and presto! Now our browser page actually has more than just text:
 
-![A basic page overview with questions and map](./page-overview.png)
+![A basic page overview with questions and map](./images/page/page-overview.png)
 
-Which is pretty good, but it's lacking a certain something...  oh right: our plane. Let's make a quick little plane icon and put that on the map, at the correct latitude and longitude, pointing in the right direction. Let's make a `public/map-marker.html` file and put some code in there:
+Which is pretty good, but it's lacking a certain something... oh right: our plane. Let's make a quick little plane icon and put that on the map, at the correct latitude and longitude, pointing in the right direction. Let's make a `public/map-marker.html` file and put some code in there:
 
 ```html
 <div id="plane-icon">
@@ -1419,8 +1464,7 @@ Although we do want a bit of CSS here, because while we _could_ rotate this imag
 }
 
 #plane-icon .basics .plane {
-  --elevation-offset: calc(-1em * var(--alt-em))
-  position: absolute;
+  --elevation-offset: calc(-1em * var(--alt-em)) position: absolute;
   transform-origin: center center;
   /* but we rotate *and* move the real plane icon up based on high it's flying */
   transform: translate(0, var(--elevation-offset)) rotate(var(--degrees));
@@ -1538,7 +1582,7 @@ class Plane {
 
 And through the magic of "the O.G. web stack" we suddenly have a visualization that shows our plane somewhere in the air, and its shadow on the ground:
 
-![A basic map with plane icon](./basic-map.png)
+![A basic map with plane icon](./images/page/basic-map.png)
 
 Nice!
 
@@ -1550,7 +1594,7 @@ Nice!
 
 Let's start by considering what we might want to visualize. We basically want all the information you'd get in a cockpit, but presented in marker form, so let's go for the traditional navigation marker: a compass, with information arranged in and around that. What if we had a nice compass ring around our plane, with heading indication, current speed, and current altitude (both above the ground and "as far as the barometer can tell"). What about something like... this?
 
-![our map icon](./plane-marker.png)
+![our map icon](./images/page/plane-marker.png)
 
 Oh yeah: we're getting fancy. We're not using a simple little pin with a text bubble, we're cramming as much MSFS information into our marker as we can:
 
@@ -1637,7 +1681,7 @@ Now, I'm skipping over the SVG code here mostly because it's just a _lot_ of SVG
 */
 ```
 
-Again, if you want to follow along grab the CSS [here](https://github.com/Pomax/are-we-flying/blob/main/public/css/map-marker.css), but the important part is those new CSS variables,  which we can update on the JS side based on the values we get from MSFS:
+Again, if you want to follow along grab the CSS [here](https://github.com/Pomax/are-we-flying/blob/main/public/css/map-marker.css), but the important part is those new CSS variables, which we can update on the JS side based on the values we get from MSFS:
 
 ```javascript
 import { getAirplaneSrc } from "./airplane-src.js";
@@ -1709,7 +1753,7 @@ export class Plane {
 
 And the final bit of the puzzle, `airplane-src.js`, for which we're going to want to create a directory called `public/planes` so that we can fill it with plane icons, like these:
 
-![so many planes!](./plane-icons.png)
+![so many planes!](./images/plane-icons.png)
 
 And then with some tactical JS we can swap the correct icon in based on the plane we're flying:
 
@@ -1739,7 +1783,7 @@ export function getAirplaneSrc(title = ``) {
 
 And that'll do it. Let's fire up MSFS, load a plane into the world, and let's see what that looks like!
 
-![A map with our marker on it](./marker-on-map.png)
+![A map with our marker on it](./images/page/marker-on-map.png)
 
 That's looking pretty good!
 
@@ -1753,6 +1797,7 @@ Yeah, so, here's a fun thing about our planet: you'd think magnetic lines run no
     </a>
     <figcaption style="text-align:center">A map of the magnetic declination on planet Earth</figcaption>
 </figure>
+
 The green lines are where a compass will _actually_ point north, but everywhere else on the planet your compass will be off by various degrees. For example, it's only a tiny bit off if you're in Belgium, but at the south tip of the border between Alaska and Canada, your compass will be a pointing a whopping 20 degrees away from true north. When you're flying a plane, you'd better be aware of that, and you better know which of your instruments use compass heading, and which of them use true heading, or you might not get to where you thought you were going.
 
 ### Seeing the terrain
@@ -1810,7 +1855,7 @@ mapLayers.googleTerrain.addTo(map);
 
 And now our map looks looks **_amazing_**:
 
-![Our map, now with terrain!](./map-with-terrain.png)
+![Our map, now with terrain!](./images/page/map-with-terrain.png)
 
 ### Adding scale to our map
 
@@ -1827,9 +1872,15 @@ const L = await waitFor(async () => window.L);
 L.Control.ScaleNautical = L.Control.Scale.extend({
   options: { nautical: false },
   _addScales: function (options, className, container) {
-    L.Control.Scale.prototype._addScales.call(this, options, className, container);
+    L.Control.Scale.prototype._addScales.call(
+      this,
+      options,
+      className,
+      container
+    );
     L.setOptions(options);
-    if (this.options.nautical) this._nScale = L.DomUtil.create("div", className, container);
+    if (this.options.nautical)
+      this._nScale = L.DomUtil.create("div", className, container);
   },
   _updateScales: function (maxMeters) {
     L.Control.Scale.prototype._updateScales.call(this, maxMeters);
@@ -1842,11 +1893,17 @@ L.Control.ScaleNautical = L.Control.Scale.extend({
     const maxNauticalMiles = maxMeters / 1852;
     let nauticalMiles;
     if (maxMeters >= 1852) {
-      nauticalMiles = L.Control.Scale.prototype._getRoundNum.call(this, maxNauticalMiles);
+      nauticalMiles = L.Control.Scale.prototype._getRoundNum.call(
+        this,
+        maxNauticalMiles
+      );
     } else {
       nauticalMiles = maxNauticalMiles.toFixed(maxNauticalMiles > 0.1 ? 1 : 0);
     }
-    const scaleWidth = (this.options.maxWidth * (nauticalMiles / maxNauticalMiles)).toFixed(0);
+    const scaleWidth = (
+      this.options.maxWidth *
+      (nauticalMiles / maxNauticalMiles)
+    ).toFixed(0);
     scale.style.width = `${scaleWidth - 10}px`;
     scale.textContent = `${nauticalMiles} nm`;
   },
@@ -1854,7 +1911,12 @@ L.Control.ScaleNautical = L.Control.Scale.extend({
 
 L.control.scaleNautical = (options) => new L.Control.ScaleNautical(options);
 
-export function setMapScale(map, metric=true, imperial=false, nautical=true) {
+export function setMapScale(
+  map,
+  metric = true,
+  imperial = false,
+  nautical = true
+) {
   L.control.scaleNautical({ metric, imperial, nautical }).addTo(map);
 }
 ```
@@ -1880,7 +1942,7 @@ setMapScale(map);
 
 And we refresh our browser, we now have a handy-dandy scale marker in the lower left corner:
 
-![now with scale](./map-with-scale.png)
+![now with scale](./images/page/map-with-scale.png)
 
 And now we know how long it'll take us to get places, because 1 knot equals to 1NM per hour. If we're going at 120 knots, then we'll cover 1 nautical mile every thirty seconds.
 
@@ -2001,7 +2063,7 @@ export class Plane {
 
 Relatively little code, but a profound improvement. Our map now shows the flight path so far:
 
-![Now we know where we came from](./map-with-flightpath.png)
+![Now we know where we came from](./images/page/map-with-flightpath.png)
 
 Alright, now we've got things we can post to Instagram!
 
@@ -2009,7 +2071,7 @@ Alright, now we've got things we can post to Instagram!
 
 There's one thing our fancy marker isn't showing though, which is the current roll and pitch, which would be really nice to be able to see at a glance. So... let's build an [attitude indicator](https://en.wikipedia.org/wiki/Attitude_indicator), also sometimes called an "artificial horizon":
 
-![now with attitude](./attitude.png)
+![now with attitude](./images/page/attitude.png)
 
 This is a way to visualize whether the plane is pitching up, down, or is flying level, as well as showing whether we're turning left, right, or flying straight. It's a critical part of the cockpit, and it would be very nice if we could see one at all times, too. So just like before, let's whip up a bit of HTML, SVG, CSS, and JS to make that happen.
 
@@ -2034,11 +2096,20 @@ And then the attitude indicator itself. Thankfully, this will be considerably le
     <div class="ground"></div>
 
     <div class="scales">
-      <hr /> <hr class="minor small" /> <hr class="minor small" />
-      <hr /> <hr class="small" /> <hr class="small" />
-      <hr /> <hr class="small" /> <hr class="small" />
-      <hr /> <hr class="minor small" /> <hr class="minor small" />
-      <hr /><hr />
+      <hr />
+      <hr class="minor small" />
+      <hr class="minor small" />
+      <hr />
+      <hr class="small" />
+      <hr class="small" />
+      <hr />
+      <hr class="small" />
+      <hr class="small" />
+      <hr />
+      <hr class="minor small" />
+      <hr class="minor small" />
+      <hr />
+      <hr />
       <div class="center-mark"></div>
       <div class="sky"></div>
       <div class="ground"></div>
@@ -2064,7 +2135,11 @@ And then the attitude indicator itself. Thankfully, this will be considerably le
     </div>
 
     <div class="bird">
-      <hr/><hr/><hr/><hr/><hr/>
+      <hr />
+      <hr />
+      <hr />
+      <hr />
+      <hr />
     </div>
   </div>
 </div>
@@ -2270,8 +2345,8 @@ function getVarData(flightData) {
 Now we can see what our plane is doing over time, which means we're ready to get down to what you started reading this page for. Now that we're some 10,000 words down the page.
 
 <figure style="width: 50%; margin: auto; margin-bottom: 1em; overflow: hidden;" >
-  <a href="charts.png" target="_blank">
-    <img src="charts.png" alt="Flight information for a flight from Raven's Field to Vancouver Island's south coast"/>
+  <a href="images/page/science/charts.png" target="_blank">
+    <img src="images/page/science/charts.png" alt="Flight information for a flight from Raven's Field to Vancouver Island's south coast"/>
   </a>
   <figcaption style="font-style: italic; text-align: center;">All the data</figcaption>
 </figure>
@@ -2529,7 +2604,7 @@ First, let's create a little `public/autopilot.html` file:
 Which we'll tie into our `index.html`:
 
 ```html
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en-GB">
   <head>
     ...
@@ -2558,7 +2633,7 @@ const autopilot = document.getElementById(`autopilot`);
 autopilot.innerHTML = content;
 
 export const AP_OPTIONS = {
-  MASTER: false
+  MASTER: false,
 };
 
 export class Autopilot {
@@ -2635,7 +2710,6 @@ Let's make sure to test this before we move on. Let's:
 - we should see our browser page with our autopilot button:<br>![image-20231105095108092](./image-20231105095108092.png)
 
 - and if we click it, we should see it turn red, because it now has an `active` class:<br>![image-20231105095214329](./image-20231105095214329.png)
-
 
 The important thing to realize is that the button doesn't turn red "when we clicked it" because we didn't write any code that adds an `active` class when we click a button. Instead _a lot more_ happens:
 
@@ -2801,7 +2875,7 @@ export const LEVEL_FLIGHT = `LVL`;
 
 Big change, very exiting.
 
-Then, we update the autopilot code to make use of this new constant, and we'll add that  `trim` vector for tracking how much we need to trim in each direction:
+Then, we update the autopilot code to make use of this new constant, and we'll add that `trim` vector for tracking how much we need to trim in each direction:
 
 ```javascript
 import url from "node:url";
@@ -2964,7 +3038,7 @@ export class Autopilot {
 }
 ```
 
-Well okay, we do still need to actually write our  `altitudeHold` function, so let's create an `autopilot/altitude-hold.js`:
+Well okay, we do still need to actually write our `altitudeHold` function, so let's create an `autopilot/altitude-hold.js`:
 
 ```javascript
 import { radians, constrainMap } from "./utils/utils.js";
@@ -3073,13 +3147,13 @@ And our order of operations will be to spawn the plane at cruise altitude in abo
 
 ![image-20231113160900193](./image-20231113160900193.png)
 
-After the initial spawn-in behaviour, with the in-game autopilot pulling the plane into a stable path, we reload the browser to clear our graphs, and then we turn on our autopilot with both "fly level" and "hold altitude" turned on. And then... uh... well, as you can see, while our vertical speed oscillates around zero, which is what we want, it also oscillates by **a lot** around zero, which is *not* what we want. That would be a really uncomfortable flight. To counteract that, let's do some fixing.
+After the initial spawn-in behaviour, with the in-game autopilot pulling the plane into a stable path, we reload the browser to clear our graphs, and then we turn on our autopilot with both "fly level" and "hold altitude" turned on. And then... uh... well, as you can see, while our vertical speed oscillates around zero, which is what we want, it also oscillates by **a lot** around zero, which is _not_ what we want. That would be a really uncomfortable flight. To counteract that, let's do some fixing.
 
 ## Fixing our code
 
 ### A better altitude hold
 
-In order to reduce our oscillations, we're going to reduce the effect of our update, the closer we are to our target vertical speed, and we could get fancy with all kinds of maths functions, but instead we're going to keep things rather dumb but easily serviceable, by implementing a step-wise reduction: if we're within 100fpm of our target vertical speed (which should be most of the time!), take the update and halve it. And if we're within 20 fpm of our target speed (which should _hopefully_ be most of the time?)  we halve it again. Let's add the following code while both the sim and our code are running:
+In order to reduce our oscillations, we're going to reduce the effect of our update, the closer we are to our target vertical speed, and we could get fancy with all kinds of maths functions, but instead we're going to keep things rather dumb but easily serviceable, by implementing a step-wise reduction: if we're within 100fpm of our target vertical speed (which should be most of the time!), take the update and halve it. And if we're within 20 fpm of our target speed (which should _hopefully_ be most of the time?) we halve it again. Let's add the following code while both the sim and our code are running:
 
 ```javascript
 ...
@@ -3331,7 +3405,7 @@ export async function altitudeHold(autopilot, state) {
 
 And that's it. Three constants, three lines of code. The effect of these are pretty subtle: the first two make our behaviour around out hold altitude oscillate just a _tiny_ bit less, and the last one prevents us from telling MSFS to trim past what would be realistic values. Which it will happily do if we tell it to, so let's not tell it to!
 
-...buuuuuut there's another problem, and if you guessed "well if our `altitudeHold` has this problem, then `flyLevel` probably has the same problem?", then you're spot on: even though the plane isn't noticeably banking, that doesn't mean we're _actually_ flying straight, it just means we're not noticeably banking. We could still be drifting ever so gently left or right, and any kind of wind can easily blow us in whichever way it likes without our autopilot noticing we're in a turn. Just with a *very* large turn radius. So let's address that problem, too, by turning our "fly level" code into "fly a specific heading" mode.
+...buuuuuut there's another problem, and if you guessed "well if our `altitudeHold` has this problem, then `flyLevel` probably has the same problem?", then you're spot on: even though the plane isn't noticeably banking, that doesn't mean we're _actually_ flying straight, it just means we're not noticeably banking. We could still be drifting ever so gently left or right, and any kind of wind can easily blow us in whichever way it likes without our autopilot noticing we're in a turn. Just with a _very_ large turn radius. So let's address that problem, too, by turning our "fly level" code into "fly a specific heading" mode.
 
 ### Flying straight, not just level
 
@@ -3486,7 +3560,7 @@ That looks pretty straight to me!
 
 ## More testing
 
-In order to test our improvements, we're going to repeat the kind of flight we had before, but instead of just turning on level mode and altitude hold, we'll also turn on heading mode for "whatever heading we're flying when turn things on". Then, we're going to *change* the heading, and see what happens. In the following graph, we start off flying an altitude of 2000 feet, with a heading of 345 degrees, and then after flying that for a while, we change the intended heading to 270 degrees, and then after a while we change it back to 345 degrees:
+In order to test our improvements, we're going to repeat the kind of flight we had before, but instead of just turning on level mode and altitude hold, we'll also turn on heading mode for "whatever heading we're flying when turn things on". Then, we're going to _change_ the heading, and see what happens. In the following graph, we start off flying an altitude of 2000 feet, with a heading of 345 degrees, and then after flying that for a while, we change the intended heading to 270 degrees, and then after a while we change it back to 345 degrees:
 
 ![image-20231113171651472](./image-20231113171651472.png)
 
@@ -3494,7 +3568,7 @@ What are we seeing here? On the left we see our altitude behaviour and our ailer
 
 ### Emergency intervention
 
-Of course, accidents happen, so as one last "test": what happens if we bump the yoke while on autopilot? Let's yank the yoke until the plane beeps, indicating a *serious* problem, and then letting go again. As it turns out, our AP can't currently deal with that, unable to get the plane back under control.
+Of course, accidents happen, so as one last "test": what happens if we bump the yoke while on autopilot? Let's yank the yoke until the plane beeps, indicating a _serious_ problem, and then letting go again. As it turns out, our AP can't currently deal with that, unable to get the plane back under control.
 
 Although perhaps that's not quite the right description... it gets the plane back under control, it's just... the worst possible kind of control:
 
@@ -3600,15 +3674,13 @@ So what about our "fly level" code? As it turns out, we're pretty good there alr
 
 ![image-20231115194943945](./image-20231115194943945.png)
 
-
-
 ## Flying some test flights in different planes
 
 Now that we have pretty decent control of both the horizontal and the vertical, let's get a few planes up in the air, manually trim them so they fly mostly straight ahead, and then turn on our bespoke, artisanal autopilot and see how the various planes fly.
 
 ### The planes
 
-To make sure we're getting a decent result, here's my cross section of test planes  in MSFS:
+To make sure we're getting a decent result, here's my cross section of test planes in MSFS:
 
 ![image-20231105214745162](./beaver-shot.png)
 
@@ -3654,9 +3726,6 @@ How much better does the Beaver fare? Quite a lot, actually. It can do the 1000 
 
 ![image-20231115205847087](./image-20231115205847087.png)![image-20231115210552038](./image-20231115210552038.png)![image-20231115211356658](./image-20231115211356658.png)
 
-
-
-
 We also see that heading mode works quite well, with only a small overshoot that gets almost immediately corrected for.
 
 #### Cessna 310R
@@ -3665,19 +3734,11 @@ An excellent plane for autopilot code, the 310R goes where we tell it to, when w
 
 ![image-20231115212657193](./image-20231115212657193.png)![image-20231115213312885](./image-20231115213312885.png)![image-20231115213939616](./image-20231115213939616.png)
 
-
-
-
-
-
 #### Beechcraft Model 18
 
 The model 18 performs surprisingly well, which shouldn't be _too_ surprising given that it has two honking huge engines, and is nice and slow to respond to autopilot instructions.
 
-
-
 ![image-20231115215023468](./image-20231115215023468.png)![image-20231115215531842](./image-20231115215531842.png)![image-20231115225240893](./image-20231115225240893.png)
-
 
 #### Douglas DC-3
 
@@ -4751,7 +4812,6 @@ Same story with the DC-3: looks like our waypoint algorithm works just fine!
 We do see that the DC-3 is considerably more bouncy than even the twin Beech, but for its size and weight, we'll take it.
 
 ![image-20230607190848110](./ghost-dog-dc3-chart.png)
-
 
 ## Terrain follow mode
 

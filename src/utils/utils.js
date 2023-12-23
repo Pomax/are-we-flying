@@ -188,6 +188,7 @@ export function pathIntersection(x1, y1, x2, y2, cx, cy, r) {
 }
 
 export function nf(v) {
+  if (v === undefined) return `---`;
   return (v < 0 ? `` : ` `) + v.toFixed(5);
 }
 

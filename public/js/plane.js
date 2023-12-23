@@ -50,6 +50,35 @@ export class Plane {
     };
   }
 
+  async test() {
+    this.testRan = true;
+    const { map } = this;
+    const gridSize = 5;
+    const airports = await this.server.api.getNearbyAirports(
+      this.state.flightData?.lat ?? Duncan[0],
+      this.state.flightData?.long ?? Duncan[1],
+      gridSize
+    );
+    airports.forEach((airport) => {
+      // draw the airport
+      const { latitude: lat, longitude: long, runways } = airport;
+      L.circle([lat, long], { radius: 30, color: "blue" }).addTo(map);
+      // draw the runways
+      runways.forEach((runway) => {
+        const { start, end, bbox, width } = runway;
+        const outline = L.polygon(bbox, {
+          color: "red",
+          bubblingMouseEvents: false,
+        }).addTo(map);
+        L.circle(start, { radius: width }).addTo(map);
+        outline.on(`click`, (leafletEvt) => {
+          L.DomEvent.preventDefault(leafletEvt);
+          confirm(`land here?`);
+        });
+      });
+    });
+  }
+
   /**
    * ...docs go here...
    * @param {*} location
@@ -119,6 +148,10 @@ export class Plane {
   async updateState(state) {
     this.state = state;
     const now = Date.now();
+
+    if (!this.testRan) {
+      this.test();
+    }
 
     // Update questions
     Questions.update(state);

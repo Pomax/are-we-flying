@@ -97,6 +97,7 @@ export const DEGREE_VALUES = [
   `PLANE_HEADING_DEGREES_MAGNETIC`,
   `PLANE_HEADING_DEGREES_TRUE`,
   `PLANE_PITCH_DEGREES`,
+  `STALL_ALPHA`,
   `TURN_INDICATOR_RATE`,
 ];
 
@@ -185,6 +186,7 @@ export const NAME_MAPPING = {
   RUDDER_TRIM_PCT: `rudderTrim`,
   SIM_ON_GROUND: `onGround`,
   STATIC_CG_TO_GROUND: `cg`,
+  STALL_ALPHA: `stallAlpha`,
   TITLE: `title`,
   TOTAL_WEIGHT: `weight`,
   TURN_INDICATOR_RATE: `turnRate`,
@@ -210,3 +212,12 @@ export const DERIVATIVES = [
 ];
 
 export const SECOND_DERIVATIVES = [`VS`];
+
+export const ENGINE_TYPES = [
+  `piston`,
+  `jet`,
+  `none`,
+  `helo(Bell) turbine`,
+  `unsupported`,
+  `turboprop`,
+];

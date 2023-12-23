@@ -12,7 +12,7 @@ import {
   LEVEL_FLIGHT,
   TERRAIN_FOLLOW,
 } from "../utils/constants.js";
-import { degrees, runLater } from "../utils/utils.js";
+import { degrees, runLater, nf } from "../utils/utils.js";
 import { ALOSInterface } from "../elevation/alos-interface.js";
 
 // allow hot-reloading of flyLevel and altitudeHold code,
@@ -70,9 +70,6 @@ export class AutoPilot {
     console.log(`resetting autopilot`);
     this.flightInfoUpdateHandler = flightInfoUpdateHandler;
     this.bootstrap(flightInformation);
-    this.paused = false;
-    this.autoPilotEnabled = false;
-    this.autoTakeoff = false;
     this.modes = {
       [ALTITUDE_HOLD]: false,
       [AUTO_LAND]: false,
@@ -88,10 +85,18 @@ export class AutoPilot {
 
   bootstrap(flightInformation) {
     this.resetTrim();
+    this.autoTakeoff = undefined;
+    this.autoland?.reset();
     this.autoland = undefined;
+
+    // FIXME: this should be waypointsManager or something, since it's not the list of waypoints itself.
     this.waypoints ??= new WayPoints(this);
     this.waypoints.resetWaypoints();
+
     this.flightInformation = flightInformation;
+    this.paused = false;
+    this.autoPilotEnabled = false;
+    this.glide = false;
   }
 
   resetTrim() {
@@ -189,6 +194,7 @@ export class AutoPilot {
 
   resetFlight() {
     this.waypoints.resetWaypoints();
+    this.autoland.reset();
     this.onChange();
   }
 

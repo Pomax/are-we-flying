@@ -7,7 +7,8 @@ export function getAirplaneSrc(title = ``) {
   // let's find our plane!
   if (plane.includes(`da62`)) pic = `da62.png`;
   else if (plane.includes(` 152`)) pic = `152.png`;
-  else if (plane.includes(` 172`)) pic = `172.png`;
+  else if (plane.includes(` 152`)) pic = `172.png`;
+  else if (plane.includes(` c182`)) pic = `182.png`;
   else if (plane.includes(` 310`)) pic = `310.png`;
   else if (plane.includes(` dc-3`)) pic = `dc3.png`;
   else if (plane.includes(`103 solo`)) pic = `top-rudder.png`;

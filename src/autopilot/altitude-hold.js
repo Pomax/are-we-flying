@@ -1,9 +1,4 @@
-import {
-  radians,
-  constrain,
-  constrainMap,
-  nf,
-} from "../utils/utils.js";
+import { radians, constrain, constrainMap, nf } from "../utils/utils.js";
 import {
   ALTITUDE_HOLD,
   AUTO_THROTTLE,
@@ -63,6 +58,9 @@ export async function altitudeHold(
   { flightData, flightModel },
   useStickInstead = false
 ) {
+  // The local and state values we'll be working with:
+  const { glide, modes, trim } = autopilot;
+
   // ========================
   // START OF INLINE FUNCTION
   // ========================
@@ -74,10 +72,18 @@ export async function altitudeHold(
     const { ELEVATOR_TRIM_POSITION: currentPosition } = await autopilot.get(
       "ELEVATOR_TRIM_POSITION"
     );
+
+    // are we gliding, and are we trimming down?
+    if (directUpdate && glide && update < 0) {
+      // trim by less than we normally would, so we don't drop too fast.
+      update /= 3;
+    }
+
     // if we're autolanding, correct by as much as needed to get the job done.
     if (directUpdate) {
       trim.pitch = trim.pitch + update;
     }
+
     // if not, limit by how much we can change per tick
     else {
       const percent = (v) => (1000 * v) / Math.PI;
@@ -95,8 +101,6 @@ export async function altitudeHold(
   // END OF INLINE FUNCTION
   // ======================
 
-  // The local and state values we'll be working with:
-  const { modes, trim } = autopilot;
 
   // are we allowed to trim?
   if (trim.pitchLocked) return;
@@ -111,7 +115,11 @@ export async function altitudeHold(
   let trimLimit = pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
   const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
-  let trimStep = constrainMap(speed, 50, 200, 5, 20) * small;
+  // the more we pitch down, the bigger the trim step needs to be so we can level out faster
+  const upperLimit = constrainMap(pitch, 0, 10, 10, 100);
+  let trimStep = constrainMap(speed, 50, 200, 5, upperLimit) * small;
+
+  console.log(`upperLimit: ${upperLimit}, trimStep: ${trimStep}`);
 
   // Are we "trimming" on the stick?
   let elevator = 0;

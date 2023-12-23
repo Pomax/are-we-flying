@@ -26,7 +26,7 @@ export function autoThrottle(autopilot, { flightData, flightModel }) {
   );
 
   // throttle up situation
-  if (speed - targetSpeed - 2 < 0) {
+  if (targetSpeed - speed > 2) {
     console.log(`throttle up`);
     if (dV <= threshold) {
       changeThrottle(autopilot.api, engineCount, step, 25, 100);
@@ -43,7 +43,7 @@ export function autoThrottle(autopilot, { flightData, flightModel }) {
   }
 
   // throttle down situation
-  if (targetSpeed - speed + 2 < 0) {
+  if (speed - targetSpeed > 2) {
     console.log(`throttle down`);
     if (dV >= -3 * threshold) {
       console.log(`dV range good, throttling down`);

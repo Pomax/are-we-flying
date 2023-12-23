@@ -9,9 +9,6 @@ export class AutopilotRouter {
    */
   #autopilot;
 
-  // a broadcast function for when the AP state
-  #broadcastUpdate;
-
   /**
    * ...docs go here...
    * @param {AutoPilot}} autopilot
