@@ -1195,7 +1195,7 @@ Before we try to automate flight by writing an autopilot, it helps if we can kno
 
 We know when we're connected to MSFS, so let's write a few functions that let us cascade through the various stages of the game before we get to "actually controlling a plane". Let's start with what we want that to look like:
 
-![image-20231105092322673](./questions.png)
+![Are we flying?](./images/page/questions.png)
 
 Nothing particularly fancy (although we can pretty much use any amount of CSS to turn it _into_ something fancy), but it lets us see where in the process of firing up MSFS, clicking through to the world map, and starting a flight we are. So let's update our HTML file to include these questions, and then we can update our JS to start answering them:
 
@@ -2707,9 +2707,9 @@ Let's make sure to test this before we move on. Let's:
 - start our API server
 - start our client web server (with the `--owner` and `--browser` flags)
 - we won't need to start MSFS for this one, as nothing we're doing relies on having the game running
-- we should see our browser page with our autopilot button:<br>![image-20231105095108092](./image-20231105095108092.png)
+- we should see our browser page with our autopilot button:<br>![image-20231105095108092](./images/page/ap-button-off.png)
 
-- and if we click it, we should see it turn red, because it now has an `active` class:<br>![image-20231105095214329](./image-20231105095214329.png)
+- and if we click it, we should see it turn red, because it now has an `active` class:<br>![image-20231105095214329](./images/page/ap-button-on.png)
 
 The important thing to realize is that the button doesn't turn red "when we clicked it" because we didn't write any code that adds an `active` class when we click a button. Instead _a lot more_ happens:
 
@@ -2748,11 +2748,12 @@ Of course, a real autopilot does this kind of monitoring and correcting on a con
 Before we do anything else, let's first look at what is probably _the_ single most important function in our autopilot: `constrainMap`. This function takes a value, relative to some interval `[a,b]`, and maps it to the corresponding value in a different interval `[c,d]`, such that `a` maps to `c`, `b` maps to `d`, and anything in between `a` and `b` is some new value between `c` and `d`. This is nothing special, that's just numerical mapping, but the critical part here is that in addition to the standard mapping, we also make sure that any value less than `a` _still maps to `c`_ and any value greater than `b` _still maps to `d`_:
 
 <figure style="width: 80%; margin: auto; margin-bottom: 1em;">
-  <a href="constrain_map.png" target="_blank">
-    <img src="constrain_map.png" alt="Constrained mapping"/>
+  <a href="images/constrain_map.png" target="_blank">
+    <img src="images/constrain_map.png" alt="Constrained mapping"/>
   </a>
   <figcaption style="font-style: italic; text-align: center;">Mapping interval [a,b] to [c,d]<br></figcaption>
 </figure>
+
 
 That last part is critically important: if we're going to write an autopilot, we want to be able to effect proportional changes, but we want to "cap" those changes to some minimum and maximum value because just yanking the plane in some direction so hard that it stalls is the opposite of useful.
 
@@ -2789,7 +2790,7 @@ So let's start with the simplest of those systems: the autopilot equivalent of c
 
 ### LVL: level mode
 
-<img src="./left-bank.png" alt="left bank" style="height:10em" /><img src="./level-flight.png" alt="flying straight" style="height:10em;" /><img src="./right-bank.png" alt="right bank" style="height:10em;" />
+<img src="./images/fly-level/left-bank.png" alt="left bank" style="height:10em" /><img src="./images/fly-level/level-flight.png" alt="flying straight" style="height:10em;" /><img src="./images/fly-level/right-bank.png" alt="right bank" style="height:10em;" />
 
 Implementing level mode is probably the easiest of all autopilot functions, where we're going to simply check "is the plane tilting left or right?" and if so, we move the **aileron trim**—a value that "biases" the plane to tilt left or right by adjusting the wing surfaces that tilt the plane—in the opposite direction. As long we do that a little bit at a time, and we do that for long enough, we'll eventually have the plane flying level.
 
@@ -2977,7 +2978,7 @@ Now, we could test this immediately, but we've only implemented half of an auto 
 
 ### ALT: altitude hold
 
-<img src="./holding-altitude.png" alt="image-20231105212055349" style="zoom:67%;" />
+<img src="./images/alt-hold/holding-altitude.png" alt="image-20231105212055349" style="zoom:67%;" />
 
 Next up: making the plane hold its vertical position. This requires updating the "elevator trim" (also known as pitch trim) rather than our aileron trim, by looking at the plane's vertical speed. That is, we're going to look at how fast the plane is moving up or down through the air, and then we're going to try to get that value to zero by pitching the plane a little in the direction that counteracts the vertical movement.
 
@@ -3141,11 +3142,11 @@ Now that we have a working "fly level" and "hold altitude" implementation, let's
 
 In order to see how well our code works, we'll be flying around a bit in The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), a fun little piston engine bush plane:
 
-![image-20231105214745162](./beaver-shot.png)
+![image-20231105214745162](./images/beaver-shot.png)
 
 And our order of operations will be to spawn the plane at cruise altitude in above the middle of the pacific ocean in fair weather, have it stabilize itself on the in-game autopilot as a substitute for manually trimming the plane, and then switch to our own autopilot (which will turn off the in-game one) to see how well that holds up. And then we're going to compare our "before" and "after" graphs to see what we can learn:
 
-![image-20231113160900193](./image-20231113160900193.png)
+![image-20231113160900193](./images/page/science/initial-VS-png.png)
 
 After the initial spawn-in behaviour, with the in-game autopilot pulling the plane into a stable path, we reload the browser to clear our graphs, and then we turn on our autopilot with both "fly level" and "hold altitude" turned on. And then... uh... well, as you can see, while our vertical speed oscillates around zero, which is what we want, it also oscillates by **a lot** around zero, which is _not_ what we want. That would be a really uncomfortable flight. To counteract that, let's do some fixing.
 
@@ -3183,7 +3184,7 @@ export async function altitudeHold(autopilot, state) {
 
 If we save, this will hot-reload our code so that it immediately kicks in without us having to interrupt the flight, and we can immediately see the difference that makes, with a brief spike because the behaviour has changed, and then some **drastically** better behaviour (ignoring the second spike, because it's hard to perfectly control the wind in MSFS):
 
-![image-20231113161509477](./image-20231113161509477.png)
+![image-20231113161509477](./images/page/science/VS-after-dampening.png)
 
 Clearly, we've significantly cut down by how much we're oscillating, which is good! But if you look at the graph our vertical speed is now perpetually "more than zero"... not a lot, but we're definitely drifting, which isn't _quite_ the same as holding altitude... So we probably need to tell our autopilot _which altitude we want to hold_. Something that's surprisingly easy to add:
 
@@ -3295,17 +3296,17 @@ export class Autopilot {
 
 With that, we can save our file, make sure to tell the AP that we want to hold "whatever altitude we're now on", and then watch the result play out in our graphs:
 
-![image-20231113162155940](./image-20231113162155940.png)
+![image-20231113162155940](./images/page/science/VS-with-centering.png)
 
 And now we're centered around zero instead of being biased towards a slight drift. But as much as that looks great, how are we doing compared to the in-game AP? Simple enough to find out: let's set the in-game AP to hold altitude and turn off our own autopilot. Will we be able to tell the difference?
 
-![image-20231113162703846](./image-20231113162703846.png)
+![image-20231113162703846](./images/page/science/VS-compared-to-AP.png)
 
 ### Changing altitudes
 
 Turns out, we can, but that's a pretty small difference: we've done well! So what about if we change altitudes? Let's have the plane fly at 1500 feet, then change it to 2000 until it's stable, and then make it fly back down to 1500:
 
-![image-20231113200205061](./image-20231113200205061.png)
+![image-20231113200205061](./images/alt-hold/alt-hold-with-oscillation.png)
 
 As you can see, that's a bit... jagged. We're changing altitude correctly, but we're also bobbing up and down a lot, so let's smooth that out by, instead of just immediately setting our `targetVS` to the maximum value setting it to "something higher (or lower) than our current VS" until we reach maximum vertical speed:
 
@@ -3359,7 +3360,7 @@ async function getTargetVS(autopilot, state, maxVS) {
 
 By giving the plane a smaller difference to overcome, we get much smoother transition curves:
 
-![image-20231113200835501](./image-20231113200835501.png)
+![image-20231113200835501](./images/alt-hold/alt-hold-without-oscillation.png)
 
 ### Tidying up our ALT
 
@@ -3411,7 +3412,7 @@ And that's it. Three constants, three lines of code. The effect of these are pre
 
 Similar to our altitude hold fix, let's add a way to indicate that we want to fly a specific _heading_, not just "with the wings seemingly level", because... well, the graph kind of speaks for itself:
 
-![image-20231115190818581](./image-20231115190818581.png)
+![image-20231115190818581](./images/fly-level/level-drift.png)
 
 We're turning, just _very_ slowly. So let's fix that by adding some UI and code that lets us hold a specific heading. We'll start with the browser, adding a heading field and button in `autopilot.html`
 
@@ -3554,7 +3555,7 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
 
 Now, really all we need to do is just save this and then look at what this does to our heading:
 
-![image-20231115192026739](./image-20231115192026739.png)
+![image-20231115192026739](./images/fly-level/fixed-level-drift.png)
 
 That looks pretty straight to me!
 
@@ -3562,7 +3563,7 @@ That looks pretty straight to me!
 
 In order to test our improvements, we're going to repeat the kind of flight we had before, but instead of just turning on level mode and altitude hold, we'll also turn on heading mode for "whatever heading we're flying when turn things on". Then, we're going to _change_ the heading, and see what happens. In the following graph, we start off flying an altitude of 2000 feet, with a heading of 345 degrees, and then after flying that for a while, we change the intended heading to 270 degrees, and then after a while we change it back to 345 degrees:
 
-![image-20231113171651472](./image-20231113171651472.png)
+![image-20231113171651472](./images/fly-level/heading-change.png)
 
 What are we seeing here? On the left we see our altitude behaviour and our aileron trim, and on the right we see our heading and bank behaviour. As you can see, we are flying dead straight until we switch from 345 to 270, at which point the plane banks up to its allowed maximum bank, then gradually banks less and less as we approach our new target heading. At the same time, on the left we can see th1at when we do that, we lose a bit of altitude. Not much, and not enough to put another fix in the code for, but it's an important little detail to be aware of.
 
@@ -3572,7 +3573,7 @@ Of course, accidents happen, so as one last "test": what happens if we bump the 
 
 Although perhaps that's not quite the right description... it gets the plane back under control, it's just... the worst possible kind of control:
 
-![image-20231113175653822](./image-20231113175653822.png)
+![image-20231113175653822](./images/alt-hold/alt-yoke-bump.png)
 
 An error that should have leveled back out to a nice stable flat altitude and vertical speed instead ends up reinforcing itself until it finds a new, _very different_, stable outcome that can only be described as "a rollercoaster of death". It's holding the correct altitude _on average_ but it's doing so in what is probably the worst possible way...
 
@@ -3666,13 +3667,13 @@ async function getTargetVS(autopilot, state, maxVS) {
 
 Let's see what that does for us if we bump the yoke four times: once pulling the plane up until we see the emergency code kick in, and having it stabilize again, then once pushing the plane down until we see the emergency code to kick in, and having it stabilize. And then we repeat that, for good measure (literally in this case, since we're measuring AP response behaviour):
 
-![image-20231115194429387](./image-20231115194429387.png)
+![image-20231115194429387](./images/alt-hold/alt-yoke-bump-fixed.png)
 
 With our emergency intervention in place, we no longer end up in a rollercoaster of death situation, instead returning to our intended altitude. Now, granted, it wouldn't feel nice being inside this plane while it recovers, _but it will recover_ and that's by far the most important result. Also note that if we push the plane down, we better have some altitude between us and the ground, because if this happened at 500 feet above the ground, the AP probably wouldn't have recovered on account of us making an unscheduled, high velocity landing.
 
 So what about our "fly level" code? As it turns out, we're pretty good there already. If we give the yoke a quick left or right turn (again, let's do that twice), then the AP will correct for that, and faster, too (even if it's not perfect):
 
-![image-20231115194943945](./image-20231115194943945.png)
+![image-20231115194943945](./images/fly-level/lvl-yoke-bump.png)
 
 ## Flying some test flights in different planes
 
@@ -3682,23 +3683,23 @@ Now that we have pretty decent control of both the horizontal and the vertical, 
 
 To make sure we're getting a decent result, here's my cross section of test planes in MSFS:
 
-![image-20231105214745162](./beaver-shot.png)
+![image-20231105214745162](./images/planes/beaver-shot.png)
 
 - The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), which we've been testing with so far. The beaver has trim limits of +/- 18.
 
-![image-20231105214954647](./310-shot.png)
+![image-20231105214954647](./images/planes/310-shot.png)
 
 - The [Cessna 310R](https://en.wikipedia.org/wiki/Cessna%5F310), a (very good looking once the gear is up) small twin turbo-prop plane. The 310R is still relatively light, and responds to trim quite quickly. it has trim limits of +/-20.
 
-![image-20231105215130775](./beech-shot.png)
+![image-20231105215130775](./images/planes/beech-shot.png)
 
 - The [Beechcraft Model 18](https://en.wikipedia.org/wiki/Beechcraft%5FModel%5F18), a gorgeous twin radial engine aeroplane. This plane is a delight to fly, and has trim limits of +/- 30. It's slow to respond, but that might actually be beneficial in our case, because our autopilot only runs once every half second.
 
-![image-20231105215235492](./dc3-shot.png)
+![image-20231105215235492](./images/planes/dc3-shot.png)
 
 - The [Douglas DC-3](https://en.wikipedia.org/wiki/Douglas%5FDC-3), an almost four times bigger twin radial engine aeroplane. This lumbering beast has trim limits of +/- 12 and will overshoot if you let it. However, it does respond to trim instructions, and it _will_ end up going where we tell it to go. It just takes it a while, and it'll be bouncy.
 
-![image-20231105215402255](./top-rudder-shot.png)
+![image-20231105215402255](./images/planes/top-rudder-shot.png)
 
 - And finally, the [Top Rudder Solo 103](https://www.toprudderaircraft.com/product-page/103solo-standard), with trim limits of +/-12. And of course, this type of plane was never meant to have an autopilot. Under no circumstances should you try to add one in real life. No sane person would stick an autopilot in. _So we will_. _Because we can_.
 
@@ -4263,7 +4264,7 @@ export class WaypointOverlay {
 
 And of course, the image we're using for waypoints:
 
-![marker-icon](./marker-icon.png)
+![marker-icon](./images/page/marker-icon.png)
 
 With a smattering of CSS to make our markers look reasonable:
 
@@ -4315,7 +4316,7 @@ With a smattering of CSS to make our markers look reasonable:
 
 We can now place a bunch of waypoints by clicking the map, which will send a waypoint creation message to the server, which creates the _actual_ waypoint, which we're then told about because the waypoints are now part of our autopilot information that we send to the client every time the autopilot updates.
 
-![image-20230607105644939](./waypoints-with-alt.png)
+![image-20230607105644939](./images/page/waypoints-with-alt.png)
 
 ### Flying and transitioning over waypoints
 
@@ -4579,7 +4580,7 @@ function pathIntersection(x1, y1, x2, y2, cx, cy, r) {
 
 That's a lot of code to do what we sketched out before, so... does this work? Does this let us fly a flight plan?
 
-<img src="./full-map.png" alt="image-20230604142254975" style="zoom: 67%;" />
+<img src="./images/page/full-map.png" alt="image-20230604142254975" style="zoom: 67%;" />
 
 You bet it does.
 
@@ -5357,7 +5358,7 @@ And then we call this function in our client-side autopilot code:
 
 Which will give us the following visualization:
 
-![image-20230527222138987](./flight-with-alos.png)
+![image-20230527222138987](./images/page/flight-with-alos.png)
 
 ### Testing our code
 
