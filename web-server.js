@@ -10,6 +10,7 @@ import { createWebClient } from "socketless";
 const serverURL = `http://localhost:${API_PORT}`;
 const dir = `${__dirname}/public`;
 const { clientWebServer } = createWebClient(ClientClass, serverURL, dir);
+
 clientWebServer.listen(WEB_PORT, () => {
   console.log(`Server listening on http://localhost:${WEB_PORT}`);
   if (process.argv.includes(`--browser`)) {

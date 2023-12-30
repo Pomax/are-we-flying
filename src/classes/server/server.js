@@ -28,6 +28,17 @@ let flying = false;
 let MSFS = false;
 let autopilot = false;
 
+function connectServerToAPI(onConnect) {
+  api.connect({
+    autoReconnect: true,
+    retries: Infinity,
+    retryInterval: 5,
+    onConnect,
+    onRetry: (_, s) =>
+      console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
+  });
+}
+
 /**
  * Our server-side API
  */
@@ -188,8 +199,7 @@ export class ServerClass {
     if (!MSFS) return;
 
     // console.log(`are we flying?`);
-    const data = await this.api.get(
-      client,
+    const data = await api.get(
       `CAMERA_STATE`,
       `CAMERA_SUBSTATE`,
       `SIM_ON_GROUND`,
@@ -248,15 +258,4 @@ export class ServerClass {
     console.log(`authenticating client`);
     return (client.authenticated = true);
   }
-}
-
-function connectServerToAPI(onConnect) {
-  api.connect({
-    autoReconnect: true,
-    retries: Infinity,
-    retryInterval: 5,
-    onConnect,
-    onRetry: (_, s) =>
-      console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
-  });
 }

@@ -82,7 +82,7 @@ export class ClientClass {
     this.setState({
       flying: false,
       MSFS: false,
-      serverConnection: true,
+      serverConnection: false,
     });
     this.#tryReconnect();
   }

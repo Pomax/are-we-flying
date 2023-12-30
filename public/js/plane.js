@@ -1,7 +1,6 @@
 import { Attitude } from "./attitude.js";
 import { Autopilot } from "./autopilot.js";
 import {
-  getPointAtDistance,
   getDistanceBetweenPoints,
   waitFor,
 } from "./utils.js";

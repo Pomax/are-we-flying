@@ -1,6 +1,18 @@
 <!-- there's going to be interactive graphics here -->
-<script  type="module" src="../public/vendor/graphics-element/graphics-element.js" async></script>
-<link rel="stylesheet" href="../public/vendor/graphics-element/graphics-element.css" async>
+
+<script  type="module" src="./graphics/graphics-element/graphics-element.js" async></script>
+<link rel="stylesheet" href="./graphics/graphics-element/graphics-element.css" async>
+
+<style>
+  html, body {
+    width: 800px;
+    margin: 0 auto;
+  }
+  img {
+    border: 1px solid black;
+  }
+</style>
+
 
 # Flying planes with JavaScript
 
@@ -14,26 +26,38 @@ Instead, we're writing a web page that can control an autopilot running in JS th
 
 While we're not doing that (...today?), we _*are*_ going to write an autopilot for planes that don't have one, as well as planes that do have one but that are just a 1950's chore to work with, while also tacking on some functionality that just straight up doesn't exist in modern autopilots. The thing that lets us perform this trick is that MSFS comes with something called [SimConnect](https://docs.flightsimulator.com/html/Programming_Tools/SimConnect/SimConnect_SDK.htm), which is an SDK that lets people write addons for the game using C, C++, or languages with .NET support... and so, of course, folks have been writing connectors to "port" the SimConnect function calls to officially unsupported languages like Go, Node, Python, etc.
 
-Which means that we could, say, write a web page that allows us to see what's going on in the game. And toggle in-game settings. And --and this is the one that's the most fun-- _fly the plane_ from a web page. And once we're done, it'll be that easy, but the road to get there is going to take a little bit of prep work... some of it tedious, some of it weird, but all of it's going to set us up for just doing absolutely ridiculous things and at the end of it, we'll have a fully functional autopilot _with auto-takeoff and flight planning that's as easy as using google maps_ and whatever's missing, you can probably bolt on yourself!
+Which means that we could, say, write a web page that allows us to see what's going on in the game. And toggle in-game settings. And --and this is the one that's the most fun-- _fly the plane_ from a web page. And once we're done "it'll be that easy" but the road to get there is going to take a little bit of prep work... some of it tedious, some of it weird, but all of it's going to set us up for just doing absolutely ridiculous things and at the end of it, we'll have a fully functional autopilot _with auto-takeoff and flight planning that's as easy as using google maps_ and whatever's missing, you can probably bolt on yourself!
 
-Before we get there though, let's start at the start. If the idea is to interface with MSFS from a webpage, and webpages use JS, then your first thought might be "Cool, can I write an [express](https://expressjs.com/) server that connects to MSFS?" to which the answer is: yes! There is the [node-simconnect](https://www.npmjs.com/package/node-simconnect) package for [Node](https://nodejs.org), which implements full access to the SimConnect DLL file, but it's very true to the original C++ SDK, meaning it's a bit like "programming C++ in JavaScript". Now, you might like that (I don't know your background) but JS has its own set of conventions that don't really line up with the C++ way of doing things, and because I know my way around programming I created a somewhat more "JavaScripty" API on top of node-simconnect called [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper) (I am _*great*_ at naming things) which lets me (and you!) write code that can talk to MSFS in a way that looks and feels much more like standard JavaScript, so... let's use that!
+Before we get there though, let's start at the start. If the idea is to interface with MSFS from a webpage, and webpages use JS, then your first thought might be "Cool, can I write an [express](https://expressjs.com/) server that connects to MSFS?" to which the answer is: yes! There is the [node-simconnect](https://www.npmjs.com/package/node-simconnect) package for [Node](https://nodejs.org), which implements full access to the SimConnect DLL file, but it's very true to the original C++ SDK, meaning it's a bit like "programming C++ in JavaScript". Now, you might like that (I don't know your background) but JS has its own set of conventions that don't really line up with the C++ way of doing things, and because I know my way around programming and I like writing JS, I created a somewhat more "JavaScripty" API on top of node-simconnect called [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper) (I am _*great*_ at naming things) which lets me (and you!) write code that can talk to MSFS in a way that looks and feels much more like standard JavaScript, so... let's use that!
 
-Also, because we want to talk "from the browser to a game", we don't really want to have to rely on HTML GET and POST requests, because they're both slow, and unidirectional: the game will never be able to talk to us unless it's to answer a question we sent it. That's not great, especially not if we want to register event handlers, so instead we'll use [web sockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), which let us set up a persistent bidirectional data connection And to make that a trivial task, we'll use the [express-ws](https://github.com/HenningM/express-ws) package to bolt websockets onto our express server: just use `app.ws(....)` on the server in the same way we'd use `app.get(...)` or `app.post()`, with a plain Websocket in the browser, and things _just work_.
+Also, because we want to talk "from the browser to a game", we don't really want to have to rely on HTML GET and POST requests, because they're both slow, and unidirectional: the game will never be able to talk to us unless it's to answer a question we sent it. That's not great, especially not if we want to register event handlers, so instead we'll use [web sockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), which let us set up a persistent bidirectional data connection And to make that a trivial task, we're going to use a library called ["socketless"](https://github.com/Pomax/socketless), which lets us write client/server code as if everything is just local code, and it magically makes things work over the network.
 
-If that sounds cool: you can check out the complete project over on the ["Are we flying?"](https://github.com/Pomax/are-we-flying) Github repository, but if you want to actually learn something... let's dive in!
+If that sounds cool: you can check out the complete project over on the ["Are we flying?"](https://github.com/Pomax/are-we-flying) Github repository, and you can just clone that and run the project with a simple `run.bat`, but if you want to actually learn something... let's dive in!
+
+## The structure of this "tutorial"
 
 We'll be tackling this whole thing in four parts:
 
-1. The first part will cover the prep work we need to do to set up a working system of MSFS, a SimConnect API server for communicating to and from MSFS, and a web server that hosts a webpage and takes care of communicating to and from the API server.
-2. The second part will cover the web page where we're going to visualize everything we can about our flights in MSFS, including graphs that plot the various control values over time, to get a better insight into how an aeroplane responds to control inputs.
-3. The third part will cover the thing you came here for: writing our own autopilot (in several stages of complexity) and making our computer fly planes all on its own!
-4. The fourth part will cover the thing you didn't realize you came here for: taking everything we've done and turning it into a google maps style autopilot, where we just tap a few places we want to pass over in the browser, and then with the plane still sitting on the runway, click "take off" in the browser and have the plane just... start flying in MSFS with us along for the ride, not having to do anything.
+1. In the first part we'll cover the prep work we need to do in order to set up a working combination of MSFS, a SimConnect API server for communicating to and from MSFS, and a web server that hosts a webpage and takes care of communicating to and from the API server.
+2. In the the second part we'll cover the "web page pages", where we're going to visualize everything we can visualize relating to our flights in MSFS, including graphs that plot the various control values over time (altitude, speed, heading, trim values, etc.) to get a better insight into how our aeroplane(s) responds to control inputs.
+3. In the third part we'll cover the thing you came here for: writing our own autopilot (in several stages of complexity) and making our computer fly planes all on its own!
+4. In the fourth part, we're going to cover the thing you didn't even realize you came here for: taking everything we've done and turning it into a google maps style autopilot, where we just tap a few places we want to pass over in the browser, and then with the plane still sitting on the runway, click "take off" in the browser and have the plane just... start flying in MSFS with us along for the ride, not having to do anything. And then clicking "auto land" to make the game pick an airport near the last waypoint we placed and just have it land there. _Because we can_.
 
-And then by the time we're done, we'll have something that looks a little bit like this:
+And along the way we're going to learn a few developer tricks like hot reloading ES modules, mocking SimConnect, and other such fun things.
 
-<img src="./images/preview-shot.png" alt="image-20230531213249038" style="zoom:80%;" />
+By the time we're done, we'll have a web page that looks a little bit like this:
 
-If that sounds good to you, then read on!
+![sim view on the map](./image-20231228145747579.png)
+
+While the in game view looking like this:
+
+![in-game sim view](./image-20231228150117688.png)
+
+or this:
+
+![image-20231228150302348](./image-20231228150302348.png)
+
+If that sounds (and looks) good to you, then read on!
 
 # Table of Contents
 
@@ -51,18 +75,20 @@ In high fidelity image media, we'll be implementing this:
 
 <img src="./images/server/server-diagram.png" alt="image-20230606182637607" style="display: inline-block; zoom: 80%;" />
 
-And to make our lives a little easier, we're going to be using the [socketless](https://www.npmjs.com/package/socketless) library to take care of the actual client/server management, so we can just focus on writing the code that's going to let us show a UI based on talking to MSFS. The nice thing about this library is that it does some magic that lets clients and servers call functions on each other "without knowing there's a network". If the server has a function called `test` then the client can just call `const testResult = await this.server.test()` and done, as far as the client knows, the server is just a local variable. Similarly, if the client has a function called `test` then server can call that with a `const testResult = await this.clients[...].test()` and again, as far as the server knows it's just working with a local variable.
+And as mentioned, to make our lives a little easier we're going to be using the [socketless](https://www.npmjs.com/package/socketless) library to take care of the actual client/server management, so we can just focus on writing the code that's going to let us show a user interface based on talking to MSFS. The nice thing about this library is that it does some magic that lets clients and servers call functions on each other "without knowing there's a network". If the server has a function called `test` then the client can just call `const testResult = await this.server.test()` and done, as far as the client knows, the server is just a local variable. Similarly, if the client has a function called `test` then server can call that with a `const testResult = await this.clients[...].test()` and again, as far as the server knows it's just working with a local variable.
 
 ## An .env file
 
-Let's start with an `.env` file that we'll be putting some environment variables without polluting the global environment:
+Let's start with an `.env` file for housing a few variables that we want to be using across all our code:
 
 ```env
 WEB_PORT=3000
 API_PORT=8080
 ```
 
-## Socketless api and web servers
+Nothing fancy, just two ports for now.
+
+## A socketless API, and web servers
 
 Before we look at the "real" code we need to write, let's quickly run through the code required to run our API server, which we'll put in `api-server.js`:
 
@@ -74,12 +100,11 @@ import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/.env` });
 
 // Then we set up socketless so it can do its thing:
-import { linkClasses } from "socketless";
-import { ClientClass, ServerClass } from "./src/classes/index.js";
-const factory = linkClasses(ClientClass, ServerClass);
+import { createServer } from "socketless";
+import { ServerClass } from "./src/classes/index.js";
 
 // Where "its thing" is creating an API server:
-const { webserver } = factory.createServer();
+const { webserver } = createServer(ServerClass);
 
 // Which we then run like any other Node server.
 const { API_PORT } = process.env;
@@ -88,7 +113,7 @@ webserver.listen(API_PORT, () => {
 });
 ```
 
-And that's it, that's all the code we need for our API server. At least in terms of the actual "running the server". We'll look at those client and server classes in the next section.
+And that's it, that's all the code we need for our API server. At least in terms of the actual "running the server". We'll look at the server class in the next section.
 
 Next up, the code required to run the "web server" part of our above "diagram" which we'll put in `web-server.js`:
 
@@ -99,13 +124,9 @@ const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/.env` });
 
-// With an extra import that'll let use automatically open a browser.
-import open from "open";
-
 // Then we set up socketless:
-import { linkClasses } from "socketless";
-import { ClientClass, ServerClass } from "./src/classes/index.js";
-const factory = linkClasses(ClientClass, ServerClass);
+import { ClientClass } from "./src/classes/client/client.js";
+import { createWebClient } from "socketless";
 
 // But instead of a server, we're going to build a "web client",
 // which is something that can both act as client to our server,
@@ -120,29 +141,30 @@ const serverURL = `http://localhost:${API_PORT}`;
 const dir = `${__dirname}/public`;
 
 // Which means we can create our web client:
-const { clientWebServer } = factory.createWebClient(serverURL, dir);
+const { clientWebServer } = createWebClient(ClientClass, serverURL, dir);
 
 // And then run its web server the same way we ran the API server, above:
 clientWebServer.listen(WEB_PORT, () => {
   console.log(`Server listening on http://localhost:${WEB_PORT}`);
-  // And if we run this with "node webserver.js --browser", open a browser!
+  // With an extra bit that automatically opens a browser for us:
   if (process.argv.includes(`--browser`)) {
-    console.log(`Opening a browser...`);
-    open(`http://localhost:${WEB_PORT}`);
+    import("open").then(({ default: open }) => {
+      open(`http://localhost:${WEB_PORT}`);
+    });
   }
 });
 ```
 
-So a tiny bit more code, but that's all we need to do in terms of setting up our API server <-> client <-> browser constellation. The `socketless` library takes care of all of that so we can focus on actually implementing the code we _care_ about. And on that note, let's look at that code because we have two classes to implement:
+So a tiny bit more code, but that's all we need to do in terms of setting up our "API server ↔ client ↔ browser" constellation. The `socketless` library takes care of all of that so we can focus on actually implementing the code we _care_ about. And on that note, let's look at that code because we have two classes to implement:
 
-- the server class, which will be our interface between MSFS and our clients, and
-- the client class, which will be our interface between the server and the browser.
+1. the server class, which will be our interface between MSFS and our clients, and
+1. the client class, which will be our interface between the server and the browser.
 
 ### But first, some testing!
 
-Before we implement those though, let's verify that the code we wrote even works by implementing some tiny client and server classes with just enough code to show connections and function calls work.
+Before we implement those though, let's verify that the code we wrote even works by implementing some tiny client and server classes with just enough code to show connections and function calls to work.
 
-First, let's install our dependencies: [dotenv](https://www.npmjs.com/package/dotenv), [open](https://www.npmjs.com/package/open), [socketless](https://www.npmjs.com/package/socketless), and [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper).
+First, let's install our dependencies: [dotenv](https://www.npmjs.com/package/dotenv), [open](https://www.npmjs.com/package/open),  [socketless](https://www.npmjs.com/package/socketless), and [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper).
 
 ```javascript
 > npm i dotenv open socketless msfs-simconnect-api-wrapper
@@ -176,10 +198,10 @@ export class ServerClass {
 }
 ```
 
-And then we'll create a quick `public/index.html` page for the browser:
+And then we'll create a quick `public/index.html` page that we can load in the browser:
 
 ```html
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en-GB">
   <head>
     <meta charset="utf-8" />
@@ -192,18 +214,20 @@ And then we'll create a quick `public/index.html` page for the browser:
 </html>
 ```
 
-With a bare minimum browser client in `public/js/setup.js`:
+With a bare minimum browser client in `public/js/index.js`:
 
 ```javascript
 // We don't need to put a "socketless.js" in our public dir,
-// this is a "magic import" provided by socketless itself:
+// this is a "magic import" provided by socketless itself
+// when we're connected to a socketless web server:
 import { createBrowserClient } from "./socketless.js";
 
-// Our browser client announces its connections, too:
+// Then we set up our browser client to announce its connections:
 class BrowserClient {
   async init() {
     console.log(`[browser] We're connected to our web client!`);
-    // And then as part of startup, we'll call the server's test function:
+    // And then as part of startup, we'll call the server's
+    // test function, just to confirm that works:
     console.log(`Calling test:`, await this.server.test());
   }
 }
@@ -213,33 +237,33 @@ class BrowserClient {
 createBrowserClient(BrowserClient);
 ```
 
-So let's run `node api-server.js` in one terminal, and `node web-server.js --browser` in another. Doing so will show us this in the server terminal:
+So let's run `node api-server.js` in one terminal, and `node web-server.js --browser` in another. Doing so will show us the following text in the server terminal:
 
 ```
-...>node api-server.js
+...> node api-server.js
 Server listening on http://localhost:8080
 [server] A client connected!
 [server] test!
 ```
 
-And we'll see this in the client terminal:
+And will show us the following in the client terminal:
 
 ```
-...>node web-server.js --browser
+...> node web-server.js --browser
 Server listening on http://localhost:3000
 Opening a browser...
 [client] We connected to the server!
 [client] A browser connected!
 ```
 
-And then because the `--browser` flag opened a browser, if we look at its dev tools "console" tab, we see:
+And then, because the `--browser` flag opened a browser, if we look at the browser's developer tools' `console` tab, we see:
 
 ```
-[browser] We're connected to our web client! setup.js:8:18
+[browser] We're connected to our web client! index.js:9:17
 Calling test: success!
 ```
 
-Awesome, we have a complete API server + web server + browser thin client and "things just work(tm)", we didn't have to write a single line of websocket or remote function calling code!
+Awesome, we have a complete API server + web server + browser thin client and "things just work™", we didn't have to write a single line of websocket or remote function calling code!
 
 ## Our API server
 
@@ -248,25 +272,40 @@ Our server class is how clients "talk" to MSFS. Any function we expose on the se
 Let's update our server class and let's move it into its own `src/classes/server.js` instead so we're not mixing our client and server code:
 
 ```js
-// Import the MSFS connector library and create an API instance:
+// load the environment:
+import url from "node:url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+import dotenv from "dotenv";
+dotenv.config({ path: `${__dirname}/../../../.env` });
+
+// And then import the MSFS connector library and create an API instance:
 import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
 const api = new MSFS_API();
 
-// We have two "global" values that need to be communicated every time a client connects:
+// We have three "global" values that need to be communicated every time a client connects:
 
-// 1: are we connected to MSFS?
+// 1: our actual API connector:
+let api = false;
+
+// 2: are we connected to MSFS?
 let MSFS = false;
 
-// 2: is a flight in progress right now?
+// 3: is a flight in progress right now?
 let flying = false;
 
 // Then we define a function that lets us set up the connection to MSFS
 // so we don't need all that code in our server class constructor:
 function connectServerToAPI(onConnect) {
   api.connect({
+    // when we lose the connection, try to reconnect
+    autoReconnect: true,    
+    // and keep doing that forever
     retries: Infinity,
+    // at a 5 second interval.
     retryInterval: 5,
+    // But when we *do* connect, call this:
     onConnect,
+    // And every time we retry, do this:
     onRetry: (_, s) =>
       console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
   });
@@ -275,57 +314,137 @@ function connectServerToAPI(onConnect) {
 // Next up, our server class:
 export class ServerClass {
   constructor() {
+    this.init();
+  }
+
+  async init() {
+    // set up the API variable - note that because this is a global,
+    // clients can't directly access the API. However, we'll be setting
+    // up some API routing to make that a non-issue in a bit.
+    api = new MSFS_API();
+    
     // Set up call handling for API calls: this will be explained after we
     // finish writing this class. We bind this as `this.api` so that any
     // client/ will be able to call `this.server.api...` and have things work.
     this.api = new APIWrapper(api, () => MSFS);
-    connectServerToAPI(() => {
-      // When MSFS exists and we're connected, write that down:
-      MSFS = true;
 
-      // Then register for a few basic MSFS events:
-      this.#registerWithAPI(api, autopilot);
+    // Add "function routing" for the api and autopilot
+    this.#setupRouting();
 
-      // And then let every connected client (and there might be none,
-      // or there might be a hundred!) know that we connected.
-      this.clients.forEach((client) => client.onMSFS(MSFS));
+    // Then wait for MSFS to come online
+    connectServerToAPI(() => this.#onMSFSConnect());
+  }
+  
+  // Our routing, for now, is just some code that allows client to call
+  // endpoints that will get (after security checks) passed on to the API:
+  async #setupRouting() {
+    this.api = new APIRouter(api, () => MSFS);
 
-      // Then start polling MSFS for a few values that will tell
-      // us whether or not a flight is happening:
-      this.#poll();
-    };
+    // Note: with that, all clients will now be able to call server.api.[...]
+  }
+
+  // Note that this is a private function: only "this" can access it, as 
+  // above in the "connectServerToAPI(() => this.#onMSFSConnect());" line.
+  async #onMSFSConnect() {
+    // we have a connection, so:
+    MSFS = true;
+
+    console.log(`Connected to MSFS.`);
+    console.log(`${(await api.get(`ALL_AIRPORTS`)).ALL_AIRPORTS.length} airports loaded`);
+
+		// register for some of the events we're interested in...
+    this.#registerWithAPI(api);
+    
+    // then notify all clients that my have connected already that we have connection:
+    this.clients.forEach((client) => client.onMSFS(MSFS));
+
+    // then, start polling the game state at a regular interval:
+    this.#poll();
   }
 
   /**
-   * Whenever the game pauses or unpauses, as well as whenever we
-   * crash or reset from a crash, let all connected clients know:
+   * register a bunch of events that we want to be notified of:
    */
   #registerWithAPI(api, autopilot) {
+    // Obviously, it'll be good to know if we're paused or not:
     api.on(SystemEvents.PAUSED, async () => {
+      autopilot.setPaused(true);
       this.clients.forEach((client) => client.pause());
     });
+
     api.on(SystemEvents.UNPAUSED, async () => {
+      autopilot.setPaused(false);
       this.clients.forEach((client) => client.unpause());
     });
+
+    // And, similarly, whether we just crashed the plane or not:
     api.on(SystemEvents.CRASHED, async () => {
       this.clients.forEach((client) => client.crashed());
     });
+
     api.on(SystemEvents.CRASH_RESET, async () => {
       this.clients.forEach((client) => client.crashReset());
     });
+
+    // And then, whenever the "sim" or "view" values change,
+    // check the camera to determine whether we're actually
+    // in-game or not.
+    api.on(SystemEvents.SIM, () => this.#checkFlying());
+    api.on(SystemEvents.VIEW, () => this.#checkFlying());
   }
 
   /**
-   * What do we do when a client connects?
+   * If the camera enum is 9 or higher, we are not actually in-game,
+   * even if the SIM variable is 1, so we use this to determine whether
+   * we're in-flight (because there is no true "are we flyin?" var that
+   * can be checked on connect)
    */
-  async onConnect(client) {
-    // Naturally, we tell them MSFS is connected, if it is.
-    if (MSFS) client.onMSFS(true);
-    // And then we do a quick check to see if a flight is (still)
-    // Ïn progress that the client needs to know about.
-    await this.#checkFlying(client);
-  }
+  async #checkFlying(client) {
+    // of we're not connected, we can't check on our flight status...
+    if (!MSFS) return;
+    
+    // we we are, get some important values:
+    const data = await api.get(
+      `CAMERA_STATE`,
+      `CAMERA_SUBSTATE`,
+      `SIM_ON_GROUND`,
+      `ELECTRICAL_AVIONICS_BUS_VOLTAGE`,
+      `ELECTRICAL_TOTAL_LOAD_AMPS`
+    );
 
+    // if we didn't get anything, that's... a problem...
+    if (!data) {
+      return console.warn(`there was no camera information? O_o`);
+    }
+
+    // If we did, get all the values we wanted:
+    const {
+      CAMERA_STATE: camera,
+      CAMERA_SUBSTATE: camerasub,
+      SIM_ON_GROUND: onGround,
+      ELECTRICAL_AVIONICS_BUS_VOLTAGE: load,
+      ELECTRICAL_TOTAL_LOAD_AMPS: amps,
+    } = data;
+
+    // then, before we do anything, let connected clients know about the camera:
+    if (client) {
+      client.setCamera(camera, camerasub);
+    } else {
+      this.clients.forEach((client) => client.setCamera(camera, camerasub));
+    }
+
+    // Then, check whether or not we changed state from "not flying" to "flying":
+    const wasFlying = flying;
+    flying = (2 <= camera && camera < 9) && (onGround === 0 || load !== 0 || amps !== 0);
+    if (flying !== wasFlying) {
+      // If that happened, inform all connected clients that we're now flying:
+      this.clients.forEach((client) => client.setFlying(flying));
+    } else if (client) {
+      // If not, just let the "current client" know. If there is one:
+      client.setFlying(flying);
+    }
+  }
+  
   /**
    * Let's check out the polling function. For one: it's a private function,
    * meaning that it can only be called using `this.#poll()`. Which means
@@ -389,7 +508,7 @@ export class ServerClass {
 }
 ```
 
-Now, if you were paying attention you'll have noticed that we've glossed over the `APIWrapper` code, which is arguably some of the most important code, because it's the code that lets clients interface "directly" with MSFS. The MSFS library offers five functions for this, which we need to expose to clients:
+Now, if you were paying attention you'll have noticed that we've glossed over the `APIRouter` code, which is arguably some of the most important code, because it's the code that lets clients interface "directly" with MSFS. The MSFS library offers five functions for this, which we need to expose to clients:
 
 - register: register as event listener for one of the (few) "subscription" based MSFS event.
 - forget: the opposite of register.
@@ -397,65 +516,117 @@ Now, if you were paying attention you'll have noticed that we've glossed over th
 - set: a way to set variable(s) to specific value(s).
 - trigger: a way to trigger one of the (_many_) sim events.
 
-So let's look at how we expose those to the client:
+So let's look at how we expose those to the client in a `routes/api-router.js`:
 
 ```js
+import { createHash } from "node:crypto";
 import { SystemEvents } from "msfs-simconnect-api-wrapper";
-import { createHash } from "crypto";
 
-// First off, we're going to need our own (fairly simple) event
-// tracker, so we can keep track which client's listening to which
-// event. Because the MSFS library knows nothing about clients or
-// servers, it just knows about the one "api" instance, and that's
-// not going to be super useful. Don't worry, event tracking is easy!
+const resultCache = {};
 const eventTracker = {};
 
-// Second, we want a (slightly less simple) result cache, so that
-// we don't send 20 queries to MSFS for the same value if we happen
-// to have 20 clients (or one client is asking for the same value
-// in rapid succession).
-const resultCache = {};
-
-// And when working with cache, always have a cache timeout
-const CACHE_TIMEOUT_IN_MILLISECONDS = 100;
-
-
-export class APIWrapper {
+export class APIRouter {
+  // we have a private variable for the "real" API:
   #api;
 
-  /**
-   * The constructor takes the MSFS API instance, which we bind
-   * to a private field so that clients can't directly call some
-   * this.server.api.api.something() function.
-   */
-  constructor(api, getMSFS) {
+  // which we bind as part of our constructor:
+  constructor(api) {
     this.#api = api;
   }
 
-  /**
-   * This can be called by the client as this.server.api.register(...)
-   * with as many event names as they need to register for.
-   */
+  // then, when clients call this.server.register(...), we do:
   async register(client, ...eventNames) {
-    // Of course, if MSFS is not connected, we do nothing.
-    if (!this.#api.connected return;
-    // But if it is, we handle each event registration separately.
+    if (!this.#api.connected) return;
     eventNames.forEach((eventName) => this.#registerEvent(client, eventName));
   }
 
-  // we only want clients to use the "register" function, so this one's private
+  // And when clients call this.server.forget(...), we do:
+  async forget(client, eventName) {
+    if (!this.#api.connected) return;
+    const pos = eventTracker[eventName].listeners.findIndex(
+      (c) => c === client
+    );
+    if (pos === -1) return;
+    eventTracker[eventName].listeners.splice(pos, 1);
+    if (eventTracker[eventName].listeners.length === 0) {
+      eventTracker[eventName].off();
+    }
+  }
+
+  // and when clients call this.server.get(...), we do:
+  async get(client, ...simVarNames) {
+    if (!this.#api.connected) return {};
+    const now = Date.now();
+    const key = createHash("sha1").update(simVarNames.join(`,`)).digest("hex");
+    // Check cache, and fill if nonexistent/expired necessary.
+    resultCache[key] ??= { expires: now };
+    if (resultCache[key]?.expires <= now === true) {
+      resultCache[key].expires = now + 100;
+      resultCache[key].data = new Promise(async (resolve) => {
+        try {
+          resolve(await this.#api.get(...simVarNames));
+        } catch (e) {
+          console.warn(e);
+          resolve({});
+        }
+      });
+    }
+    // Then await the cache entry's data before responding.
+    return await resultCache[key].data;
+  }
+
+  // when clients call this.server.set(...), we do:
+  async set(client, simVars) {
+    if (!this.#api.connected) return false;
+
+    if (typeof simVars !== `object`)
+      throw new Error(`api.set input must be an object.`);
+
+    const errors = [];
+    const entries = Object.entries(simVars);
+    console.log(`Setting ${entries.length} simvars:`, Object.keys(simVars).join(`,`));
+    entries.forEach(([key, value]) => {
+      try {
+        this.#api.set(key, value);
+      } catch (e) {
+        errors.push(e.message);
+      }
+    });
+    return errors.length ? errors : true;
+  }
+
+  // for triggers, when clients call this.server.trigger(...), we do:
+  async trigger(client, eventName, value) {
+    if (!this.#api.connected) return false;
+    if (!client.authenticated) return false;
+    this.#api.trigger(eventName, value);
+  }
+
+  //, then, our private function for registering events on the API:
   #registerEvent(client, eventName) {
-    // Get, or create, the tracker for this specific event name.
     const tracker = (eventTracker[eventName] ??= { listeners: [] });
-    // Note that the "MSFS" event isn't a SimConnect event.
-    if (eventName === `MSFS`) return client.onMSFS(this.#api.connected);
-    // Is this client already registered? If so, we're not adding them again.
-    if (tracker.listeners.includes(client)) return false;
-    // Now then, on to the actual registration:
+
+    // custom "api server only" event
+    if (eventName === `MSFS`) {
+      return client.onMSFS(this.#api.connected);
+    }
+
+    // is this client already registered for this event?
+    if (tracker.listeners.includes(client)) {
+      console.log(`Ignoring ${eventName} registration: client already registered. Current value: ${tracker.value}`);
+      return false;
+    }
+
+    // turn SIM into onSim, and FLIGHT_LOADED into onFlightLoaded
+    const eventHandlerName =
+      `on` +
+      eventName
+        .split(`_`)
+        .map((v) => v[0].toUpperCase() + v.substring(1).toLowerCase())
+        .join(``);
+
     tracker.listeners.push(client);
-    // Any event needs a client-side event handler, so we follow the age-old
-    // tradition of "onCamelCase" event handler naming.
-    const eventHandlerName = createHandlerName(eventName);
+
     if (!tracker.off) {
       tracker.off = this.#api.on(SystemEvents[eventName], (...result) => {
         tracker.value = result;
@@ -465,129 +636,53 @@ export class APIWrapper {
       });
     }
   }
-
-  /**
-   * Unregister for previously registered event(s).
-   */
-  async forget(client, eventName) {
-    if (!this.#api.connected return;
-    const listeners = eventTracker[eventName].listeners;
-    // find the client in the liste of listeners, and remove it:
-    const pos = listeners.findIndex((c) => c === client);
-    if (pos === -1) return;
-    eventTracker[eventName].listeners.splice(pos, 1);
-    // And if that means there are no clients left interested
-    // in this event, unregister entirely.Ï
-    if (eventTracker[eventName].listeners.length === 0) {
-      eventTracker[eventName].off();
-    }
-  }
-
-  /**
-   * Some things that you'd expect to be a .set() call are, in fact,
-   * a "trigger" instead, like turning the in-game autopilot on or off,
-   * or (un)locking the tailwheel on a tail dragger airplane.
-   */
-  async trigger(client, eventName, value) {
-    if (!this.#api.connected return;
-    this.api.trigger(eventName, value);
-  }
-
-  /**
-   * This is the function that'll be called the most: it simply gets SimConnect values.
-   */
-  async get(client, ...simVarNames) {
-    if (!this.#api.connected return;
-    // however, that doesn't mean it's the simplest. Because we don't want to overload
-    // the MSFS API, so we need to implement some kind of "debouncing", or: value caching.
-    // If a client asks for a (set of) value(s) and we already just fetched those, we
-    // instead fetch it from our local cache. Which means building a cache:
-    const now = Date.now();
-    // we're creating cache entries based on all vars requested, by creating a
-    // cache key that is simply the list of var names as SHA1 digest.
-    const key = createHash("sha1").update(simVarNames.join(`,`)).digest("hex");
-    resultCache[key] ??= { expires: now };
-    // If the cache for this (set of) varname(s) has expired, rebuild it:
-    if (resultCache[key]?.expires <= now === true) {
-      resultCache[key].expires = now + CACHE_TIMEOUT_IN_MILLISECONDS;
-      // In order to make sure there's a value in here "immediately" we assign
-      // a promise that will "eventually" be the value we want. That way subsequent
-      // get() calls will see there's a value pending, instead of retriggering the
-      // caching operation.
-      resultCache[key].data = new Promise(async (resolve) => {
-        try {
-          resolve(await this.api.get(...simVarNames));
-        } catch (e) {
-          console.warn(e);
-          resolve({});
-        }
-      });
-    }
-    // And then we return "the eventual value" by retuning with an "await":
-    return await resultCache[key].data;
-  }
-
-  /**
-   * Our last function is the "set" call, which sets a SimConnect variable
-   * to some specific value. Like "get", this can be more than one value, and
-   * each value might cause an error to be thrown, so we accumulate those and
-   * either return `true` is all went well, or the list of errors if one or
-   * more errors occurred:
-   */
-  async set(client, simVars) {
-    if (!this.#api.connected return;
-    const errors = [];
-    Object.entries(simVars).forEach(([key, value]) => {
-      try {
-        this.api.set(key, value);
-      } catch (e) {
-        errors.push(e.message);
-      }
-    });
-    return errors.length ? errors : true;
-  }
-}
-
-// And of course the helper function to turn something like
-// "FLIGHT_PLAN_ACTIVATED" into "onFlightPlanActivated":
-function createHandlerName(eventName) {
-  return (
-    `on` +
-    eventName
-      .split(`_`)
-      .map((v) => v[0].toUpperCase() + v.substring(1).toLowerCase())
-      .join(``)
-  );
 }
 ```
 
 Phew. That was a lot of code! But hopefully, it all made sense. Because we still have to look at our client class... which is going to be a _lot_ less code =)
 
-## Our Web server
+## Our client (which also acts as web server)
 
-In addition to our API server, we're going to need a client that is also a web server, so that we can connect a browser and actually, you know, _use_ all of this. This means we'll have to define a client class such that `socketless` can take care of the rest. Thankfully, this is super easy: our client doesn't need to "do" anything other than make sure that values make it from the browser to the server, and from the server to the browser, so we're going to essentially be writing a state-manager, where the client takes signals from the server and turns them into `this.state` updates, and then `socketless` will take care of the tedious "making sure the browser gets that" parts. So: client class time! (which we put in its own `src/classes/client.js`)
+In addition to our API server, we're going to need a client that is also a web server, so that we can connect a browser and actually, you know, _use_ all of this. This means we'll have to define a client class such that `socketless` can take care of the rest. Thankfully, this is super easy: our client doesn't need to "do" anything other than make sure that values make it from the server to the browser, and vice versa, so we're going to essentially be writing a state-manager, where the client takes signals from the server and turns them into `this.state` updates, and then `socketless` will take care of the tedious "making sure the browser gets that" parts. So: client class time! (which we put in its own `src/classes/client.js`)
 
 ```js
 import { FlightInformation } from "./flight-information.js";
 
+// when we lose the connection to the server, this will be our reconnection interval:
 const RECONNECT_TIMEOUT_IN_MS = 5000;
-const POLL_RATE_IN_MS = 1000;
 
 /**
  * Our client class
  */
 export class ClientClass {
   #reconnection;
-  #flightInfo;
 
   /**
    * When our client starts up, start a "reconnect 5 seconds
    * from now" attempt, cleaned up when we connect.
    */
   init() {
+    this.#resetState();
     setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
-    // Also set our initial state: we think the server is offline.
-    this.setState({ offline: true });
+  }
+
+  /**
+   * A private function that lets us reconnect to the server
+   * in case it disappears and comes back online.
+   */
+  async #tryReconnect() {
+    // "setState" is a magic function that comes with socketless, and will
+    // automatically lead to a browser sync, if there's a browser connected.
+    this.setState({
+      autopilot: null,
+      crashed: false,
+      flightData: false,
+      flightModel: false,
+      flying: false,
+      MSFS: false,
+      serverConnection: false,
+      paused: true,
+    });
   }
 
   /**
@@ -596,20 +691,20 @@ export class ClientClass {
    */
   async #tryReconnect() {
     if (this.server) {
-      // we're (re)connected, clean up the reconnection
-      // timer and update our state:
       clearTimeout(this.#reconnection);
-      this.setState({ offline: !this.server });
+      console.log(`reconnected`);
       return;
     }
-    // If we get here, we're not (re)connected yet...
-    this.reconnect();
+    console.log(`trying to reconnect to the server...`);
+    this.#resetState();
+    this.reconnect(); // this is a magic socketless function
     this.#reconnection = setTimeout(
       () => this.#tryReconnect(),
       RECONNECT_TIMEOUT_IN_MS
     );
   }
 
+  
   /**
    * The main role of our client is to encode a state that can be
    * automatically communicated to the browser. As such, really
@@ -617,19 +712,15 @@ export class ClientClass {
    * updating that based on server signals.
    */
   async onConnect() {
+    clearTimeout(this.#reconnection);
+    console.log(`client connected to server`);
     // Set up our "initial" state. However, we might already have been
     // sent events by the server by the time this kicks in, so we need
     // to make sure to not overwrite any values that are "not nullish".
     this.setState({
-      crashed: this.state.crashed ?? false,
-      flightData: this.state.flightData ?? false,
-      flightModel: this.state.flightModel ?? false,
-      flying: this.state.flying ?? false,
-      MSFS: this.state.MSFS ?? false,
-      offline: false,
-      paused: this.state.paused ?? false,
+      autopilot: this.state.autopilot ?? (await this.server.autopilot.getParameters()),
+      serverConnection: true,
     });
-    // And then we get the "is MSFS connected?" value
     await this.server.api.register(`MSFS`);
   }
 
@@ -643,7 +734,7 @@ export class ClientClass {
     // we won't be informed about whether or not we're still
     // flying, or really anything about the flight at all, so
     // record that we're not flying (anymore).
-    this.setState({ flying: false, offline: true, MSFS: false });
+    this.setState({ flying: false, MSFS: false, serverConnection: false });
     // Then start the reconnect cycle
     this.#tryReconnect();
   }
@@ -652,29 +743,42 @@ export class ClientClass {
   // gets automatically synced at the browser, this means the browser
   // can also see that `this.state.connected` is true.
   async onBrowserConnect(browser) {
-    this.setState({ connected: true });
+    this.setState({ browserConnected: true });
   }
 
   // And the opposite when the browser disconnects, of course:
   async onBrowserDisconnect(browser) {
-    this.setState({ connected: false });
+    this.setState({ browserConnected: false });
   }
 
   // Then a set of self-explanatory "state copies" based on server events:
   async onMSFS(value) {
     this.setState({ MSFS: value });
   }
+
   async pause() {
     this.setState({ paused: true });
   }
+  
   async unpause() {
     this.setState({ paused: false });
   }
+  
   async crashed() {
     this.setState({ crashed: true });
   }
+  
   async crashReset() {
     this.setState({ crashed: false });
+  }
+
+  async setCamera(camera, cameraSubState) {
+    this.setState({
+      camera: {
+        main: camera,
+        sub: cameraSubState,
+      },
+    });
   }
 
   /**
@@ -686,144 +790,20 @@ export class ClientClass {
   async setFlying(flying) {
     const wasFlying = this.state.flying;
     this.setState({ flying });
+    // Did we switch from "not flying" to "flying"?
     if (flying && !wasFlying) {
-      this.setState({ crashed: false, MSFS: true });
-      this.#flightInfo = new FlightInformation(this.server.api);
-      const { flightModel, flightData } = await this.#flightInfo.update();
-      this.setState({ flightModel, flightData });
-      // start polling for regular updates:
-      this.#poll();
+      console.log(`starting a new flight...`);
+      this.setState({ crashed: false, MSFS: true, paused: false });
     }
   }
-
-  async #poll() {
-    // if we're not flying, stop polling.
-    if (!this.state.flying) return;
-
-    // But if we *are* flying, get the current flight data,
-    // store that in our client state, and through the magic
-    // of socketless, the browser will automatically get the
-    // same update.
-    const flightData = await this.#flightInfo.updateFlight();
-    if (flightData) this.setState({ flightData });
-
-    // Then schedule the next poll call 1 second from now (1000 milliseconds)
-    setTimeout(() => this.#poll(), POLL_RATE_IN_MS);
-  }
 }
-```
-
-So let's have a quick look at that `FlightInformation` class, because it mainly exists to get values from MSFS and convert them to values that actually make sense:
-
-```js
-import { MSFS_API } from "msfs-simconnect-api-wrapper";
-import {
-  BOOLEAN_VALUES,
-  DEGREE_VALUES,
-  PERCENT_VALUES,
-  FLIGHT_MODEL,
-  FLIGHT_DATA,
-} from "./flight-values.js";
-
-// Our convenience class for getting flight model information and in-progress flight data:
-export class FlightInformation {
-  constructor(api) {
-    this.api = api;
-    this.reset();
-  }
-
-  reset() {
-    this.model = false;
-    this.data = false;
-  }
-
-  // The "update" function just runs both updates and returns the result:
-  async update() {
-    const [flightModel, flightData] = await Promise.all([
-      this.updateModel(),
-      this.updateFlight(),
-    ]);
-    return { flightModel, flightData };
-  }
-
-  // The model update function is pretty simple:
-  async updateModel() {
-    const modelData = await this.api.get(...FLIGHT_MODEL);
-    if (!modelData) return (this.model = false);
-    return (this.model = modelData);
-  }
-
-  // This is the import function, though: getting all the flight-relevant
-  // values, and converting a bunch of them to units we can work with.
-  async updateFlight() {
-    const flightData = await this.api.get(...FLIGHT_DATA);
-    if (!flightData) return (this.data = false);
-
-    // Convert values to the units they're supposed to be:
-    BOOLEAN_VALUES.forEach((p) => (flightData[p] = !!flightData[p]));
-    DEGREE_VALUES.forEach((p) => (flightData[p] *= 180 / Math.PI));
-    PERCENT_VALUES.forEach((p) => (flightData[p] *= 100));
-    flightData.VERTICAL_SPEED *= 60; // "feet per second" -> "feet per minute"
-
-    // Create a convenience value for "are any engines running?"
-    flightData.ENGINES_RUNNING = [1, 2, 3, 4].reduce(
-      (t, num) => t || flightData[`ENG_COMBUSTION:${num}`],
-      false
-    );
-
-    // Create a convenience value for "is the plane powered on?"
-    flightData.POWERED_UP = flightData.ELECTRICAL_TOTAL_LOAD_AMPS !== 0;
-
-    return (this.data = flightData);
-  }
-}
-```
-
-The list of variables we'll be working with is as follows (with the `BOOLEAN_VALUES`, `DEGREE_VALUES`, and `PERCENT_VALUES` omitted because all that matters for those is that they exist, we don't need to waste space on showing that `PLANE_HEADING_DEGREES_MAGNETIC` or the like will need converting):
-
-```js
-export const FLIGHT_MODEL = [
-  `ENGINE_TYPE`,
-  `IS_GEAR_FLOATS`, // Is this a normal plane or a water plane?
-  `NUMBER_OF_ENGINES`,
-  `STATIC_CG_TO_GROUND`, // How many feet above the ground is the center of gravity for this plane?
-  `TITLE`, // What's the name of this plane?
-];
-
-// And most of these should be relatively self-explanatory:
-export const FLIGHT_DATA = [
-  `AIRSPEED_TRUE`,
-  `AUTOPILOT_HEADING_LOCK_DIR`, // this is the autopilot "heading bug"
-  `AUTOPILOT_MASTER`,
-  `CAMERA_STATE`,
-  `CAMERA_SUBSTATE`,
-  `ELEVATOR_TRIM_POSITION`,
-  `ELECTRICAL_TOTAL_LOAD_AMPS`,
-  `ENG_COMBUSTION:1`,
-  `ENG_COMBUSTION:2`,
-  `ENG_COMBUSTION:3`,
-  `ENG_COMBUSTION:4`,
-  `GROUND_ALTITUDE`,
-  `INDICATED_ALTITUDE`,
-  `PLANE_ALT_ABOVE_GROUND`,
-  `PLANE_BANK_DEGREES`,
-  `PLANE_HEADING_DEGREES_MAGNETIC`,
-  `PLANE_HEADING_DEGREES_TRUE`,
-  `PLANE_LATITUDE`,
-  `PLANE_LONGITUDE`,
-  `PLANE_PITCH_DEGREES`,
-  `RUDDER_TRIM_PCT`,
-  `SIM_ON_GROUND`,
-  `TURN_INDICATOR_RATE`,
-  `VERTICAL_SPEED`,
-];
 ```
 
 With that, let's move on to the browser.
 
 ## The browser code
 
-In order for the browser to be able to "do something", we'll use the same `index.html` we made earlier, but let's update our `setup.js`:
+In order for the browser to be able to "do something", we'll use the same `index.html` we made earlier, but let's update our `index.js`:
 
 ```js
 import { createBrowserClient } from "./socketless.js";
@@ -834,15 +814,17 @@ import { Plane } from "./plane.js";
 // And then we update our browser client, whose sole responsibility
 // is to hand off state updates to our "Plane":
 class BrowserClient {
-  #plane;
+  plane;
 
   async init() {
-    this.#plane = new Plane(this.server);
+    this.plane = new Plane(this.server);
   }
+
   async update(prevState) {
+    document.body.classList.toggle(`connected`, this.state.serverConnection);
     // Rather than "doing anything here", we just pass the current state
     // on to the Plane, and all we do here is wait for the next update.
-    this.#plane.updateState(this.state);
+    this.plane.updateState(this.state);    
   }
 }
 
@@ -852,8 +834,9 @@ createBrowserClient(BrowserClient);
 As mentioned in the code, the `socketless.js` import is handled by the web client itself, it "just exists" if you're using `socketless`. So that just leaves looking at our `Plane` code, which we'll put in `public/js/plane.js`:
 
 ```js
-// We'll be building this out later, but this will be our main entry point when it
-// comes to what the browser shows in terms of both visualisation and interactivity.
+// We'll be building this out throughout this document, but this
+// will be our main entry point when it comes to what the browser
+// shows in terms of both visualisation and interactivity.
 export class Plane {
   constructor(server) {
     this.server = server;
@@ -873,20 +856,20 @@ export class Plane {
     this.state = state;
     const now = Date.now();
 
-    // ...we'll be filling this out in due time...
+    // ...we'll be filling this out in soon enough!
 
     this.lastUpdate = { time: now, ...state };
   }
 }
 ```
 
-And that's it. There's nothing "meaningful" in our plane class yet, but for the momebt we're done: we've set up a complete API server, web server, and browser system.
+And that's it. There's nothing "meaningful" in our plane class yet, but for the moment we're done: we've set up a complete API server, web server, and browser system.
 
 ## Adding "write protection"
 
-That just leaves one last thing: making sure everyone can _read_ values, but that only we get to _write_ values. You don't want someone just randomly messing with your flight!
+That just leaves one last thing: making sure everyone can _read_ values, but that only "we" get to _write_ values. You don't want someone just randomly messing with your flight!
 
-In order to do that, we first add a new key to our `.env` file:
+In order to do that, we first add a new key to our `.env` file to act as a security key:
 
 ```sh
 export API_PORT=8080
@@ -894,9 +877,11 @@ export WEB_PORT=3000
 export FLIGHT_OWNER_KEY=FOK-12345
 ```
 
-Super secure! Of course, when we make our web page available, we'll want to make triple-sure that we change this key to something a little more secret-appropriate =)
+Super secure!
 
-Let's update our server class to tap into the key:
+Of course, when we make our web page available, we'll want to make triple-sure that we change this key to something a little more secret-appropriate =)
+
+Let's update our `server.js` class to tap into the key:
 
 ```js
 ...
@@ -915,37 +900,42 @@ export class ServerClass {
    */
   async authenticate(client, flightOwnerKey) {
     if (flightOwnerKey !== FLIGHT_OWNER_KEY) return false;
+    console.log(`authenticating client`);
     return (client.authenticated = true);
   }
 }
 
 ```
 
-With that, we can now make clients, and by extension browsers, authenticate by having them call `this.server.authenticate(...)`, so let's make that work by updating our client so it loads that key (if it has access to it) and call the authentication function:
+With that, we can now make clients, and by extension browsers, authenticate by having them call `this.server.authenticate(...)`, so let's make that work by updating our `client.js` so it loads that key (if it has access to it) and calls the authentication function:
 
 ```js
 import { FlightInformation } from "./flight-information.js";
 
 // First, we try to get the key from our environment,
 // if the client is running with the --owner runtim flag:
-let flightOwnerKey = undefined;
+let fok = undefined;
 if (process.argv.includes(`--owner`)) {
-  flightOwnerKey = process.env.FLIGHT_OWNER_KEY;
+  fok = process.env.FLIGHT_OWNER_KEY;
 }
 
 export class ClientClass {
-  #flightInfo;
+  #reconnection;
 
+  ...
+
+  // The only update will be to our "onConnect", where we're
+  // going to immediately try to authenticate with the server:
   async onConnect() {
     ...
-    // Then, if we have a key, use that to authenticate when we have a connection to the server:
-    if (flightOwnerKey) {
-      // And by setting a state value, the browser will be able to tell
-      // whether or not we're authenticated at the server as well:
-      this.setState({
-        authenticated: await this.server.authenticate(flightOwnerKey);
-      });
+
+    // If we have a flight owner key (because we might not!),
+    // use that to authenticate with the server:
+    if (fok) {
+      this.setState({ authenticated: await this.server.authenticate(fok) });
     }
+
+    await this.server.api.register(`MSFS`);
   }
 
   ...
@@ -957,7 +947,7 @@ With that, all that's left is making sure that the `set` and `trigger` calls to 
 ```js
 ...
 
-export class APIWrapper {
+export class APIRouter {
   ...
 
   async set(client, simVars) {
@@ -974,7 +964,7 @@ export class APIWrapper {
 }
 ```
 
-And that's our "auth" added, so we have all the parts in place:
+And that's our "authentication" added, so we have all the parts in place:
 
 1. we can start up MSFS,
 2. we can start up our API server using `node api-server.js`,
@@ -989,11 +979,11 @@ So, let's run this code and _actually_ talk to MSFS. First, let's make sure we h
 ```js
 ...
 
-// we won't leave this in, but it'll let us do some testing:
+// we won't leave this in, but it'll let us do some testing in our dev tools:
 window.browserClient = createBrowserClient(BrowserClient);
 ```
 
-As you can see the `createBrowserClient` returns the actual instance it builds. There's rarely a reason to capture that, but it can be very useful for testing, like now!
+As you can see the `createBrowserClient` returns the actual instance it builds. There's rarely a reason to capture that, but it can be _very_ useful for testing, like now!
 
 Let's fire up MSFS and load up a plane on on a runway somewhere, run our API server, run our client with the `--owner` and `--browser` flags, and then let's open the developer tools in the browser and get to the `Console` tab. While there, let's ask MSFS for some things:
 
@@ -1101,7 +1091,9 @@ Which means our crash event listener worked. So this is promising, we have a ful
 
 ## Hot-reloading to make our dev lives easier
 
-As a last bit of preparator dev work, we're going to be working on files in a way where it'll be super useful if we can just make changes, save the file, and then have the new code immediately swap in without having to shut down and restart our API or web server. This is actually relatively easy to do, although it comes with some caveats:
+Now, being able to write code is all well and good, but we're going to be _working on that code_ a lot, so it'd be nice if we don't constantly have to stop and restart the server and just have code changes kick in automatically. And while there isn't anything baked into JS to make that happen, with a bit of smart programming we can take advantage of filesystem watching, as we well as how `import` works, to do this for us.
+
+We can, for instance, write a function that will selectively watch a single file for changes, and if it sees any, load the new code in, and then trigger an event handler for "whoever might need it":
 
 ```javascript
 import fs from "node:fs";
@@ -1110,22 +1102,21 @@ export function watch(filePath, onChange) {
   // Step 1: don't run file-watching in production. Obviously.
   if (process.env.NODE_ENV === `production`) return;
 
-  // Next, get the current call stack, so we can report on
-  // that when a file change warrants an update.
+  // Next, we get the current call stack (by "abusing" the Error object)
+  // so we can report on that when a file change warrants an update.
   const callStack = new Error().stack
     .split(`\n`)
     .slice(2)
     .map((v) => v.trim().replace(`at `, `  `))
     .join(`\n`);
 
-  // If we're not running in production, check this file for changes every second:
+  // Next, start checking this file for changes every second:
   fs.watchFile(filePath, { interval: 1000 }, async () => {
-    console.log(`RELOADING ${filePath} AT ${DATE.now()}`);
-
     // If there was a change, re-import this file as an ES module, with a
     // "cache busting" URL that includes the current time stamp. Modules are
     // cached based on their exact URL, so adding a query argument that we
     // can vary means we we "reimport" the code:
+    console.log(`RELOADING ${filePath} AT ${DATE.now()}`);
     const module = await import(`file:///${filePath}?ts=${Date.now()}`);
 
     // To confirm to ourselves that a module was fully loaded as a "new module" we
@@ -1142,9 +1133,9 @@ export function watch(filePath, onChange) {
 }
 ```
 
-The first caveat being an explicit memory leak. There is no mechanism for "unloading" modules that were previously loaded, so every save-and-reload will cause a new file to be loaded in. Of course, our files are tiny compared to how much memory we have: this is going to be a non-issue, but it's still good to know about.
+The most important part that makes this work is actually an explicit memory leak: modules are cached based on their URL, and URL query arguments count towards URL "uniqueness",  so by loading `...?ts=${Date.now()}` we make sure we load a new copy of the file when it's changed. But because there is no mechanism for "unloading" modules is modern JS, every save-and-reload will effectively cause a new file to be loaded in. Of course, our files are tiny compared to how much memory we have, so this is going to be a non-issue, but it's still good to know about.
 
-The second caveat is that we can no longer "just import something from a module", because we can't update imports, they're effectively `const` values. Instead, we need to be a little more clever about how we import things:
+A more practical problem, though, is that we can no longer "just import something from a module", because imports are considered considered constants, and you can "reimport" something. Instead, we need to be a little more clever about how we import things: we'll import the thing we want, but alias it to a different variable, then create a `let` variable with the name we _do_ want, and then we set up module reloading so that it reassigns that name we want with an updated module:
 
 ```javascript
 import url from "node:url";
@@ -1154,38 +1145,44 @@ import { watch } from "./reload-watcher.js";
 // normally you'd use `import { Something } from "./some-module.js"`,
 // but we can't update variables created that way. Instead, we need
 // to work in a slightly roundabout manner:
-import { Something: s } from "./some-module.js";
+import { Something as _s } from "./some-module.js";
 
-// we now have an immutable variable called "s", which we can assign
+// we now have an immutable variable called "_s", which we can assign
 // to a *mutable* variable with the actual name we want to use:
-let Something = s;
+let Something = _s;
 
 // We can then set up our reload watched to update that mutable variable
 // every time something changes in our module file:
 watch(__dirname, `some-module.js`, (lib) => {
-  Something = lib.Something
+  Something = lib.Something;
 });
 ```
 
-We'll be making extensive use of this once we implement our autopilot in part three. In fact, we can go one step further, and update objects that are already "running" to the updated class:
+We'll be making extensive use of this once we implement our autopilot in part three. In fact, we can go one step further, and update objects that are already "running" to the updated class, by taking advantage of how inheritance works in JS: we can update running instances' prototypes and thus "switch them over" to the new flavour of our code:
 
 ```javascript
-import { Something: s } from "./some/dir/with/some-module.js";
-let Something = s;
+// Imagine we load a class from a module and create an instance of that class:
+import { Something as _s } from "./some/dir/with/some-module.js";
+let Something = _s;
 let instance = new Something();
 
-// We can then set up our reload watched to update that mutable variable
-// every time something changes in our module file:
+// We can then set up our reload watcher to update that mutable
+// variable everytime something changes in our module file:
 watch(__dirname, `some/dir/with/some-module.js`, (lib) => {
+  // Update our class binding:
   Something = lib.Something;
+  // And then update our class instance's prototype:
   if (instance) {
-    // This swaps the old prototype for the new code, without affecting
-    // any of the properties that were set on our instance. Something that
-    // is particularly useful for autopilot updates *while* we're flying:
     Object.setPrototypeOf(instance, Something.prototype);
+    // This swaps the old prototype for the new code, without affecting
+    // any of the methods that were set on our instance, while leaving any
+    // data unaffected. Something that is particularly useful for autopilot
+    // updates *while* we're flying!
   }
 });
 ```
+
+
 
 # Part two: visualizing flights
 
@@ -1195,7 +1192,7 @@ Before we try to automate flight by writing an autopilot, it helps if we can kno
 
 We know when we're connected to MSFS, so let's write a few functions that let us cascade through the various stages of the game before we get to "actually controlling a plane". Let's start with what we want that to look like:
 
-![Are we flying?](./images/page/questions.png)
+![image-20231228212126672](./image-20231228212126672.png)
 
 Nothing particularly fancy (although we can pretty much use any amount of CSS to turn it _into_ something fancy), but it lets us see where in the process of firing up MSFS, clicking through to the world map, and starting a flight we are. So let's update our HTML file to include these questions, and then we can update our JS to start answering them:
 
@@ -2753,7 +2750,6 @@ Before we do anything else, let's first look at what is probably _the_ single mo
   </a>
   <figcaption style="font-style: italic; text-align: center;">Mapping interval [a,b] to [c,d]<br></figcaption>
 </figure>
-
 
 That last part is critically important: if we're going to write an autopilot, we want to be able to effect proportional changes, but we want to "cap" those changes to some minimum and maximum value because just yanking the plane in some direction so hard that it stalls is the opposite of useful.
 

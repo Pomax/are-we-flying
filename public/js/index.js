@@ -1,5 +1,5 @@
-import { Plane } from "./plane.js";
 import { createBrowserClient } from "../socketless.js";
+import { Plane } from "./plane.js";
 
 class BrowserClient {
   plane;
@@ -14,4 +14,4 @@ class BrowserClient {
   }
 }
 
-window.TEST = createBrowserClient(BrowserClient);
+window.browserClient = createBrowserClient(BrowserClient);
