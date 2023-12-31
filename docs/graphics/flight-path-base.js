@@ -76,11 +76,20 @@ function addPoint(x, y) {
 
 function setup() {
   setSize(650, 500);
+  addButton(`play`, (button) => {
+    button.textContent = togglePlay() ? `pause` : `play`;
+  });
+  addButton(`reset`, (button) => {
+    points.splice(0, points.length);
+    trail.splice(0, trail.length);
+    reset();
+  });
   noGrid();
   airplane = new Airplane(100, 100, 40);
-  find(`button`).addEventListener(`click`, ({ target }) => {
-    target.textContent = togglePlay() ? `pause` : `play`;
-  });
+  addPoint(476, 100);
+  addPoint(482, 425);
+  addPoint(319, 264);
+  addPoint(146, 393);
 }
 
 function draw() {
@@ -134,16 +143,4 @@ function pointerDown(x, y) {
     current = 0;
   }
   redraw();
-}
-
-function keyDown(key) {
-  console.log(key);
-  if (key === ` `) {
-    togglePlay();
-  }
-  if (key === `r`) {
-    points.splice(0, points.length);
-    trail.splice(0, trail.length);
-    reset();
-  }
 }

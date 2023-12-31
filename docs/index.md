@@ -4345,18 +4345,13 @@ And then, finally, let's fill in that `getHeading` function. In fact, let's firs
 
 Say we have a plane, and a bunch of waypoints, and our plane cannot magically change heading. If we naively fly towards "the next waypoint on the list", things... don't look great:
 
-<graphics-element title="a flight path tester" src="./graphics/flight-path-base.js">
-  <source src="./graphics/initial.js" />
-  <button>play</button>
-</graphics-element>
+<graphics-element title="a flight path tester" src="./graphics/flight-path-base.js"></graphics-element>
 
 We see the plane getting wildly off-course depending on much it needs to turn, and while it passes _through_ each waypoint, it really doesn't follow the flight path we gave it. Instead, we want it to get "onto the flight path" as quickly as possible even if it overshoots a waypoint:
 
 <graphics-element title="a flight path tester" src="./graphics/flight-path-base.js">
   <source src="./graphics/intercepting.js" />
-  <button>play</button>
 </graphics-element>
-
 
 <img src="./how-to-path.png" alt="image-20230602182200899" style="zoom: 67%;" />
 
