@@ -13,7 +13,6 @@
   }
 </style>
 
-
 # Flying planes with JavaScript
 
 ![masthead image of a cockpit with browsers loaded in the cockpit screens](./images/masthead.png)
@@ -164,7 +163,7 @@ So a tiny bit more code, but that's all we need to do in terms of setting up our
 
 Before we implement those though, let's verify that the code we wrote even works by implementing some tiny client and server classes with just enough code to show connections and function calls to work.
 
-First, let's install our dependencies: [dotenv](https://www.npmjs.com/package/dotenv), [open](https://www.npmjs.com/package/open),  [socketless](https://www.npmjs.com/package/socketless), and [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper).
+First, let's install our dependencies: [dotenv](https://www.npmjs.com/package/dotenv), [open](https://www.npmjs.com/package/open), [socketless](https://www.npmjs.com/package/socketless), and [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper).
 
 ```javascript
 > npm i dotenv open socketless msfs-simconnect-api-wrapper
@@ -201,7 +200,7 @@ export class ServerClass {
 And then we'll create a quick `public/index.html` page that we can load in the browser:
 
 ```html
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en-GB">
   <head>
     <meta charset="utf-8" />
@@ -298,7 +297,7 @@ let flying = false;
 function connectServerToAPI(onConnect) {
   api.connect({
     // when we lose the connection, try to reconnect
-    autoReconnect: true,    
+    autoReconnect: true,
     // and keep doing that forever
     retries: Infinity,
     // at a 5 second interval.
@@ -322,7 +321,7 @@ export class ServerClass {
     // clients can't directly access the API. However, we'll be setting
     // up some API routing to make that a non-issue in a bit.
     api = new MSFS_API();
-    
+
     // Set up call handling for API calls: this will be explained after we
     // finish writing this class. We bind this as `this.api` so that any
     // client/ will be able to call `this.server.api...` and have things work.
@@ -334,7 +333,7 @@ export class ServerClass {
     // Then wait for MSFS to come online
     connectServerToAPI(() => this.#onMSFSConnect());
   }
-  
+
   // Our routing, for now, is just some code that allows client to call
   // endpoints that will get (after security checks) passed on to the API:
   async #setupRouting() {
@@ -343,7 +342,7 @@ export class ServerClass {
     // Note: with that, all clients will now be able to call server.api.[...]
   }
 
-  // Note that this is a private function: only "this" can access it, as 
+  // Note that this is a private function: only "this" can access it, as
   // above in the "connectServerToAPI(() => this.#onMSFSConnect());" line.
   async #onMSFSConnect() {
     // we have a connection, so:
@@ -354,7 +353,7 @@ export class ServerClass {
 
 		// register for some of the events we're interested in...
     this.#registerWithAPI(api);
-    
+
     // then notify all clients that my have connected already that we have connection:
     this.clients.forEach((client) => client.onMSFS(MSFS));
 
@@ -396,13 +395,13 @@ export class ServerClass {
   /**
    * If the camera enum is 9 or higher, we are not actually in-game,
    * even if the SIM variable is 1, so we use this to determine whether
-   * we're in-flight (because there is no true "are we flyin?" var that
+   * we're in-flight (because there is no true "are we flying?" var that
    * can be checked on connect)
    */
   async #checkFlying(client) {
     // of we're not connected, we can't check on our flight status...
     if (!MSFS) return;
-    
+
     // we we are, get some important values:
     const data = await api.get(
       `CAMERA_STATE`,
@@ -444,7 +443,7 @@ export class ServerClass {
       client.setFlying(flying);
     }
   }
-  
+
   /**
    * Let's check out the polling function. For one: it's a private function,
    * meaning that it can only be called using `this.#poll()`. Which means
@@ -584,7 +583,10 @@ export class APIRouter {
 
     const errors = [];
     const entries = Object.entries(simVars);
-    console.log(`Setting ${entries.length} simvars:`, Object.keys(simVars).join(`,`));
+    console.log(
+      `Setting ${entries.length} simvars:`,
+      Object.keys(simVars).join(`,`)
+    );
     entries.forEach(([key, value]) => {
       try {
         this.#api.set(key, value);
@@ -613,7 +615,9 @@ export class APIRouter {
 
     // is this client already registered for this event?
     if (tracker.listeners.includes(client)) {
-      console.log(`Ignoring ${eventName} registration: client already registered. Current value: ${tracker.value}`);
+      console.log(
+        `Ignoring ${eventName} registration: client already registered. Current value: ${tracker.value}`
+      );
       return false;
     }
 
@@ -704,7 +708,7 @@ export class ClientClass {
     );
   }
 
-  
+
   /**
    * The main role of our client is to encode a state that can be
    * automatically communicated to the browser. As such, really
@@ -759,15 +763,15 @@ export class ClientClass {
   async pause() {
     this.setState({ paused: true });
   }
-  
+
   async unpause() {
     this.setState({ paused: false });
   }
-  
+
   async crashed() {
     this.setState({ crashed: true });
   }
-  
+
   async crashReset() {
     this.setState({ crashed: false });
   }
@@ -824,7 +828,7 @@ class BrowserClient {
     document.body.classList.toggle(`connected`, this.state.serverConnection);
     // Rather than "doing anything here", we just pass the current state
     // on to the Plane, and all we do here is wait for the next update.
-    this.plane.updateState(this.state);    
+    this.plane.updateState(this.state);
   }
 }
 
@@ -1133,7 +1137,7 @@ export function watch(filePath, onChange) {
 }
 ```
 
-The most important part that makes this work is actually an explicit memory leak: modules are cached based on their URL, and URL query arguments count towards URL "uniqueness",  so by loading `...?ts=${Date.now()}` we make sure we load a new copy of the file when it's changed. But because there is no mechanism for "unloading" modules is modern JS, every save-and-reload will effectively cause a new file to be loaded in. Of course, our files are tiny compared to how much memory we have, so this is going to be a non-issue, but it's still good to know about.
+The most important part that makes this work is actually an explicit memory leak: modules are cached based on their URL, and URL query arguments count towards URL "uniqueness", so by loading `...?ts=${Date.now()}` we make sure we load a new copy of the file when it's changed. But because there is no mechanism for "unloading" modules is modern JS, every save-and-reload will effectively cause a new file to be loaded in. Of course, our files are tiny compared to how much memory we have, so this is going to be a non-issue, but it's still good to know about.
 
 A more practical problem, though, is that we can no longer "just import something from a module", because imports are considered considered constants, and you can "reimport" something. Instead, we need to be a little more clever about how we import things: we'll import the thing we want, but alias it to a different variable, then create a `let` variable with the name we _do_ want, and then we set up module reloading so that it reassigns that name we want with an updated module:
 
@@ -1181,8 +1185,6 @@ watch(__dirname, `some/dir/with/some-module.js`, (lib) => {
   }
 });
 ```
-
-
 
 # Part two: visualizing flights
 
@@ -4341,7 +4343,20 @@ And then, finally, let's fill in that `getHeading` function. In fact, let's firs
 
 #### Flight path policies
 
-Say we have [a plane, and a bunch of waypoints](https://gist.github.com/Pomax/73dd18907f23362731cdebba7652f0e0/):
+Say we have a plane, and a bunch of waypoints, and our plane cannot magically change heading. If we naively fly towards "the next waypoint on the list", things... don't look great:
+
+<graphics-element title="a flight path tester" src="./graphics/flight-path-base.js">
+  <source src="./graphics/initial.js" />
+  <button>play</button>
+</graphics-element>
+
+We see the plane getting wildly off-course depending on much it needs to turn, and while it passes _through_ each waypoint, it really doesn't follow the flight path we gave it. Instead, we want it to get "onto the flight path" as quickly as possible even if it overshoots a waypoint:
+
+<graphics-element title="a flight path tester" src="./graphics/flight-path-base.js">
+  <source src="./graphics/intercepting.js" />
+  <button>play</button>
+</graphics-element>
+
 
 <img src="./how-to-path.png" alt="image-20230602182200899" style="zoom: 67%;" />
 
