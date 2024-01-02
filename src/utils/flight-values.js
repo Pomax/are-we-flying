@@ -62,6 +62,7 @@ export const FLIGHT_DATA = [
   `CAMERA_SUBSTATE`,
   `CRASH_FLAG`,
   `CRASH_SEQUENCE`,
+  `ELECTRICAL_AVIONICS_BUS_VOLTAGE`,
   `ELECTRICAL_TOTAL_LOAD_AMPS`,
   `ELEVATOR_POSITION`,
   `ELEVATOR_TRIM_PCT`,
@@ -159,6 +160,8 @@ export const NAME_MAPPING = {
   DESIGN_SPEED_VS0: `vs0`,
   DESIGN_SPEED_VS1: `vs1`,
   DESIGN_TAKEOFF_SPEED: `takeoffSpeed`,
+  ELECTRICAL_AVIONICS_BUS_VOLTAGE: `busVoltage`,
+  ELECTRICAL_TOTAL_LOAD_AMPS: `ampLoad`,
   ELEVATOR_POSITION: `elevator`,
   ELEVATOR_TRIM_DOWN_LIMIT: `trimDownLimit`,
   ELEVATOR_TRIM_PCT: `pitchTrim`,
@@ -194,9 +197,6 @@ export const NAME_MAPPING = {
   VERTICAL_SPEED: `VS`,
   WING_AREA: `wingArea`,
   WING_SPAN: `wingSpan`,
-  // custom values
-  ENGINES_RUNNING: "enginesRunning",
-  POWERED_UP: "hasPower",
 };
 
 export const DERIVATIVES = [

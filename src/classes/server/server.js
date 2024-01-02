@@ -27,6 +27,7 @@ let api = false;
 let flying = false;
 let MSFS = false;
 let autopilot = false;
+let flightInformation = false;
 
 function connectServerToAPI(onConnect) {
   api.connect({
@@ -43,12 +44,6 @@ function connectServerToAPI(onConnect) {
  * Our server-side API
  */
 export class ServerClass {
-  clients = [];
-  #flightInformation = {};
-
-  /**
-   * ...docs go here...
-   */
   constructor() {
     this.init();
   }
@@ -63,9 +58,9 @@ export class ServerClass {
 
     watch(__dirname, `../../utils/flight-information.js`, (module) => {
       FlightInformation = module.FlightInformation;
-      if (this.#flightInformation) {
+      if (flightInformation) {
         Object.setPrototypeOf(
-          this.#flightInformation,
+          flightInformation,
           FlightInformation.prototype
         );
       }
@@ -117,8 +112,8 @@ export class ServerClass {
     console.log(
       `${(await api.get(`ALL_AIRPORTS`)).ALL_AIRPORTS.length} airports loaded`
     );
-    this.#flightInformation = new FlightInformation(api);
-    this.#flightInformation.update();
+    flightInformation = new FlightInformation(api);
+    flightInformation.update();
     this.#registerWithAPI(api, autopilot);
     this.clients.forEach((client) => client.onMSFS(MSFS));
     this.#poll();
@@ -183,7 +178,7 @@ export class ServerClass {
       // if the autopilot is running, it will be updating
       // the flight information more frequently than the
       // server would otherwise be updating it.
-      this.#sendFlightInformation(await this.#flightInformation.update());
+      this.#sendFlightInformation(await flightInformation.update());
     }
     this.#checkFlying();
     runLater(() => this.#poll(), 5000);
@@ -230,7 +225,7 @@ export class ServerClass {
       2 <= camera && camera < 9 && (onGround === 0 || load !== 0 || amps !== 0);
 
     if (flying !== wasFlying) {
-      autopilot.reset(this.#flightInformation, (data) =>
+      autopilot.reset(flightInformation, (data) =>
         this.#sendFlightInformation(data)
       );
       this.clients.forEach((client) => client.setFlying(flying));

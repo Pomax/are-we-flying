@@ -225,6 +225,7 @@ import { createBrowserClient } from "./socketless.js";
 class BrowserClient {
   async init() {
     console.log(`[browser] We're connected to our web client!`);
+
     // And then as part of startup, we'll call the server's
     // test function, just to confirm that works:
     console.log(`Calling test:`, await this.server.test());
@@ -362,7 +363,8 @@ export class ServerClass {
   }
 
   /**
-   * register a bunch of events that we want to be notified of:
+   * register a bunch of events that we want to be notified of,
+   * without exposing this function to clients.
    */
   #registerWithAPI(api, autopilot) {
     // Obviously, it'll be good to know if we're paused or not:
@@ -399,7 +401,7 @@ export class ServerClass {
    * can be checked on connect)
    */
   async #checkFlying(client) {
-    // of we're not connected, we can't check on our flight status...
+    // if we're not connected, we can't check on our flight status...
     if (!MSFS) return;
 
     // we we are, get some important values:
@@ -515,7 +517,7 @@ Now, if you were paying attention you'll have noticed that we've glossed over th
 - set: a way to set variable(s) to specific value(s).
 - trigger: a way to trigger one of the (_many_) sim events.
 
-So let's look at how we expose those to the client in a `routes/api-router.js`:
+So let's look at how we expose those to the client in a file that we'll call `src/classes/routes/api-router.js`:
 
 ```js
 import { createHash } from "node:crypto";
@@ -524,24 +526,63 @@ import { SystemEvents } from "msfs-simconnect-api-wrapper";
 const resultCache = {};
 const eventTracker = {};
 
-export class APIRouter {
-  // we have a private variable for the "real" API:
-  #api;
+// There is only one API instance, so we can keep that out of the router.
+let api;
 
-  // which we bind as part of our constructor:
-  constructor(api) {
-    this.#api = api;
+export class APIRouter {
+  // Which we bind as part of our constructor:
+  constructor(_api) {
+    api = _api;
   }
 
-  // then, when clients call this.server.register(...), we do:
+  // Then, when clients call this.server.register(...), we do:
   async register(client, ...eventNames) {
-    if (!this.#api.connected) return;
+    if (!api.connected) return;
     eventNames.forEach((eventName) => this.#registerEvent(client, eventName));
+  }
+
+  // With a private function for registering events on the API:
+  #registerEvent(client, eventName) {
+    const tracker = (eventTracker[eventName] ??= { listeners: [] });
+
+    // One that can response to custom "api server only" event requests
+    if (eventName === `MSFS`) {
+      return client.onMSFS(api.connected);
+    }
+
+    // Is this client already registered for this event?
+    if (tracker.listeners.includes(client)) {
+      console.log(
+        `Ignoring ${eventName} registration: client already registered. Current value: ${tracker.value}`
+      );
+      return false;
+    }
+
+    // Turn sim event variables like "SIM" and "FLIGHT_LOADED" into
+    // callback function names like onSim and onFlightLoaded:
+    const eventHandlerName =
+      `on` +
+      eventName
+        .split(`_`)
+        .map((v) => v[0].toUpperCase() + v.substring(1).toLowerCase())
+        .join(``);
+    tracker.listeners.push(client);
+
+    if (!tracker.off) {
+      // Then ask the API to register for this event, with an appropriate
+      // bit of code to handle "what to do when SimConnect flags this event".
+      tracker.off = api.on(SystemEvents[eventName], (...result) => {
+        tracker.value = result;
+        tracker.listeners.forEach((client) =>
+          client[eventHandlerName](tracker.value)
+        );
+      });
+    }
   }
 
   // And when clients call this.server.forget(...), we do:
   async forget(client, eventName) {
-    if (!this.#api.connected) return;
+    if (!api.connected) return;
     const pos = eventTracker[eventName].listeners.findIndex(
       (c) => c === client
     );
@@ -554,42 +595,41 @@ export class APIRouter {
 
   // and when clients call this.server.get(...), we do:
   async get(client, ...simVarNames) {
-    if (!this.#api.connected) return {};
+    if (!api.connected) return {};
     const now = Date.now();
+    // Instead of simply "getting and returning", we make sure to cache
+    // get requests, so that if multiple clients all ask for the same data,
+    // we don't end up asking simconnect for the same data over and over.
     const key = createHash("sha1").update(simVarNames.join(`,`)).digest("hex");
-    // Check cache, and fill if nonexistent/expired necessary.
     resultCache[key] ??= { expires: now };
+    // did our cached entry "expire"?
     if (resultCache[key]?.expires <= now === true) {
-      resultCache[key].expires = now + 100;
+      resultCache[key].expires = now + 100; // ms
       resultCache[key].data = new Promise(async (resolve) => {
         try {
-          resolve(await this.#api.get(...simVarNames));
+          resolve(await api.get(...simVarNames));
         } catch (e) {
           console.warn(e);
           resolve({});
         }
       });
     }
-    // Then await the cache entry's data before responding.
+    // Then we await the cache entry's data before responding.
     return await resultCache[key].data;
   }
 
   // when clients call this.server.set(...), we do:
   async set(client, simVars) {
-    if (!this.#api.connected) return false;
+    if (!api.connected) return false;
 
     if (typeof simVars !== `object`)
       throw new Error(`api.set input must be an object.`);
 
     const errors = [];
     const entries = Object.entries(simVars);
-    console.log(
-      `Setting ${entries.length} simvars:`,
-      Object.keys(simVars).join(`,`)
-    );
     entries.forEach(([key, value]) => {
       try {
-        this.#api.set(key, value);
+        api.set(key, value);
       } catch (e) {
         errors.push(e.message);
       }
@@ -599,46 +639,9 @@ export class APIRouter {
 
   // for triggers, when clients call this.server.trigger(...), we do:
   async trigger(client, eventName, value) {
-    if (!this.#api.connected) return false;
+    if (!api.connected) return false;
     if (!client.authenticated) return false;
-    this.#api.trigger(eventName, value);
-  }
-
-  //, then, our private function for registering events on the API:
-  #registerEvent(client, eventName) {
-    const tracker = (eventTracker[eventName] ??= { listeners: [] });
-
-    // custom "api server only" event
-    if (eventName === `MSFS`) {
-      return client.onMSFS(this.#api.connected);
-    }
-
-    // is this client already registered for this event?
-    if (tracker.listeners.includes(client)) {
-      console.log(
-        `Ignoring ${eventName} registration: client already registered. Current value: ${tracker.value}`
-      );
-      return false;
-    }
-
-    // turn SIM into onSim, and FLIGHT_LOADED into onFlightLoaded
-    const eventHandlerName =
-      `on` +
-      eventName
-        .split(`_`)
-        .map((v) => v[0].toUpperCase() + v.substring(1).toLowerCase())
-        .join(``);
-
-    tracker.listeners.push(client);
-
-    if (!tracker.off) {
-      tracker.off = this.#api.on(SystemEvents[eventName], (...result) => {
-        tracker.value = result;
-        tracker.listeners.forEach((client) =>
-          client[eventHandlerName](tracker.value)
-        );
-      });
-    }
+    api.trigger(eventName, value);
   }
 }
 ```
@@ -650,8 +653,6 @@ Phew. That was a lot of code! But hopefully, it all made sense. Because we still
 In addition to our API server, we're going to need a client that is also a web server, so that we can connect a browser and actually, you know, _use_ all of this. This means we'll have to define a client class such that `socketless` can take care of the rest. Thankfully, this is super easy: our client doesn't need to "do" anything other than make sure that values make it from the server to the browser, and vice versa, so we're going to essentially be writing a state-manager, where the client takes signals from the server and turns them into `this.state` updates, and then `socketless` will take care of the tedious "making sure the browser gets that" parts. So: client class time! (which we put in its own `src/classes/client.js`)
 
 ```js
-import { FlightInformation } from "./flight-information.js";
-
 // when we lose the connection to the server, this will be our reconnection interval:
 const RECONNECT_TIMEOUT_IN_MS = 5000;
 
@@ -678,10 +679,7 @@ export class ClientClass {
     // "setState" is a magic function that comes with socketless, and will
     // automatically lead to a browser sync, if there's a browser connected.
     this.setState({
-      autopilot: null,
       crashed: false,
-      flightData: false,
-      flightModel: false,
       flying: false,
       MSFS: false,
       serverConnection: false,
@@ -696,12 +694,11 @@ export class ClientClass {
   async #tryReconnect() {
     if (this.server) {
       clearTimeout(this.#reconnection);
-      console.log(`reconnected`);
-      return;
+      return console.log(`reconnected`);
     }
     console.log(`trying to reconnect to the server...`);
     this.#resetState();
-    this.reconnect(); // this is a magic socketless function
+    this.reconnect(); // <- this is also a magic socketless function
     this.#reconnection = setTimeout(
       () => this.#tryReconnect(),
       RECONNECT_TIMEOUT_IN_MS
@@ -722,7 +719,6 @@ export class ClientClass {
     // sent events by the server by the time this kicks in, so we need
     // to make sure to not overwrite any values that are "not nullish".
     this.setState({
-      autopilot: this.state.autopilot ?? (await this.server.autopilot.getParameters()),
       serverConnection: true,
     });
     await this.server.api.register(`MSFS`);
@@ -738,7 +734,11 @@ export class ClientClass {
     // we won't be informed about whether or not we're still
     // flying, or really anything about the flight at all, so
     // record that we're not flying (anymore).
-    this.setState({ flying: false, MSFS: false, serverConnection: false });
+    this.setState({
+      flying: false,
+      MSFS: false,
+      serverConnection: false,
+    });
     // Then start the reconnect cycle
     this.#tryReconnect();
   }
@@ -755,26 +755,12 @@ export class ClientClass {
     this.setState({ browserConnected: false });
   }
 
-  // Then a set of self-explanatory "state copies" based on server events:
-  async onMSFS(value) {
-    this.setState({ MSFS: value });
-  }
-
-  async pause() {
-    this.setState({ paused: true });
-  }
-
-  async unpause() {
-    this.setState({ paused: false });
-  }
-
-  async crashed() {
-    this.setState({ crashed: true });
-  }
-
-  async crashReset() {
-    this.setState({ crashed: false });
-  }
+  // And finally a set of self-explanatory "state copies" based on server events:
+  async onMSFS(value) { this.setState({ MSFS: value }); }
+  async pause() { this.setState({ paused: true }); }
+  async unpause() { this.setState({ paused: false }); }
+  async crashed() { this.setState({ crashed: true }); }
+  async crashReset() { this.setState({ crashed: false }); }
 
   async setCamera(camera, cameraSubState) {
     this.setState({
@@ -785,19 +771,17 @@ export class ClientClass {
     });
   }
 
-  /**
-   * Then the function that matters most: the one that tells the client
-   * whether we're flying or not. If we are, and we previously weren't,
-   * start a value poll for "flight data", which we'll define after we
-   * wrap up this client class
-   */
   async setFlying(flying) {
     const wasFlying = this.state.flying;
     this.setState({ flying });
     // Did we switch from "not flying" to "flying"?
     if (flying && !wasFlying) {
       console.log(`starting a new flight...`);
-      this.setState({ crashed: false, MSFS: true, paused: false });
+      this.setState({
+        crashed: false,
+        MSFS: true,
+        paused: false,
+      });
     }
   }
 }
@@ -818,12 +802,9 @@ import { Plane } from "./plane.js";
 // And then we update our browser client, whose sole responsibility
 // is to hand off state updates to our "Plane":
 class BrowserClient {
-  plane;
-
   async init() {
     this.plane = new Plane(this.server);
   }
-
   async update(prevState) {
     document.body.classList.toggle(`connected`, this.state.serverConnection);
     // Rather than "doing anything here", we just pass the current state
@@ -849,10 +830,6 @@ export class Plane {
       long: 0,
       flying: false,
       crashed: false,
-      flightData: {
-        PLANE_LATITUDE: 0,
-        PLANE_LONGITUDE: 0,
-      },
     };
   }
 
@@ -860,7 +837,7 @@ export class Plane {
     this.state = state;
     const now = Date.now();
 
-    // ...we'll be filling this out in soon enough!
+    // ...nothing here yet, but we'll be filling this out in soon enough!
 
     this.lastUpdate = { time: now, ...state };
   }
@@ -936,14 +913,16 @@ export class ClientClass {
     // If we have a flight owner key (because we might not!),
     // use that to authenticate with the server:
     if (fok) {
-      this.setState({ authenticated: await this.server.authenticate(fok) });
+      this.setState({
+        authenticated: await this.server.authenticate(fok)
+      });
     }
 
     await this.server.api.register(`MSFS`);
   }
 
   ...
-});
+}
 ```
 
 With that, all that's left is making sure that the `set` and `trigger` calls to the API will only work for authenticated clients:
@@ -983,7 +962,7 @@ So, let's run this code and _actually_ talk to MSFS. First, let's make sure we h
 ```js
 ...
 
-// we won't leave this in, but it'll let us do some testing in our dev tools:
+// we won't leave this in, but it'll let us do some testing using our dev tools:
 window.browserClient = createBrowserClient(BrowserClient);
 ```
 
@@ -1100,11 +1079,12 @@ Now, being able to write code is all well and good, but we're going to be _worki
 We can, for instance, write a function that will selectively watch a single file for changes, and if it sees any, load the new code in, and then trigger an event handler for "whoever might need it":
 
 ```javascript
-import fs from "node:fs";
+// We'll be using Node's own file watch mechanism
+import { watchFile } from "node:fs";
 
 export function watch(filePath, onChange) {
   // Step 1: don't run file-watching in production. Obviously.
-  if (process.env.NODE_ENV === `production`) return;
+  if (process.env.NODE_ENV.toLowerCase() === `production`) return;
 
   // Next, we get the current call stack (by "abusing" the Error object)
   // so we can report on that when a file change warrants an update.
@@ -1115,7 +1095,7 @@ export function watch(filePath, onChange) {
     .join(`\n`);
 
   // Next, start checking this file for changes every second:
-  fs.watchFile(filePath, { interval: 1000 }, async () => {
+  watchFile(filePath, { interval: 1000 }, async () => {
     // If there was a change, re-import this file as an ES module, with a
     // "cache busting" URL that includes the current time stamp. Modules are
     // cached based on their exact URL, so adding a query argument that we
@@ -1137,32 +1117,41 @@ export function watch(filePath, onChange) {
 }
 ```
 
-The most important part that makes this work is actually an explicit memory leak: modules are cached based on their URL, and URL query arguments count towards URL "uniqueness", so by loading `...?ts=${Date.now()}` we make sure we load a new copy of the file when it's changed. But because there is no mechanism for "unloading" modules is modern JS, every save-and-reload will effectively cause a new file to be loaded in. Of course, our files are tiny compared to how much memory we have, so this is going to be a non-issue, but it's still good to know about.
+The thing that makes this work is usually considered a memory leak: modules are cached based on their URL, and URL query arguments count towards URL "uniqueness", so by loading the module using a URL ending in `...?ts=${Date.now()}` we effectively load a separate, new module. That sounds great, but because there is no mechanism for "unloading" modules is modern JS (...yet?) every save-and-reload will effectively cause a new file to be loaded in without the old file getting unloaded, so we're going to slowly fill up our memory... is what I would say if our files weren't tiny compared to how much memory modern computers, and even cell phones, have. So this is going to be a non-issue, but it's still good to know about, and an _excellent_ idea to make sure it doesn't kick in for production code.
 
-A more practical problem, though, is that we can no longer "just import something from a module", because imports are considered considered constants, and you can "reimport" something. Instead, we need to be a little more clever about how we import things: we'll import the thing we want, but alias it to a different variable, then create a `let` variable with the name we _do_ want, and then we set up module reloading so that it reassigns that name we want with an updated module:
+A more practical problem, though, is that we can no longer "just import something from a module", because imports are considered constants, with `import { x } from Y` being equivalent to a `const x = ...`, so we can't "reimport" onto the same variable name...
+
+Instead, we need to be a little more clever about how we import code: we can do a renamed import using the `as` keyword, and then we can create an explicit `let` variable that we _actually_ use:
 
 ```javascript
+import { Something as _s } from "./some-module.js";
+let Something = _s;
+```
+
+That way, we can slap a `watch` on that import URL, and then update `Something` without running into JS going "yeah, no, that's a const, can't do that":
+
+```javascript
+// Get the url for "this script", since that's what relative imports will be relative to:
 import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+
+// Then import our watcher:
 import { watch } from "./reload-watcher.js";
 
-// normally you'd use `import { Something } from "./some-module.js"`,
-// but we can't update variables created that way. Instead, we need
-// to work in a slightly roundabout manner:
+// Then, as above, we write our import with an "as":
 import { Something as _s } from "./some-module.js";
 
-// we now have an immutable variable called "_s", which we can assign
-// to a *mutable* variable with the actual name we want to use:
+// And then we bind that to a mutable variable
 let Something = _s;
 
-// We can then set up our reload watched to update that mutable variable
+// We can then set up our reload watcher to update that mutable variable
 // every time something changes in our module file:
 watch(__dirname, `some-module.js`, (lib) => {
   Something = lib.Something;
 });
 ```
 
-We'll be making extensive use of this once we implement our autopilot in part three. In fact, we can go one step further, and update objects that are already "running" to the updated class, by taking advantage of how inheritance works in JS: we can update running instances' prototypes and thus "switch them over" to the new flavour of our code:
+And while that's a bit more code: every time we edit `some-module.js` and save it, the watcher will reload it and our `Something` variable will get updated. So that leaves one issue: making sure that instances of our variable get updated, too, by taking advantage of how inheritance works in JS. We can update running instances' prototypes and thus "switch them over" to the new flavour of our code:
 
 ```javascript
 // Imagine we load a class from a module and create an instance of that class:
@@ -1175,7 +1164,8 @@ let instance = new Something();
 watch(__dirname, `some/dir/with/some-module.js`, (lib) => {
   // Update our class binding:
   Something = lib.Something;
-  // And then update our class instance's prototype:
+
+  // And then update our class instance's prototype
   if (instance) {
     Object.setPrototypeOf(instance, Something.prototype);
     // This swaps the old prototype for the new code, without affecting
@@ -1194,7 +1184,7 @@ Before we try to automate flight by writing an autopilot, it helps if we can kno
 
 We know when we're connected to MSFS, so let's write a few functions that let us cascade through the various stages of the game before we get to "actually controlling a plane". Let's start with what we want that to look like:
 
-![image-20231228212126672](./image-20231228212126672.png)
+![so many questions](./images/page/questions.png)
 
 Nothing particularly fancy (although we can pretty much use any amount of CSS to turn it _into_ something fancy), but it lets us see where in the process of firing up MSFS, clicking through to the world map, and starting a flight we are. So let's update our HTML file to include these questions, and then we can update our JS to start answering them:
 
@@ -1344,11 +1334,504 @@ export class Plane {
 }
 ```
 
-And that's the "game state" readback sorted out! Easy-peasy!
+And that's the "game state" readback sorted out! Easy-peasy! ...okay not really, because you might see `flightModel` and `flightData` in that code: what's that all about?
+
+### Getting flight model and flight data information
+
+In order to work with flight informaiton, we could make the browser ask the server for that information, but since the server is polling MSFS anyway, it makes far more sense to just have the server get "all the flight data we might be even remotely interested in", once, and then just broadcast that data to every client. And then if those clients have browsers connected to them, those will update "for free" thanks to how the `setState` function works in `socketless`.
+
+So let's write some code that lets us relatively easily work with flight models and flight data. Let's create a `src/utils/flight-values.js` file, and let's start with the flight model values:
+
+```js
+export const FLIGHT_MODEL = [
+  `BETA_DOT`,
+  `CATEGORY`,
+  `DECISION_ALTITUDE_MSL`,
+  `DECISION_HEIGHT`,
+  `DESIGN_CRUISE_ALT`,
+  `DESIGN_SPAWN_ALTITUDE_CRUISE`,
+  `DESIGN_SPAWN_ALTITUDE_DESCENT`,
+  `DESIGN_SPEED_CLIMB`,
+  `DESIGN_SPEED_MIN_ROTATION`,
+  `DESIGN_SPEED_VC`,
+  `DESIGN_SPEED_VS0`,
+  `DESIGN_SPEED_VS1`,
+  `DESIGN_TAKEOFF_SPEED`,
+  `DYNAMIC_PRESSURE`,
+  `ELEVATOR_TRIM_DOWN_LIMIT`,
+  `ELEVATOR_TRIM_UP_LIMIT`,
+  `ENGINE_TYPE`,
+  `ESTIMATED_CRUISE_SPEED`,
+  `G_FORCE`,
+  `G_LIMITER_SETTING`,
+  `INCIDENCE_ALPHA`,
+  `INCIDENCE_BETA`,
+  `IS_GEAR_FLOATS`,
+  `IS_GEAR_RETRACTABLE`,
+  `IS_TAIL_DRAGGER`,
+  `LINEAR_CL_ALPHA`,
+  `MACH_MAX_OPERATE`,
+  `MAX_G_FORCE`,
+  `MIN_DRAG_VELOCITY`,
+  `MIN_G_FORCE`,
+  `NUMBER_OF_ENGINES`,
+  `PLANE_LATITUDE`,
+  `PLANE_LONGITUDE`,
+  `SEMIBODY_LOADFACTOR_Y`,
+  `SEMIBODY_LOADFACTOR_YDOT`,
+  `SIGMA_SQRT`,
+  `SIMULATED_RADIUS`,
+  `STALL_ALPHA`,
+  `STATIC_CG_TO_GROUND`,
+  `STATIC_PITCH`,
+  `TITLE`,
+  `TOTAL_WEIGHT`,
+  `TYPICAL_DESCENT_RATE`,
+  `WING_AREA`,
+  `WING_FLEX_PCT:1`,
+  `WING_FLEX_PCT:2`,
+  `WING_SPAN`,
+  `YAW_STRING_ANGLE`,
+  `YAW_STRING_PCT_EXTENDED`,
+  `ZERO_LIFT_ALPHA`,
+];
+
+export const ENGINE_TYPES = [
+  `piston`,
+  `jet`,
+  `none`,
+  `helo(Bell) turbine`,
+  `unsupported`,
+  `turboprop`,
+];
+```
+
+Do we need all that data? Probably not! But if we're going to ask SimConnect for a whole bunch of values anyway, we might as well as for more than we need. By the end of this, we'll actually be using a surprising number of these!
+
+Next up, our "while we're actually flying" data:
+
+```js
+export const FLIGHT_DATA = [
+  `AILERON_POSITION`,
+  `AILERON_TRIM_PCT`,
+  `AIRSPEED_INDICATED`,
+  `AIRSPEED_TRUE`,
+  `AUTOPILOT_HEADING_LOCK_DIR`,
+  `AUTOPILOT_MASTER`,
+  `CAMERA_STATE`,
+  `CAMERA_SUBSTATE`,
+  `CRASH_FLAG`,
+  `CRASH_SEQUENCE`,
+  `ELECTRICAL_AVIONICS_BUS_VOLTAGE`,
+  `ELECTRICAL_TOTAL_LOAD_AMPS`,
+  `ELEVATOR_POSITION`,
+  `ELEVATOR_TRIM_PCT`,
+  `ELEVATOR_TRIM_POSITION`,
+  `ENG_COMBUSTION:1`,
+  `ENG_COMBUSTION:2`,
+  `ENG_COMBUSTION:3`,
+  `ENG_COMBUSTION:4`,
+  `GEAR_POSITION:1`,
+  `GEAR_SPEED_EXCEEDED`,
+  `GROUND_ALTITUDE`,
+  `INDICATED_ALTITUDE`,
+  `OVERSPEED_WARNING`,
+  `PLANE_ALT_ABOVE_GROUND_MINUS_CG`,
+  `PLANE_ALT_ABOVE_GROUND`,
+  `PLANE_BANK_DEGREES`,
+  `PLANE_HEADING_DEGREES_MAGNETIC`,
+  `PLANE_HEADING_DEGREES_TRUE`,
+  `PLANE_LATITUDE`,
+  `PLANE_LONGITUDE`,
+  `PLANE_PITCH_DEGREES`,
+  `RUDDER_POSITION`,
+  `RUDDER_TRIM_PCT`,
+  `SIM_ON_GROUND`,
+  `TURN_INDICATOR_RATE`,
+  `VERTICAL_SPEED`,
+];
+```
+
+This also looks like a lot of data, but we really do need every single one of these values if we're going to implement an autopilot.
+
+But that does leave us with a problem: SimConnect isn't really all that fussy about making sure every single value uses a unit that makes sense, so something like `PLANE_BANK_DEGREES`, which you would expect to be a number in degrees, is actually a stored in radians. And `SPEED` is in knots, so surely `DESIGN_SPEED_CLIMB` is in knots, too, right? Nope, that's in feet per second. Which means `DESIGN_SPEED_VS1` is in feet per second, too? Haha, no, that one _is_ in knots, but "knots indicated", so not a real speed, but what the dial in the cockpit shows on the speed guage.
+
+Oh and boolean values aren't true or false, they're 1 or 0. So let's write some code to take of all this nonsense because if we don't it's just going to be a huge headache:
+
+```js
+export const DEGREE_VALUES = [
+  `PLANE_LATITUDE`,
+  `PLANE_LONGITUDE`,
+  `PLANE_BANK_DEGREES`,
+  `PLANE_HEADING_DEGREES_MAGNETIC`,
+  `PLANE_HEADING_DEGREES_TRUE`,
+  `PLANE_PITCH_DEGREES`,
+  `STALL_ALPHA`,
+  `TURN_INDICATOR_RATE`,
+];
+
+export const BOOLEAN_VALUES = [
+  `AUTOPILOT_MASTER`,
+  `ENG_COMBUSTION:1`,
+  `ENG_COMBUSTION:2`,
+  `ENG_COMBUSTION:3`,
+  `ENG_COMBUSTION:4`,
+  `IS_GEAR_FLOATS`,
+  `IS_GEAR_RETRACTABLE`,
+  `IS_TAIL_DRAGGER`,
+  `GEAR_POSITION:1`,
+  `GEAR_SPEED_EXCEEDED`,
+  `OVERSPEED_WARNING`,
+  `SIM_ON_GROUND`,
+];
+
+// percent over 100 to percent
+export const PERCENT_VALUES = [
+  `AILERON_POSITION`,
+  `AILERON_TRIM_PCT`,
+  `ELEVATOR_POSITION`,
+  `ELEVATOR_TRIM_PCT`,
+  `RUDDER_POSITION`,
+  `RUDDER_TRIM_PCT`,
+];
+
+// fps to fpm
+export const FPM_VALUES = [`VERTICAL_SPEED`];
+
+// meters to feet
+export const MTF_VALUES = [`GROUND_ALTITUDE`];
+
+// fps to knots
+export const KNOT_VALUES = [
+  `DESIGN_SPEED_MIN_ROTATION`,
+  `DESIGN_SPEED_CLIMB`,
+  `DESIGN_SPEED_VC`,
+  `DESIGN_TAKEOFF_SPEED`,
+];
+```
+
+We can pair this with a function that runs through a bunch of rewrites for each of the categories, to give us values to work with that actually make sense:
+
+```js
+import { FEET_PER_DEGREE, FEET_PER_METER, FPS_IN_KNOTS } from "./constants.js";
+import { exists } from "./utils.js";
+
+export function convertValues(data) {
+  // Convert values to the units they're supposed to be:
+  BOOLEAN_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] = !!data[p]) : noop
+  );
+  DEGREE_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] *= 180 / Math.PI) : noop
+  );
+  PERCENT_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 100) : noop));
+  FPM_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 60) : noop));
+  KNOT_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] *= FPS_IN_KNOTS) : noop
+  );
+  MTF_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] *= FEET_PER_METER) : noop
+  );
+
+  if (exists(data.ENGINE_TYPE)) {
+    data.ENGINE_TYPE = ENGINE_TYPES[data.ENGINE_TYPE];
+  }
+}
+```
+
+Which leaves one more thing: working with `PLANE_ALT_ABOVE_GROUND_MINUS_CG` or `AUTOPILOT_HEADING_LOCK_DIR` is something we _could_ do, but it would be a heck of a lot nicer if those things had normal names that followed standard JS naming conventions. So let's write _even more utility code_ to take care of that for us:
+
+```js
+export const NAME_MAPPING = {
+  AILERON_POSITION: `aileron`,
+  AILERON_TRIM_PCT: `aileronTrim`,
+  AIRSPEED_INDICATED: `speed`,
+  AIRSPEED_TRUE: `trueSpeed`,
+  AUTOPILOT_HEADING_LOCK_DIR: `headingBug`,
+  AUTOPILOT_MASTER: `MASTER`,
+  CAMERA_STATE: `camera`,
+  CAMERA_SUBSTATE: `cameraSub`,
+  CATEGORY: `category`,
+  CRASH_FLAG: `crashed`,
+  CRASH_SEQUENCE: `crashSequence`,
+  DESIGN_CRUISE_ALT: `cruiseAlt`,
+  DESIGN_SPEED_CLIMB: `climbSpeed`,
+  DESIGN_SPEED_MIN_ROTATION: `minRotation`,
+  DESIGN_SPEED_VC: `cruiseSpeed`,
+  DESIGN_SPEED_VS0: `vs0`,
+  DESIGN_SPEED_VS1: `vs1`,
+  DESIGN_TAKEOFF_SPEED: `takeoffSpeed`,
+  ELEVATOR_POSITION: `elevator`,
+  ELEVATOR_TRIM_DOWN_LIMIT: `trimDownLimit`,
+  ELEVATOR_TRIM_PCT: `pitchTrim`,
+  ELEVATOR_TRIM_POSITION: `trimPosition`,
+  ELEVATOR_TRIM_UP_LIMIT: `trimUpLimit`,
+  ENGINE_TYPE: `engineType`,
+  "GEAR_POSITION:1": `isGearDown`,
+  GEAR_SPEED_EXCEEDED: `gearSpeedExceeded`,
+  GROUND_ALTITUDE: `groundAlt`,
+  INDICATED_ALTITUDE: `alt`,
+  IS_GEAR_FLOATS: `isFloatPlane`,
+  IS_GEAR_RETRACTABLE: `hasRetractibleGear`,
+  IS_TAIL_DRAGGER: `isTailDragger`,
+  NUMBER_OF_ENGINES: `engineCount`,
+  OVERSPEED_WARNING: `overSpeed`,
+  PLANE_ALT_ABOVE_GROUND_MINUS_CG: `lift`,
+  PLANE_ALT_ABOVE_GROUND: `altAboveGround`,
+  PLANE_BANK_DEGREES: `bank`,
+  PLANE_HEADING_DEGREES_MAGNETIC: `heading`,
+  PLANE_HEADING_DEGREES_TRUE: `trueHeading`,
+  PLANE_LATITUDE: `lat`,
+  PLANE_LONGITUDE: `long`,
+  PLANE_PITCH_DEGREES: `pitch`,
+  RUDDER_POSITION: `rudder`,
+  RUDDER_TRIM_PCT: `rudderTrim`,
+  SIM_ON_GROUND: `onGround`,
+  STATIC_CG_TO_GROUND: `cg`,
+  STALL_ALPHA: `stallAlpha`,
+  TITLE: `title`,
+  TOTAL_WEIGHT: `weight`,
+  TURN_INDICATOR_RATE: `turnRate`,
+  TYPICAL_DESCENT_RATE: `descentRate`,
+  VERTICAL_SPEED: `VS`,
+  WING_AREA: `wingArea`,
+  WING_SPAN: `wingSpan`,
+  // custom values
+  ENGINES_RUNNING: "enginesRunning",
+  POWERED_UP: "hasPower",
+};
+
+export function rebindData(data) {
+  Object.entries(data).forEach(([simName, value]) => {
+    const jsName = NAME_MAPPING[simName];
+
+    if (jsName === undefined) return;
+    if (!exists(data[simName])) return;
+
+    data[jsName] = value;
+    delete data[simName];
+  });
+}
+```
+
+And then that just leaves one more thing: several of the values we want to work with are "delta" values, which SimConnect doesn't offer. If we want to know the change in speed from moment to moment, or the changein bank angle from moment to moment, we're going to have to compute those ourselves. So.... here we go:
+
+```js
+export const DERIVATIVES = [
+  `bank`,
+  `heading`,
+  `lift`,
+  `pitch`,
+  `speed`,
+  `trueHeading`,
+  `trueSpeed`,
+  `turnRate`,
+  `VS`,
+];
+
+export const SECOND_DERIVATIVES = [`VS`];
+
+// With an update to the `rebind` function:
+export function rebindData(data, previousValues) {
+  // Whether or not we have previous values for delta computation,
+  // just preallocate the values we _might_ need for that.
+  const d = {};
+  const before = this.flightData.__datetime;
+  const now = Date.now();
+  const dt = (now - before) / 1000; // delta per second seconds
+
+  // Then perform the name mapping, but with extra code for getting
+  // our "delta" values, which we'll add into a `.d` property.
+  Object.entries(data).forEach(([simName, value]) => {
+    const jsName = NAME_MAPPING[simName];
+
+    if (jsName === undefined) return;
+    if (!exists(data[simName])) return;
+
+    data[jsName] = value;
+    delete data[simName];
+
+    // Do we need to compute derivatives?
+    if (previousValues && DERIVATIVES.includes(jsName)) {
+      const previous = previousValues[jsName];
+      if (typeof previous !== `number`) return;
+      const current = data[jsName];
+      d[jsName] = (current - previous) / dt;
+
+      // ...do we need to compute *second* derivatives?
+      if (SECOND_DERIVATIVES.includes(jsName)) {
+        d.d ??= {};
+        const previousDelta = previousValues.d?.[jsName] ?? 0;
+        d.d[jsName] = d[jsName] - previousDelta;
+      }
+    }
+  });
+
+  // If we did delta computation work, save the result:
+  if (previousValues) {
+    data.__datetime = now;
+    data.d = d;
+  }
+}
+```
+
+That only took forever. And we still need to write the actual code that pulls this data from SimConnect to keep us up to date. Thankfully with all the above work already done, that part's nowhere near as much work:
+
+```js
+import { MSFS_API } from "msfs-simconnect-api-wrapper";
+import * as Values from "./flight-values.js";
+
+const noop = () => {};
+let api;
+
+export class FlightInformation {
+  constructor(_api) {
+    api = _api;
+    this.reset();
+  }
+
+  reset() {
+    this.flightModel = false;
+    this.flightData = false;
+  }
+
+  async update() {
+    try {
+      const [flightModel, flightData] = await Promise.all([
+        this.updateModel(),
+        this.updateFlight(),
+      ]);
+      return { flightModel, flightData };
+    } catch (e) {
+      console.warn(e);
+    }
+  }
+
+  async updateModel() {
+    const modelData = await api.get(...Values.FLIGHT_MODEL);
+    if (!modelData) {
+      return (this.flightModel = false);
+    }
+    Values.convertValues(modelData);
+    Values.rebindData(modelData);
+
+    // Create a convenience value for trimming. We'll need it later.
+    modelData.pitchTrimLimit = [
+      modelData.trimUpLimit ?? 10,
+      modelData.trimDownLimit ?? -10,
+    ];
+
+    return (this.flightModel = modelData);
+  }
+
+  async updateFlight() {
+    const flightData = await api.get(...Values.FLIGHT_DATA);
+    if (!flightData) return (this.flightData = false);
+
+    Values.convertValues(flightData);
+    Values.rebindData(flightData, this.flightData);
+
+    // Create an extra convenience value for "are any of the engines running?"
+    flightData.enginesRunning = [1, 2, 3, 4].reduce(
+      (t, num) => t || flightData[`ENG_COMBUSTION:${num}`],
+      false
+    );
+
+    // Create a extra convenience value for "is the plane powered on at all?"
+    flightData.hasPower =
+      flightData.ampLoad !== 0 || flightData.busVoltage !== 0;
+
+    // Create a convenience value for compass correction:
+    flightData.declination = flightData.trueHeading - flightData.heading;
+
+    return (this.flightData = flightData);
+    F;
+  }
+}
+```
+
+And then, as last step, we now need to make the server actually use this thing:
+
+```js
+import { FlightInformation as fi } from "../../utils/flight-information.js";
+// our class
+let FlightInformation = fi;
+
+// our class instance
+let flightInformation = false;
+
+...
+
+
+class Server {
+  ...
+
+  async init() {
+    watch(__dirname, `../../utils/flight-information.js`, (module) => {
+      FlightInformation = module.FlightInformation;
+      if (flightInformation) {
+        Object.setPrototypeOf(
+          flightInformation,
+          FlightInformation.prototype
+        );
+      }
+    });
+
+    ...
+  }
+
+  ...
+
+  async #onMSFSConnect() {
+    MSFS = true;
+    console.log(`Connected to MSFS.`);
+    flightInformation = new FlightInformation(api);
+    flightInformation.update();
+    this.#registerWithAPI(api);
+    this.clients.forEach((client) => client.onMSFS(MSFS));
+    this.#poll();
+  }
+
+  async #poll() {
+    await flightInformation.update();
+    this.clients.forEach((client) =>
+      client.setFlightInformation(flightInformation)
+    );
+    this.#checkFlying();
+    runLater(() => this.#poll(), 5000);
+  }
+}
+```
+
+With the corresponding `setFlightInformation` on the client side:
+
+```js
+...
+
+export class ClientClass {
+  ...
+
+  #resetState() {
+    this.setState({
+      ...
+      flightData: false,
+      flightModel: false,
+    });
+  }
+
+  ...
+
+  async setFlightInformation({ flightData, flightModel }) {
+    this.setState({ flightData, flightModel });
+  }
+}
+```
+
+Well that only took forever, but we can finally get back to _&lt;checks notes&gt;_ ticking a few HTML checkboxes?
 
 ### Trying our question list out
 
-Let's try this out:
+Oh right! Ticking HTML checkboxes! Let's try this out:
 
 - Start MSFS,
 - then up the server with `node api-server.js` and our client with `node web-server.js --owner --browser` ,
@@ -1357,9 +1840,13 @@ Let's try this out:
 - Load up a plane mid-flight and see what the checkboxes do! And of course,
 - look at what happens when you shut down MSFS, and what happens when you shut down the API server _before_ you shut down the web client.
 
+So, on the one hand: _that was a LOT of work just to check some boxes_! But the upside is that with all of that work out of the way, we're done in terms of "making sure we have up to date information to work with": all we need to do is call the `update` function from now on, and that's going to make things like visualizations or autopilot code a lot easier.
+
+And speaking of visualizations...
+
 ## Putting our plane on the map
 
-Of course, we still only implemented the code that lets us answer the question list, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually _**see**_ something on our webpage... so let's set up a [Leaflet](https://leafletjs.com/) map that we can put our plane on, so we can see what's happening in-sim.
+Even with all that work done, we still only implemented page code that lets us answer the question list, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually see something _cool_ on our webpage: let's set up a [Leaflet](https://leafletjs.com/) map that we can put our plane on, so we can see ourselves flying around on a map.
 
 Step one: some HTML to make that work:
 
@@ -1381,7 +1868,7 @@ const DUNCAN_AIRPORT = [48.7566, -123.71134];
 // in our index.html. However, because independent page scripts can't be imported, we need to wait for it to be available:
 const L = await waitFor(async () => window.L);
 
-// With our "L" object available, ler's make a map, centered on Duncan airport:
+// With our "L" object available, let's make a map, centered on Duncan airport:
 export const map = L.map("map").setView(DUNCAN_AIRPORT, 15);
 
 // Of course, this won't *show* anything: we still need an actual map tile layer:
@@ -1415,7 +1902,7 @@ We use this because we don't want to do any map work until Leaflet's been loaded
 
 ![A basic page overview with questions and map](./images/page/page-overview.png)
 
-Which is pretty good, but it's lacking a certain something... oh right: our plane. Let's make a quick little plane icon and put that on the map, at the correct latitude and longitude, pointing in the right direction. Let's make a `public/map-marker.html` file and put some code in there:
+Which is pretty good, but it's lacking something... oh right: our plane. Let's make a quick little plane icon and put that on the map, at the correct latitude and longitude, pointing in the right direction. Let's make a `public/map-marker.html` file and put some code in there:
 
 ```html
 <div id="plane-icon">
@@ -1587,7 +2074,7 @@ Nice!
 
 ...
 
-...I mean... I guess it's nicer than note having a plane on the map, but this doesn't really tell us much, does it? How high are we flying? What's our airspeed? Which heading are we actually flying? I think we're going to need some more HTML.And some SVG. And probably some CSS variables. And a smattering of JS.
+...I mean... I guess it's nicer than not having a plane on the map, but this doesn't really tell us much, does it? How high are we flying? What's our airspeed? Which heading are we flying, exactly? I think we're going to need some more HTML. And some SVG. And probably some CSS variables. And a smattering of JS.
 
 ### Improving our visualization
 
@@ -3140,7 +3627,7 @@ Now that we have a working "fly level" and "hold altitude" implementation, let's
 
 In order to see how well our code works, we'll be flying around a bit in The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), a fun little piston engine bush plane:
 
-![image-20231105214745162](./images/beaver-shot.png)
+![image-20231105214745162](./beaver-shot.png)
 
 And our order of operations will be to spawn the plane at cruise altitude in above the middle of the pacific ocean in fair weather, have it stabilize itself on the in-game autopilot as a substitute for manually trimming the plane, and then switch to our own autopilot (which will turn off the in-game one) to see how well that holds up. And then we're going to compare our "before" and "after" graphs to see what we can learn:
 
@@ -3681,25 +4168,25 @@ Now that we have pretty decent control of both the horizontal and the vertical, 
 
 To make sure we're getting a decent result, here's my cross section of test planes in MSFS:
 
-![image-20231105214745162](./images/planes/beaver-shot.png)
+![DeHavilland DHC-2 "Beaver"](./images/planes/beaver-shot.png)
 
 - The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), which we've been testing with so far. The beaver has trim limits of +/- 18.
 
-![image-20231105214954647](./images/planes/310-shot.png)
+![Cessna 310R](./images/planes/310-shot.png)
 
 - The [Cessna 310R](https://en.wikipedia.org/wiki/Cessna%5F310), a (very good looking once the gear is up) small twin turbo-prop plane. The 310R is still relatively light, and responds to trim quite quickly. it has trim limits of +/-20.
 
-![image-20231105215130775](./images/planes/beech-shot.png)
+![Beechcraft Model 18](./images/planes/beech-shot.png)
 
 - The [Beechcraft Model 18](https://en.wikipedia.org/wiki/Beechcraft%5FModel%5F18), a gorgeous twin radial engine aeroplane. This plane is a delight to fly, and has trim limits of +/- 30. It's slow to respond, but that might actually be beneficial in our case, because our autopilot only runs once every half second.
 
-![image-20231105215235492](./images/planes/dc3-shot.png)
+![Douglas DC-3](./images/planes/dc3-shot.png)
 
 - The [Douglas DC-3](https://en.wikipedia.org/wiki/Douglas%5FDC-3), an almost four times bigger twin radial engine aeroplane. This lumbering beast has trim limits of +/- 12 and will overshoot if you let it. However, it does respond to trim instructions, and it _will_ end up going where we tell it to go. It just takes it a while, and it'll be bouncy.
 
-![image-20231105215402255](./images/planes/top-rudder-shot.png)
+![Top Rudder Solo 103](./images/planes/top-rudder-shot.png)
 
-- And finally, the [Top Rudder Solo 103](https://www.toprudderaircraft.com/product-page/103solo-standard), with trim limits of +/-12. And of course, this type of plane was never meant to have an autopilot. Under no circumstances should you try to add one in real life. No sane person would stick an autopilot in. _So we will_. _Because we can_.
+- And finally, the [Top Rudder Solo 103](https://www.toprudderaircraft.com/product-page/103solo-standard), with trim limits of +/-12. And of course, this type of plane was never meant to have an autopilot. Under no circumstances should you try to add one in real life. Not that you could if you wanted to, Which no sane person would want. _So we will_. _Because we can_.
 
 ### The flights
 
@@ -3711,11 +4198,7 @@ And let's start with the one that's the least like to succeed!
 
 I say least likely, because while flying straight isn't too taxing, and flying a heading isn't too taxing, and flying up or down isn't super hard, doing everything at once _may_ just be a bit too much for an ultralight, so let's see how we do.
 
-![image-20231115201845543](./image-20231115201845543.png)![](./image-20231115204111509.png)
-
-It's bumpy, that's for sure, but then it's bumpy _flying all on its own_ so I'd call that a major win over reality right there. Heading change: check. Altitude change: check. So... what about both at the same time?
-
-![image-20231115205133790](./image-20231115205133790.png)
+SCIENCE IMAGES GO HERE
 
 Amazingly, we live! I'm going to call this a great success: _we added an autopilot to an ultralight_.
 
@@ -3723,7 +4206,7 @@ Amazingly, we live! I'm going to call this a great success: _we added an autopil
 
 How much better does the Beaver fare? Quite a lot, actually. It can do the 1000 feet climb and descent just fine (which is good: it's an aeroplane, so it'd better) although we can see a bit of an overshoot. Nothing too terrible, but if we were better programmers maybe we could have prevented that. Then again, maybe not, because autopilot programming is far from trivial, so we'll take it!
 
-![image-20231115205847087](./image-20231115205847087.png)![image-20231115210552038](./image-20231115210552038.png)![image-20231115211356658](./image-20231115211356658.png)
+SCIENCE IMAGES GO HERE
 
 We also see that heading mode works quite well, with only a small overshoot that gets almost immediately corrected for.
 
@@ -3731,19 +4214,19 @@ We also see that heading mode works quite well, with only a small overshoot that
 
 An excellent plane for autopilot code, the 310R goes where we tell it to, when we tell it to, and goes as straight as you can go at 190 knots.
 
-![image-20231115212657193](./image-20231115212657193.png)![image-20231115213312885](./image-20231115213312885.png)![image-20231115213939616](./image-20231115213939616.png)
+SCIENCE IMAGES GO HERE
 
 #### Beechcraft Model 18
 
 The model 18 performs surprisingly well, which shouldn't be _too_ surprising given that it has two honking huge engines, and is nice and slow to respond to autopilot instructions.
 
-![image-20231115215023468](./image-20231115215023468.png)![image-20231115215531842](./image-20231115215531842.png)![image-20231115225240893](./image-20231115225240893.png)
+SCIENCE IMAGES GO HERE
 
 #### Douglas DC-3
 
 Much like the model 18, the DC-3 is a bit "wibbly" (we'd definitely feel it pitching up and down more), but overall even this lumbering behemoth just does what the autopilot asks of it.
 
-![image-20231115230222255](./image-20231115230222255.png)![image-20231115230500634](./image-20231115230500634.png)![image-20231115232233429](./image-20231115232233429.png)
+SCIENCE IMAGES GO HERE
 
 ### The results
 
@@ -3759,7 +4242,7 @@ We have a pretty fancy autopilot, but the best autopilots let you plan your flig
 
 Now that we can fly a specific heading and altitude, and we can switch to new headings and altitudes, the next logical step would be to tell them autopilot to do that automatically, by programming a flight path to follow, with our plane flying towards some waypoint, and then when it gets close, transitioning to flying towards the next waypoint, and so on. Something like this:
 
-![image-20230529142215897](./map-with-waypoints.png)
+![image-20230529142215897](./images/page/map-with-waypoints.png)
 
 Flying towards a point is pretty easy, but transitioning in a way that "feels right" is a bit more work, so there might be a bit more code here than you'd expect. Plus, we want to place, move, and remove points using the map on our web page, but the actual waypoints themselves will live in the autopilot, so there's a bit of work to be done there, too.
 
@@ -4353,23 +4836,23 @@ We see the plane getting wildly off-course depending on much it needs to turn, a
   <source src="./graphics/intercepting.js" />
 </graphics-element>
 
-<img src="./how-to-path.png" alt="image-20230602182200899" style="zoom: 67%;" />
+
 
 If we pretend that the circle is an aeroplane, with the little dot showing its current heading, the question is "what should happen over time?". In fact, let's answer that by starting simpler, with zero waypoints:
 
-<img src="./no-point-path.png" alt="image-20230602182245624" style="zoom:67%;" />
+[image removed pending graphics element code]
 
 Obviously, "what should happen over time?" here is "the plane should just fly in whatever heading it's already going". So far so good! But now we add a waypoint:
 
-<img src="./one-point-path.png" alt="image-20230602182311037" style="zoom:67%;" />
+[image removed pending graphics element code]
 
 What we probably want is for the plane to calculate the angle from itself to that waypoint, and then fly the associated heading, as indicated in green. That heading is going to change over time, because we can't just instantly change course, but it'll get us to our waypoint:
 
-<img src="./one-point-past.png" alt="image-20230602182416753" style="zoom: 67%;" />
+[image removed pending graphics element code]
 
 And if the plane is flying quickly, or has a low turning rate, it takes it a bit longer, and will transition over the waypoint at a different angle:
 
-<img src="./one-point-past-up.png" alt="image-20230602182609621" style="zoom: 67%;" />
+[image removed pending graphics element code]
 
 What if we add another waypoint? We probably want the aeroplane to target the first waypoint, and then once it gets there, target the next point. In pseudo-code
 
@@ -4381,15 +4864,15 @@ if dist(plane, target) < 20 -> curent = current + 1
 
 This gives us the following behaviour:
 
-<img src="./two-point-path.png" alt="image-20230602182717643" style="zoom: 67%;" />
+[image removed pending graphics element code]
 
 That might work, and if we try this with more points we get something that kinda feels like a flight path, although it's not great:
 
-<img src="./five-point-path.png" alt="image-20230602182841070" style="zoom:80%;" />
+[image removed pending graphics element code]
 
 We're never actually "on" the flight path, we're always kinda next to it at a different angle. But it gets really problematic with steeper angles and bigger turning circles:
 
-<img src="./constant-overshoot.png" alt="image-20230602183031610" style="zoom: 80%;" />
+[image removed pending graphics element code]
 
 That's basically terrible, this is not flying a flight plan, this is a drunk pilot, and not something we'd want to use. So we're going to have to give up on purely looking at the waypoints themselves. Instead, let's look at the paths between them: we can project the plane's position onto a path, picking the first point if the projection would lie outside the path, and then use that as our target. In pseudocode:
 
@@ -4408,11 +4891,11 @@ plane.target = target:
 
 to figure out what the target should be, let's draw some more things. First, if we're not near the flight path, we want the following:
 
-<img src="./two-point-offside.png" alt="image-20230602183204236" style="zoom: 67%;" /><img src="./two-point-parallel.png" alt="image-20230602183215490" style="zoom: 50%;" />
+[image removed pending graphics element code: aproach from past the segment + approach from aside the segment]
 
-However, when we get close to the flight path, we want to target the point where our circle intersects the line, nearest to the next waypoint:
+wever, when we get close to the flight path, we want to target the point where our circle intersects the line, nearest to the next waypoint:
 
-<img src="./two-point-inside.png" alt="image-20230602183334968" style="zoom: 80%;" /><img src="./two-point-inside-parallel.png" alt="image-20230602183347536" style="zoom: 67%;" />
+[image removed pending graphics element code: partial overlap at the start of the segment + partial overlap along the segment]
 
 So if we express that in pseudo-code:
 
@@ -4435,23 +4918,23 @@ if target exists -> plane.target(target)
 
 So what happens when we use _that_? Sure, we need to recompute that point every frame, but maths is cheap, so if it looks better, it's probably worth it:
 
-<img src="./better-five-point.png" alt="image-20230602183516630" style="zoom:80%;" />
+[image removed pending graphics element code]
 
 And it is: instead of never actually being on the flight path itself, we're now on the flight path _the majority of the time_. And a "switchback" style flight path is suddenly far less problematic:
 
-<img src="./tight-corners.png" alt="image-20230602183821099" style="zoom: 67%;" />
+[image removed pending graphics element code]
 
 Although of course we still need to make sure our turns aren't unrealistically drastic. For instance, the same switch back path with a very-slow-to-turn plane wouldn't be great:
 
-<img src="./corners-large.png" alt="image-20230602184444164" style="zoom:80%;" />
+[image removed pending graphics element code]
 
 And we also need to pick a good radius, because if it's too small, we'll overshoot (potentially so much that we need to circle back):
 
-<img src="./corners-small.png" alt="image-20230602184617380" style="zoom:80%;" />
+[image removed pending graphics element code]
 
 And if it's too large, we'll basically smooth our path too much:
 
-<img src="./corners-lol.png" alt="image-20230602184747964" style="zoom:80%;" />
+[image removed pending graphics element code]
 
 So the trick is to pick a good radius based on how fast a plane can make a turn. The faster a plane can turn, the smaller we can make its transition radius, and the slower it turns, the bigger that radius will need to be. So let's switch from pseudo-code to actual code, and let's get to implementing!
 
@@ -4778,47 +5261,47 @@ export class WayPoints {
 
 Now that we can load a flight path, we can load up [this one](https://gist.githubusercontent.com/Pomax/4bee1457ff3f33fdb1bb314908ac271b/raw/537b01ebdc0d3264ae7bfdf357b94bd963d20b3f/vancouver-island-loop.txt), which expects us to start on [runway 27 at Victoria Airport on Vancouver Island](https://www.google.com/maps/place/48%C2%B038'48.0%22N+123%C2%B024'44.4%22W/@48.6466197,-123.4125952,202m/data=!3m1!1e3!4m4!3m3!8m2!3d48.646658!4d-123.41234?entry=ttu), and does a round trip over [Shawnigan Lake](https://www.tourismcowichan.com/explore/about-cowichan/shawnigan-lake/) and [Sooke Lake](https://www.canoevancouverisland.com/canoe-kayak-vancouver-island-directory/sooke-lake/), turns right into the mountains at [Kapoor regional park](https://www.crd.bc.ca/parks-recreation-culture/parks-trails/find-park-trail/kapoor), follows the valley down to the coast, turns over [Port Renfrew](https://www.portrenfrew.com/) into the [San Juan river](<https://en.wikipedia.org/wiki/San_Juan_River_(Vancouver_Island)>) valley and then follows that all the way west to the [Kinsol Tressle](https://www.cvrd.ca/1379/Kinsol-Trestle), where we take a quick detour north towards [Cowichan Station](https://vancouverisland.com/plan-your-trip/regions-and-towns/vancouver-island-bc-islands/cowichan-station/), then back to Victoria Airport, which is in [Sidney](http://www.sidney.ca/), a good hour north of BC's capital of [Victoria](https://www.tourismvictoria.com/).
 
-![image-20230607191256878](./ghost-dog.png)
+![image-20230607191256878](./images/ghost-dog.png)
 
 #### De Havilland DHC-2 "Beaver"
 
 No problems with the Beaver, it turns like a champ.
 
-![image-20230607170002730](./ghost-dog-beaver.png)
+MAP IMAGE GOES HERE
 
 And comparing the ground profile to the flown altitudes, that's looking pretty tidy.
 
-<img src="./ghost-dog-beaver-chart.png" alt="image-20230607170827781" style="zoom: 67%;" />
+SCIENCE IMAGES GO HERE
 
 #### Cessna 310R
 
 The 310R is considerably faster than the Beaver and you can see that for tight turns, like the one over Shawnigan lake, it needs more time to get onto the right path, causing it to kind of "weave between" the waypoints there. However, it's still able to complete the flight, and the flight is still pretty spot on for most of the path.
 
-![image-20230607174644759](./ghost-dog-c310r.png)
+MAP IMAGE GOES HERE
 
 The altitude profile shows we could probably tighten up our vertical damping but this is entirely acceptable. (The track is shorter, mostly because the 310R flies a lot faster than then Beaver!)
 
-![image-20230607174807764](./ghost-dog-c310r-chart.png)
+SCIENCE IMAGES GO HERE
 
 #### Beechcraft Model 18
 
 Quite a bit slower on the turn than the 310R or the Beaver, we can see the twin Beech having the same problems as the 310R. But again, nothing that stops it from flying this plan to completion.
 
-![image-20230607182752918](./ghost-dog-beech.png)
+MAP IMAGE GOES HERE
 
 And the altitude graph. A bit more bouncy, but perfectly serviceable.
 
-![image-20230607182912764](./ghost-dog-beech-chart.png)
+SCIENCE IMAGES GO HERE
 
 #### Douglas DC-3
 
 Same story with the DC-3: looks like our waypoint algorithm works just fine!
 
-![image-20230607190707705](./ghost-dog-dc3.png)
+MAP IMAGE GOES HERE
 
 We do see that the DC-3 is considerably more bouncy than even the twin Beech, but for its size and weight, we'll take it.
 
-![image-20230607190848110](./ghost-dog-dc3-chart.png)
+SCIENCE IMAGES GO HERE
 
 ## Terrain follow mode
 
@@ -4834,8 +5317,6 @@ The problem is with point (2) in that list: there is nothing baked into MSFS tha
 Back in the day, Google offered that as a free web API, but they decided to charge quite a bit of money for that starting back in 2018, so that's out. There is also https://www.open-elevation.com, which _is_ free, but because they're not Google they're also frequently down, making them an admirable but highly unreliable resource. Which leaves "writing our own elevation API", which is surprisingly doable. We just need a good source of elevation data. Covering the entire planet. At a high enough resolution.
 
 Enter the Japanese Aerospace eXploration Agency, or [JAXA](https://global.jaxa.jp/), and their freely available ALOS (Advanced Land Observing Satellite) [Digital Surface Model](https://en.wikipedia.org/wiki/Digital_elevation_model) datasets. Specifically, their [30 meter dataset](https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d30/aw3d30_e.htm), which has elevation data for the entire planet's land surface at a resolution finer than MSFS uses, and can be downloaded for free after signing up for an (again, free) account and agreeing to their [data license](https://earth.jaxa.jp/en/data/policy). One downside: it's 450GB of on-disk data hosted as a 150GB download spread out over hundreds of files. On the upside, we know how to program, so scripting the downloads isn't terribly hard, and a 1TB SSD is $50 these days, so that's unlikely to _really_ be a problem.
-
-![image-20230616092430451](./ALOS-example.png)
 
 What _will_ be a problem is that the ALOS data uses the GeoTIFF data format: TIFF images with metadata that describes what section of planet they map to, and which mapping you need to use to go from pixel-coordinate to geo-coordinate. The TIFF part is super easy, we can just use the [tiff](https://www.npmjs.com/package/tiff) package to load those in, and ALOS thankfully has its files organized in directories with filenames that indicate which whole-angle GPS bounding box they're for, so finding the file we need to look up any GPS coordinate is also pretty easy... it's finding the pixel in the image that belongs to a _specific_ GPS coordinate that's a little more work.
 
@@ -5410,13 +5891,15 @@ Just to make it aware that auto-throttle and terrain follow are things it can no
 
 #### Top Rudder Solo 103
 
-We're going to skip this one, because we know what's going to happen: terrain follow mode can quite easily see a mountain 12 nautical miles down the line, and go "we need to climb 2200 feet" and then the Top Rudder will go "you got it!" and promptly go into a death spiral. We can have autopilot fun with the Top Rudder, but unfortunately, not the terrain follow kind.
+TEST RESULTS GO HERE
 
 #### De Havilland DHC-2 "Beaver"
 
 We'll be taking off from Victoria Airport on Vancouver Island, which sits at an elevation of about 60 feet, and then simply by heading straight, we'll have quite a bit of terrain to contend with. Let's see what happens!
 
-![image-20230527223418167](./alos-takeoff-beaver.png)
+TEST RESULTS GO HERE
+
+
 
 Honestly, "not a lot" other than the autopilot giving us altitudes to fly that make sure we don't fly straight into a mountain side. The plane's altitude is not quite as "clean" or platformed as a human would fly the plane, but it doesn't have to be, we're not flying, the computer is.
 
@@ -5424,19 +5907,19 @@ Honestly, "not a lot" other than the autopilot giving us altitudes to fly that m
 
 The story is the same in the 310R, although because it's a lot faster than the Beaver, the elevation probe gives a smoother curve, but again: no mountain side collisions, which is good!
 
-![image-20230527224514017](./alos-takeoff-c310r.png)
+TEST RESULTS GO HERE
 
 #### Beechcraft Model 18
 
 Flying a tad faster than the 310R but reacting more slowly to control instructions, the altitude profile is even better looking than the 310R's. I love this plane, it is just a delight.
 
-![image-20230527225406929](./alos-takeoff-beech.png)
+TEST RESULTS GO HERE
 
 #### Douglas DC-3
 
 Not much to say: it does what it needs to do despite weighing about as much as as half of Vancouver Island.
 
-![image-20230527230346857](./alos-takeoff-dc3.png)
+TEST RESULTS GO HERE
 
 ## Auto takeoff
 
@@ -5735,16 +6218,7 @@ With those steps performed, we can start to throttle up and roll down the runway
 
 Now, the _easy_ part is slowly throttling the engines up to 100%. The _hard_ part is keeping the plane on the runway: propeller torque as well as small differences in engine outputs on multi-engine aircrafts can _and will_ roll us off the runway if we don't use the pedals to steer us in the right direction. For instance, let's see what happens if we just throttle up the engines without any kind of rudder action:
 
-<table>
-<tr><td>
-<img src="./runway-rolloff-beaver.png" alt="image-20230604075509870" ></td><td>
-<img src="./runway-rolloff-c310r.png" alt="image-20230604075938819"></td>
-</tr>
-<tr><td>
-<img src="./runway-rolloff-beech.png" alt="image-20230604080345355"></td><td>
-<img src="./runway-rolloff-dc3.png" alt="image-20230604080618875"></td>
-</tr>
-</table>
+FOUR IMAGES OF VARIOUS PLANES ROLLING WITHOUT RUDDER
 
 It's not good, this is varying degrees of crashing into trees or buildings, so we're definitely going to need to implement an "auto-rudder" of sorts if we want to at least _pretend_ we're sticking to the runway during takeoff.
 
@@ -5854,16 +6328,7 @@ So let's write some code:
 
 And with that, what do things look like now?
 
-<table>
-<tr><td>
-<img src="./runway-roll-beaver.png" alt="image-20230604124212679"></td><td>
-<img src="./runway-roll-c310r.png" alt="image-20230604124444714"></td>
-</tr>
-<tr><td>
-<img src="./runway-roll-beech.png" alt="image-20230604124732336"></td><td>
-<img src="./runway-roll-dc3.png" alt="image-20230604125024567"></td>
-</tr>
-</table>
+THE SAME IMAGES BUT WITH RUDDER
 
 That looks straight to me! There's a bit of wibbling on the runway by the heavier two, but nothing that keeps them from taking off straight.
 
@@ -6043,143 +6508,8 @@ In fact, we already did! All the graphs for terrain follow that started on the r
 
 Of course, a flight consists of three parts: takeoff, "the flight" and landing, so... before we consider all of this "done", I'd say there's one thing left we should take a crack at. And because we can, let's implement this as a browser experiment (as a demonstration of how we _can_ do things purely client side).
 
-### Browser experiments
+This no longer uses a browser experiment.
 
-Since auto-landing consists of phases, we'll start by defining a little experiment runner class that can "run things until some condition is met" so we can sequence the steps we need to perform, which we'll save under `public/js/experiments/experiment.js`:
-
-```javascript
-export class Runner {
-  // We'll always pass in our map, and plane
-  constructor(map, plane, interval = 1000) {
-    this.map = map;
-    this.plane = plane;
-    this.interval = interval;
-    this.reset();
-  }
-
-  // Always good to have a reset function
-  reset() {
-    this.stop();
-    this.stopped = false;
-  }
-
-  // And a stop function. This will clear any outstanding timers
-  // to stop any currently-running code.
-  stop() {
-    this.timers?.forEach((timerId) => clearInterval(timerId));
-    this.timers = [];
-    this.stopped = true;
-  }
-
-  // This function will repeatedly run `fn` (which must take exactly
-  // one argument, `resolve`) until it calls the resolver.
-  async run(fn) {
-    if (this.stopped) return;
-
-    const plane = this.plane;
-    let timerId;
-
-    return new Promise((resolve) => {
-      const start = Date.now();
-
-      // We don't pass our own resolve function, instead we pass an
-      // augmented function that also cleans up the interval timer.
-      const resolveAndClear = (...result) => {
-        clearInterval(timerId);
-        const pos = this.timers.indexOf(timerId);
-        if (pos !== -1) this.timers.splice(pos, 1);
-        // The resolver also yields an object { result, duration }
-        // for accessing "whatever the function returned" and knowing
-        // how long the phase that function implemented took.
-        resolve({ duration: Date.now() - start, result });
-      };
-
-      // Set up the interval call to the passed function.
-      timerId = setInterval(() => {
-        // First: skip over this run if we're paused
-        const { lastUpdate, paused } = plane;
-        if (paused) return;
-        // or if the plane data is nonsense
-        const { lat, long } = lastUpdate;
-        if (lat === undefined || long === undefined) return;
-        // Otherwise, run the function
-        fn(resolveAndClear);
-      }, this.interval);
-
-      this.timers.push(timerId);
-    });
-  }
-}
-```
-
-With that we can extend our `index.js` to load up an experiment if the URL tells it to:
-
-```javascript
-...
-
-const props = {
-  onConnect: async () => {
-    ...
-    addEventListenerAPI(`MSFS`, () => {
-      ...
-
-      plane ??= new Plane(map, Duncan, 130);
-      plane.reset();
-      plane.waitForInGame();
-
-      // Does the URL contain an "experiment" key=value pair?
-      const experiment = URLqueries.get(`experiment`);
-      if (experiment) {
-        // if so, load that experiment:
-        import(`./experiments/${experiment}/index.js`).then(
-          ({ Experiment }) => {
-            experimentRunner ??= new Experiment(map, plane);
-          }
-        );
-      }
-    });
-  }
-  ...
-};
-
-...
-```
-
-And then we can define our auto-landing experiment, in `public/js/experiments/auto-lander/index.js`:
-
-```javascript
-import { Runner } from "../experiment.js";
-
-export class Experiment extends Runner {
-  constructor(map, plane) {
-    super(map, plane);
-
-    // Let's add an auto-lander button to the page, so we have something to click:
-    const ATL = document.createElement(`button`);
-    ATL.textContent = `land`;
-    ATL.title = `auto land`;
-    ATL.classList.add(`ATL`);
-    ATL.addEventListener(`click`, () => autoLand(this, map, plane));
-    document.querySelector(`.controls`).appendChild(ATL);
-  }
-}
-
-async function autoLand(runner, map, plane) {
-  console.log(`autoland! we'll be filling this in as we go`);
-}
-```
-
-And that's our infrastructure handled: if we now load up http://localhost:3000/?experiments=auto-land we should see a new button in our autopilot button list:
-
-![image-20230615085912388](./landing-button.png)
-
-And if we click it, we'll see:
-
-```javascript
-  autoland! we'll be filling this in as we go
-```
-
-So that just leaves filling in that `autoland` function.
 
 ### Auto-landing phases
 
@@ -6386,31 +6716,11 @@ Lots of code, but not a lot of "logic". The bulk is "building points" based on k
 
 Consider the following setup:
 
-![image-20230615094224914](./approach-map.png)
+PUT A GRAPHICS-ELEMENT HERE 
 
-We have an approach to a runway, and a bunch of places a plane can be, in a bunch of different orientations. What should happen? We could put a single waypoint at the approach point, but things would get weird:
+base setup: a runway and six approach locations: prior, next to, and past the runway, on either side.
 
-![image-20230615095502894](./approach-map-single-good.png)
-
-Those are not great: none of them actually get us to the approach. But it gets even worse for the planes near the runway:
-
-![image-20230615095517478](./approach-map-single-bad.png)
-
-So this won't work. We can't land like this. Instead, we need some extra points to help us out. We can offset the approach point from the line to the runway, and guarantee at least the planes past the approach point will get there:
-
-![image-20230615100328536](./approach-map-double-good.png)
-
-But the airplanes near the runway still need some help because two of them may still work (provided we're not _too_ close to the runway)
-
-![image-20230615100835345](./approach-map-double-good-2.png)
-
-But two definitely won't:
-
-![image-20230615100913167](./approach-map-double-bad.png)
-
-So for planes that are closer to the runway than the approach point, we add two more waypoints, moved closed to the runway, parallel to the runway:
-
-![image-20230615101426012](./approach-map-triple-good.png)
+Then show how things go wrong simply by showing the path from the cursor to trying to fly an aproach, approach with offset, and approach with forced offset first.
 
 And now we have workable approaches: if we're further from the runway than the approach, we set up three waypoints (one easing point, the approach point, and the runway end) and if we're closer to the runway than the approach point, we use three (two easing points, the approach point, and the runway end).
 
@@ -6419,142 +6729,19 @@ Of course, the other part of getting lined up is "being at the right altitude", 
 So let's add some "getting onto the approach" code. First up, a function that'll actually build the waypoints _as_ autopilot waypoints for this approach:
 
 ```javascript
-function setApproachPath(
-  plane,
-  { easingPoints, anchor, runwayStart, runwayEnd }
-) {
-  const { lat, long } = plane.lastUpdate;
-  const distToAirport = getDistanceBetweenPoints(lat, long, ...runwayStart);
-  const approachDistance = getDistanceBetweenPoints(...anchor, ...runwayStart);
-
-  // If we're on the wrong side of the approach, add the extra easing waypoints to get us onto the approach flight plan.
-  if (distToAirport < approachDistance - MARGIN_DISTANCE) {
-    callAutopilot(`waypoint`, {
-      lat: easingPoints[1][0],
-      long: easingPoints[1][1],
-    });
-  }
-
-  // Then add the regular easing points.
-  callAutopilot(`waypoint`, {
-    lat: easingPoints[0][0],
-    long: easingPoints[0][1],
-  });
-
-  // And then the approach start, and runway end.
-  callAutopilot(`waypoint`, { lat: anchor[0], long: anchor[1] });
-  callAutopilot(`waypoint`, { lat: runwayEnd[0], long: runwayEnd[1] });
-}
+CODE INVALID
 ```
 
 And then a `getOntoApproach` function to, you know, get us onto the approach:
 
 ```javascript
-const KMH_PER_KNOT = 1.852;
-const KMS_PER_KNOT = KMH_PER_KNOT / 3600;
-const TRANSITION_TIME = 30;
-
-function getOntoGlideSlope(plane, approach, approachAltitude) {
-  // Set those waypoints
-  setApproachPath(plane, approach.coordinates);
-
-  // Then tell the autopilot we need it set to perform waypoint flight.
-  callAutopilot({
-    MASTER: true,
-    LVL: true,
-    ALT: approachAltitude, // we will either fly this altitude, or...
-    ATT: true,
-    TER: true, // ...if terrain follow is on, just do that.
-  });
-
-  // Then return a runnable function that checks whether we made it to the approach point:
-  return (done) => {
-    const { lat, long, speed } = plane.lastUpdate;
-    const transitionRadius = speed * KMS_PER_KNOT * TRANSITION_TIME;
-    const distToApproach = getDistanceBetweenPoints(
-      lat,
-      long,
-      ...approach.coordinates.anchor
-    );
-    if (distToApproach < transitionRadius) done();
-  };
-}
+CODE INVALID
 ```
 
 And then we can plug that into our currently empty `autoland` function:
 
 ```javascript
-const APPROACH_DISTANCE = 12; // in kilometers
-const LANDING_ALTITUDE_DISTANCE = 6; // in kilometers, marks the point we want to be "at landing approach altitude".
-const NUMBER_OF_AIRPORTS = 10;
-const AIRPORT_ICAO = undefined; // we can hardcode this (or make it a URL parameter, etc) to explicitly use that airport.
-const FEET_PER_METER = 3.28084;
-
-async function autoLand(runner, map, plane) {
-  // =============================
-  // (1) Find a runway to land at
-  // =============================
-
-  const approach = await getNearestApproach(
-    plane,
-    APPROACH_DISTANCE,
-    NUMBER_OF_AIRPORTS,
-    AIRPORT_ICAO
-  );
-  const { airport, runway, coordinates, marking } = approach;
-  const { anchor, runwayStart, runwayEnd } = coordinates;
-
-  console.log(`Landing at ${airport.name}`);
-  console.log(`Using runway ${marking}`);
-
-  // And draw that runway on the map.
-  drawApproach(map, approach);
-
-  // Then we declare a little helper function for setting the autopilot
-  // altitude parameter, based on plane location on the approach:
-  const setAltitude = () => {
-    const { lat, long } = plane.lastUpdate;
-    const distanceToRunway = getDistanceBetweenPoints(
-      lat,
-      long,
-      ...runwayStart
-    );
-    const distanceRatio =
-      (distanceToRunway - LANDING_ALTITUDE_DISTANCE) /
-      (APPROACH_DISTANCE - LANDING_ALTITUDE_DISTANCE);
-    const alt = constrain(
-      lerp(distanceRatio, landingAltitude, approachAltitude),
-      landingAltitude,
-      approachAltitude
-    );
-    callAutopilot(`update`, { ALT: alt });
-  };
-
-  // Get the runway altitude, in feet:
-  const aalt = approach.airport.altitude * FEET_PER_METER;
-
-  // Get the airplane's "center of gravity" altitude.
-  const cgToGround = CG_TO_GROUND;
-
-  // Then rewrite the runway altitude relative to the airplane's center of gravity.
-  const runwayAltitude = aalt + cgToGround;
-
-  // And then set our various decision altitudes:
-  let approachAltitude = runwayAltitude + 1500;
-  const landingAltitude = runwayAltitude + 200;
-  const stallAltitude = runwayAltitude + 30;
-
-  // =============================
-  // (2) Get onto the glide slope
-  // =============================
-
-  console.log(`Flying towards the start of the approach.`);
-  await runner.run(getOntoGlideSlope(plane, approach, approachAltitude));
-  console.log(`Approach reached`);
-
-  // Update the approach altitude so we don't force a climb just to force a descent.
-  approachAltitude = min(approachAltitude, plane.lastUpdate.alt);
-}
+CODE INVALID
 ```
 
 If we were to run this right now, we'll see something like this:
@@ -6564,25 +6751,7 @@ If we were to run this right now, we'll see something like this:
 ...if we remembered to implement the approach visualization:
 
 ```javascript
-import { Trail } from "../../trail.js";
-
-export function drawApproach(map, { runway, coordinates }) {
-  const { bbox } = runway;
-  const { anchor, runwayStart } = coordinates;
-
-  // Draw the path from the approach point to the runway as a thick blackish line:
-  let approachTrail = new Trail(map, anchor, `rgba(0,0,0,0.5)`, undefined, {
-    width: 10,
-  });
-  approachTrail.add(...runwayStart);
-
-  // And outline the runway itself in red:
-  let runwayOutline = new Trail(map, bbox[0], `red`, undefined, { width: 2 });
-  runwayOutline.add(...bbox[1]);
-  runwayOutline.add(...bbox[2]);
-  runwayOutline.add(...bbox[3]);
-  runwayOutline.add(...bbox[0]);
-}
+CODE INVALID
 ```
 
 So handy. But while flying over the runway is useful in order to understand your landing when you're flying a plane yourself, it's not much use for an auto-lander: we want to get this plane on the ground!
@@ -6592,80 +6761,7 @@ So handy. But while flying over the runway is useful in order to understand your
 So let's implement the next part of our landing procedure:
 
 ```javascript
-const SAFE_THROTTLE = ???
-const DROP_DISTANCE_KM = ?????
-
-async function autoLand(runner, map, plane) {
-  ...
-
-  // =========================================
-  // (3) Throttle down to "still safe" speeds
-  // =========================================
-
-  const pos = SAFE_THROTTLE;
-  console.log(`Throttle down to ${pos}%...`);
-  await runner.run(throttleTo(plane, engineCount, pos, setAltitude));
-  console.log(`Done`);
-
-  // ============================
-  // (4) Get to landing distance
-  // ============================
-
-  console.log(`Waiting until we get to ${DROP_DISTANCE_KM}km from the runway...`);
-  await runner.run(reachRunway(plane, approach, DROP_DISTANCE_KM, setAltitude));
-}
-
-function throttleTo(plane, engineCount, position, setAltitude) {
-  // turn off the auto-throttle (obviously) and terrain follow if it's on
-  callAutopilot(`update`, { ATT: false, TER: false });
-
-  // Then return the function that will keep throttling down until we reach our throttle target.
-  return async (done) => {
-    setAltitude();
-    if ((await targetThrottle(engineCount, position)) === false) done();
-  };
-}
-
-function reachRunway(plane, { runway, coordinates }, distance, setAltitude) {
-  // Note that we measure this relative to the runway end, not the start,
-  // because if the distance is small we might overshoot the runway start
-  // and then the distance to the runway would start to increase.
-  const { runwayEnd } = coordinates;
-  const runwayLength = runway.length / 1000;
-
-  // By using the runway end as point of reference, even a distance of zero,
-  // or a negative distance, will work.
-  return (done) => {
-    setAltitude();
-
-    const { lat, long } = plane.lastUpdate;
-    const d = getDistanceBetweenPoints(lat, long, ...runwayEnd);
-    if (d < runwayLength + distance) done();
-  };
-}
-
-// And a helper function to set the throttle, or throttles. There can be up to 4 throttle levers.
-async function targetThrottle(engineCount = 4, target, step = 1) {
-  let updated = false;
-  for (let count = 1; count <= engineCount; count++) {
-    const throttleVar = `GENERAL_ENG_THROTTLE_LEVER_POSITION:${count}`;
-    const throttle = (await getAPI(throttleVar))[throttleVar];
-    // Are we not at our target yet for this lever?
-    if (abs(throttle - target) >= abs(step)) {
-      const diff = target - throttle;
-      // If we're less than a step away, ignore the step size
-      if (abs(diff) < abs(step)) { setAPI(throttleVar, target); }
-      else {
-        // Otherwise move the lever up or down by a step.
-        if (diff > 0) step = abs(step);
-        if (diff < 0) step = -abs(step);
-        setAPI(throttleVar, throttle + step);
-      }
-      updated = true;
-    }
-  }
-  return updated;
-}
+CODE INVALID
 ```
 
 There's two things we need to answer before we can run this code, though: what's a safe throttle position, and what's the right distance from the runway to start the actual landing? Because those depend on the plane we're flying. Unfortunately, as far as I know (although I'd love to be shown otherwise) there is no good way to abstract that information from SimConnect variables and/or current flight information, so.... we hard code them. For example, for the DeHavilland DHC-2 "Beaver", `SAFE_THROTTLE` is 65%, and `DROP_DISTANCE_KM` is 0.5, and for the Cessna 310R, the `SAFE_THROTTLE` is 35%, and the `DROP_DISTANCE` is 0.8... how do we know? I flew those planes, many many times, over a nice flat stretch of Australia where you can just go in a straight line forever while setting the throttle to something and then wait to see what speed that eventually slows you down to. And then cutting the throttle to see how long it takes to hit the ground. Science!
@@ -6673,85 +6769,13 @@ There's two things we need to answer before we can run this code, though: what's
 But yeah, it means we're going to need some airplane-specific parameters, which means we might as well make some airplane profiles. We don't _want_ those, but I haven't figured out a way to make auto-landing work without them, so... let's go? We'll make a little `parameters.js` file, and I'm giving you two airplanes but you get to do the rest:
 
 ```javascript
-export const BEAVER = {
-  APPROACH_DISTANCE: 10,
-  LANDING_ALTITUDE_DISTANCE: 6,
-  CG_TO_GROUND: 1.85,
-  SAFE_THROTTLE: 65,
-  DROP_DISTANCE_KM: 0.5,
-  FLARE_ALTITUDE: 15,
-  FLARE_AMOUNT: 0.1,
-  RUDDER_FACTOR: 0.025,
-  INITIAL_BRAKE_PERCENTAGE: 25,
-  ROLLOUT_BRAKE_PERCENTAGE: 10,
-};
-
-export const C310R = {
-  APPROACH_DISTANCE: 12,
-  LANDING_ALTITUDE_DISTANCE: 6,
-  CG_TO_GROUND: -0.6057333600272727,
-  SAFE_THROTTLE: 35,
-  DROP_DISTANCE_KM: 0.8,
-  FLARE_ALTITUDE: 15,
-  FLARE_AMOUNT: 0,
-  RUDDER_FACTOR: 0.1,
-  INITIAL_BRAKE_PERCENTAGE: 100,
-  ROLLOUT_BRAKE_PERCENTAGE: 100,
-};
+CODE INVALID
 ```
 
 and then we update our autoland code to use those:
 
 ```javascript
-import { BEAVER, C310R } from "./parameters.js";
-
-// Plane-specific parameters
-let APPROACH_DISTANCE;
-let LANDING_ALTITUDE_DISTANCE;
-let CG_TO_GROUND;
-let SAFE_THROTTLE;
-let DROP_DISTANCE_KM;
-let FLARE_ALTITUDE;
-let FLARE_AMOUNT;
-let RUDDER_FACTOR;
-let INITIAL_BRAKE_VALUE;
-let ROLLOUT_BRAKE_VALUE;
-
-// Brakes run on this weird ±2^14 scale, but we like percentages better.
-function brake(percentage) {
-  const value = map(percentage, 0, 100, -16383, 16383) | 0;
-  triggerEvent(`AXIS_LEFT_BRAKE_SET`, value);
-  triggerEvent(`AXIS_RIGHT_BRAKE_SET`, value);
-}
-
-function assignParameters(plane) {
-  const title = plane.flightModel.values.TITLE.toLowerCase()
-  let PARAMS;
-  if (title.includes(` beaver`)) PARAMS = BEAVER;
-  if (title.includes(` 310`)) PARAMS = C310R;
-
-  APPROACH_DISTANCE = PARAMS.APPROACH_DISTANCE;
-  LANDING_ALTITUDE_DISTANCE = PARAMS.LANDING_ALTITUDE_DISTANCE;
-  CG_TO_GROUND = PARAMS.CG_TO_GROUND;
-  SAFE_THROTTLE = PARAMS.SAFE_THROTTLE;
-  DROP_DISTANCE_KM = PARAMS.DROP_DISTANCE_KM;
-  FLARE_ALTITUDE = PARAMS.FLARE_ALTITUDE;
-  FLARE_AMOUNT = PARAMS.FLARE_AMOUNT;
-  RUDDER_FACTOR = PARAMS.RUDDER_FACTOR;
-  INITIAL_BRAKE_VALUE = percentageToValue(PARAMS.INITIAL_BRAKE_PERCENTAGE);
-  ROLLOUT_BRAKE_VALUE = percentageToValue(PARAMS.ROLLOUT_BRAKE_PERCENTAGE);
-  NO_BRAKES = percentageToValue(0);
-}
-
-async function autoLand(runner, map, plane) {
-  assignParameters(plane);
-
-  // =============================
-  // (1) Find a runway to land at
-  // ============================
-
-  ...
-}
+CODE INVALID
 ```
 
 Disappointing, but at least we know this will work. For the planes we figure out all these parameters for at least. Moving on: the `throttleTo` function is really simple: every time it gets called, we make sure to update the current target altitude, while decreasing the throttle by 1%, until we reach the target throttle percentage. Then we stop running it. Following that, `reachRunway` is just as simple. It also runs the "make sure to update the target altitude" code, and just checks "are we close enough to the runway to start landing?". If so, it stops running. Because at that point it's time for...
@@ -6761,68 +6785,13 @@ Disappointing, but at least we know this will work. For the planes we figure out
 Landing the plane is really more of a controlled crash: we cut the engine (or rather, throttle, we keep the engine itself running), drop our landing gear, and fully extend the flaps so that we basically end up gliding onto the runway.
 
 ```javascript
-async function autoLand(runner, map, plane) {
-  ...
-
-  // ==============================
-  // (5) Perform a stalled landing
-  // ==============================
-
-  console.log(`We're doing it!`);
-  await runner.run(dropToRunway(plane, engineCount, cgToGround, stallAltitude));
-}
-
-function dropToRunway(plane, engineCount, cgToGround, dropAltitude) {
-  // Tell the autopilot we want to get super duper close to the runway, altitude wise
-  callAutopilot(`update`, { ALT: dropAltitude });
-
-  // Then, pretty important: gear down
-  triggerEvent(`GEAR_DOWN`);
-
-  // and full flaps
-  setAPI(`FLAPS_HANDLE_INDEX:1`, 10);
-
-  return async (done) => {
-    // throttle all the way down down to a glide
-    changeThrottle(engineCount, -1, 0, 100);
-
-    // If we're on the ground, turn off the autopilot, and we're done with that phase!
-    if (!plane.lastUpdate.airBorn) {
-      callAutopilot(`update`, { MASTER: false });
-      done();
-    }
-  };
-}
+CODE INVALID
 ```
 
 Simple enough, although there's one part missing: we need to flare, as in pull up a little just before we hit the ground, so we don't hit the ground with our wheels, pivot over them, remember we don't have a nose wheel, and plow propeller-first into the runway. So:
 
 ```javascript
-function dropToRunway(plane, engineCount, cgToGround, dropAltitude) {
-  ...
-
-  // We only need to flare once, so we use a little boolean flag to check whether we already did this.
-  let flared = false;
-
-  return async (done) => {
-    changeThrottle(engineCount, -1, 0, 100);
-
-    // Get the "true" altitude above the ground,
-    const { PLANE_ALT_ABOVE_GROUND_MINUS_CG: pacg } = await getAPI(`PLANE_ALT_ABOVE_GROUND_MINUS_CG`);
-    const distanceToGround = pacg - cgToGround;
-
-    // If we're at or below flare altitude: flare
-    if (distanceToGround < FLARE_ALTITUDE && !flared) {
-      setAPI(`ELEVATOR_POSITION`, FLARE_AMOUNT);
-      flared = true;
-    }
-
-    if (!plane.lastUpdate.airBorn) {
-      callAutopilot(`update`, { MASTER: false });
-      done();
-    }
-  };
-}
+CODE INVALID
 ```
 
 With that, by the time this function exits we are on the ground, without having kissed the tarmac with our lips, rather than our wheels. Which means it's time for...
@@ -6832,68 +6801,7 @@ With that, by the time this function exits we are on the ground, without having 
 Different planes can brake different amounts without things going wrong. If we're in a tail dragger, we can only apply so much brake force before the wheels slow down faster than the plane, and the plane rotates forward and does a nose-over. If we're in a plane with a tricycle gear, though, we have a wheel at the nose that prevents nose-over and we can basically brake as hard as we want, until we've stopped. So:
 
 ```javascript
-async function autoLand(runner, map, plane) {
-  ...
-
-  // =========================
-  // (6) Brake to a full stop
-  // =========================
-
-  console.log("Braking...");
-  await runner.run(startBraking(plane, approach, engineCount));
-  await runner.run(rollOut(plane, engineCount));
-
-  console.log(`Landing complete`);
-}
-
-function startBraking(plane, approach, engineCount) {
-  // hit the brakes, appropriate to our airplane
-  brake(INITIAL_BRAKE_VALUE);
-
-  // Then keep braking and throttling down to zero, until the plane's going less than 15kts
-  return (done) => {
-    targetThrottle(engineCount, 0);
-
-    // We also apply some auto rudder, which we basically stole from our auto-takeoff code, because why not?
-    const { lat, long, speed, heading: h1, trueHeading: h2 } = plane.lastUpdate;
-    const { runwayStart, runwayEnd } = approach.coordinates;
-    const target = pathIntersection(runwayStart[1], runwayStart[0], runwayEnd[1], runwayEnd[0], long, lat, 0.2);
-    const declination = getCompassDiff(h1, h2);
-    let targetHeading = getHeadingFromTo(lat, long, target.y, target.x);
-    targetHeading = (targetHeading + 360 - declination) % 360;
-    const headingDiff = getCompassDiff(plane.lastUpdate.heading, targetHeading);
-    const diff = constrain(headingDiff, -2, 2);
-    const rudder = RUDDER_FACTOR * diff;
-    setAPI(`RUDDER_POSITION`, rudder);
-
-    if (speed < 15) done();
-  };
-}
-
-function rollOut(plane, engineCount) {
-  // Flaps up
-  setAPI(`FLAPS_HANDLE_INDEX:1`, 0);
-
-  // Ease up on the brakes, if we need to
-  brake(ROLLOUT_BRAKE_VALUE);
-
-  // Then keep throttling down to 0
-  return (done) => {
-    targetThrottle(engineCount, 0);
-
-    const { speed } = plane.lastUpdate;
-    if (speed < 1) {
-      // Release the brakes...
-      brake(0);
-
-      // And kill the engine.
-      triggerEvent(`ENGINE_AUTO_SHUTDOWN`);
-
-      // We are officially done!
-      done();
-    }
-  };
-}
+CODE INVALID
 ```
 
 And that's it! We've done everything necessary to achieve fully automated flight!
@@ -6916,9 +6824,9 @@ So you might be wondering what else we can do. Here are some thoughts:
 
 1. We could vastly improve auto landing by taking runway length and slope into account, not to mention terrain: not every runway has a nice clear path to it. Good luck landing at [Lukla](https://en.wikipedia.org/wiki/Tenzing-Hillary_Airport), for instance!
 2. We could add in a "fly inverted" button so that acrobatic planes can file on autopilot... upside down. This would require a different way of trimming because acrobatic/fighter planes tend to "go where you point them" nearly immediately, and running an autopilot every half second with fairly coarse trim instructions because we're relying on planes to slowly act on those trim instructions would make those type of planes flip and spin out of control rather quickly.
-3. We could make the waypoint code more like "path tracking" code, where we don't just define waypoints but make them curve control points that let use create fancy paths through canyons or over landscape features rather than just flying mostly straight lines between them.
+3. We could make the waypoint code more like "path tracking" code, where we don't just define waypoints but give them curve control points that let use create fancy paths through canyons or over landscape features rather than just flying mostly straight lines between them.
 4. We could try to replace our blocks of "code guesses" with self-tuning PID controller code so we that we only need to say what what targets we want, and the PID controller figures out what good steps sizes for that are. This is one of those "conceptually, this is simple" because we can replace a whole bunch of code with a PID initialization and then a few lines of update loop, but actually making that work can be the worst time sink you never knew existed. The problem with PID controllers isn't setting them up, it's the full-time job of tweaking them that will make you regret your life decisions.
-5. I mean you've see what we can do already, the sky's the limit. Or, you know what: no, it isn't. We're already flying, there are no limits. Get your learn on and write something amazing, and then tell the world about it.
+5. I mean you've seen what we can do already, the sky's the limit. Or, you know what: no, it isn't. We're already flying, there are no limits. Get your learn on and write something amazing, and then tell the world about it.
 
 I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you see me flying, I might just be testing more code to add to this tutorial! =D
 
