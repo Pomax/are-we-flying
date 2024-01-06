@@ -32,6 +32,7 @@ export const FLYING_APPROACH = `autoland: FLYING_APPROACH`;
 export const GET_TO_RUNWAY = `autoland: GET_TO_RUNWAY`;
 export const INITIATE_STALL = `autoland: INITIATE_STALL`;
 export const STALL_LANDING = `autoland: STALL_LANDING`;
+export const TOUCH_DOWN = `autoland: TOUCH_DOWN`;
 export const ROLLING = `autoland: ROLLING`;
 export const LANDING_COMPLETE = `autoland: LANDING_COMPLETE`;
 
@@ -60,7 +61,9 @@ class StageManager {
       this.currentStage = INITIATE_STALL;
     else if (this.currentStage === INITIATE_STALL)
       this.currentStage = STALL_LANDING;
-    else if (this.currentStage === STALL_LANDING) this.currentStage = ROLLING;
+    else if (this.currentStage === STALL_LANDING)
+      this.currentStage = TOUCH_DOWN;
+    else if (this.currentStage === TOUCH_DOWN) this.currentStage = ROLLING;
     else if (this.currentStage === ROLLING)
       this.currentStage = LANDING_COMPLETE;
     else {
@@ -259,6 +262,7 @@ class AutoLand {
       gearSpeedExceeded,
       isGearDown,
       lat,
+      lift,
       long,
       onGround,
       pitch,
@@ -419,22 +423,29 @@ class AutoLand {
       for (let i = 1; i <= engineCount; i++) {
         await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
       }
+      if (lift < 50) {
+        stageManager.nextStage();
+      }
+    }
 
-      // TEST TEST TEST TEST TEST TEST - do we only need this for the top rudder? O_o
+    // ============================
+
+    if (stageManager.currentStage === TOUCH_DOWN) {
       if (FEATURES.PITCH_PROTECTION) {
         // Make sure the aircraft isn't angled such that we're nose-diving into the runway.
-        this.currel ??=
-          16384 * (await this.api.get(`ELEVATOR_POSITION`)).ELEVATOR_POSITION;
-        const step = -100 * (pitch + 2);
+        const targetPitch = -2;
+        const data = await this.api.get(`ELEVATOR_POSITION`);
+        this.currel ??= 16384 * data.ELEVATOR_POSITION;
+        const step = 100 * (targetPitch - pitch);
+        const next = (this.currel + step) | 0;
         console.log(
-          `[ORIGINAL] pitch check: current=${nf(pitch)}, target=0, elevator=${
-            this.currel
-          }, next=${this.currel + step}`
+          `[ORIGINAL] pitch check: current=${nf(
+            pitch
+          )}, target=${targetPitch}, elevator=${this.currel}, next=${next}`
         );
-        this.currel += step;
-        this.api.trigger(`ELEVATOR_SET`, this.currel | 0);
+        this.currel = next;
+        this.api.trigger(`ELEVATOR_SET`, this.currel);
       }
-      // TEST TEST TEST TEST TEST TEST - do we only need this for the top rudder? O_o
 
       if (onGround) {
         console.log(`Touchdown`);

@@ -235,7 +235,7 @@ export function renameData(data, previousValues) {
   // Whether or not we have previous values for delta computation,
   // just preallocate the values we _might_ need for that.
   const d = {};
-  const before = data.__date_time ?? 0;
+  const before = previousValues?.__date_time ?? Date.now();
   const now = Date.now();
   const dt = (now - before) / 1000; // delta per second
 

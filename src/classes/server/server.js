@@ -86,13 +86,13 @@ export class ServerClass {
       console.log(`Connected to MSFS.`);
       MSFS = true;
 
-      // Once we have a connection, register for the pause and crash events:
-      registerWithAPI(clients, api, autopilot);
-      clients.forEach((client) => client.onMSFS(MSFS));
-
-      // Then set up a flight information object for pulling
+      // Set up a flight information object for pulling
       // model and flight data from SimConnect:
       flightInformation = new FlightInformation(api);
+
+      // And register for the pause and crash events:
+      registerWithAPI(clients, api, autopilot, flightInformation);
+      clients.forEach((client) => client.onMSFS(MSFS));
 
       // And start polling to see if we're "in game".
       (async function poll() {

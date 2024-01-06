@@ -2,6 +2,7 @@ import {
   KMS_PER_KNOT,
   AUTO_TAKEOFF,
   HEADING_MODE,
+  AUTO_LAND,
 } from "../../../utils/constants.js";
 import {
   dist,
@@ -45,7 +46,14 @@ export function getHeading(waypoints, heading, cy, cx, speed, declination) {
 
   // If there is a next point, How large should our transition area be?
   const transition_time = 30;
-  const transitionRadius = 0.01 * speed * KMS_PER_KNOT * transition_time;
+  let transitionRadius = 0.01 * speed * KMS_PER_KNOT * transition_time;
+
+  // if we're autolanding, ensure we stick to our flightpath more tightly
+  // than during normal flight, because we cannot be off from the runway.
+  if (modes[AUTO_LAND]) {
+    console.log(`autoland flight path rules`);
+    transitionRadius /= 2;
+  }
 
   //
   const i1 = pathIntersection(p1x, p1y, p2x, p2y, cx, cy, transitionRadius);

@@ -323,7 +323,7 @@ export class AutoTakeoff {
     })();
 
     if (isNaN(diff)) {
-      return this.abortTakeoff();
+      return this.abortTakeoff(engineCount);
     }
 
     // The faster we're moving, the less rudder we want, but we want
@@ -525,7 +525,7 @@ export class AutoTakeoff {
     });
   }
 
-  async abortTakeoff() {
+  async abortTakeoff(engineCount) {
     const { api, autopilot } = this;
 
     for (let i = 1; i <= engineCount; i++) {

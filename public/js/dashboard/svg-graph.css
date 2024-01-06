@@ -17,6 +17,8 @@
   --svg-graph-plot-color: lime;
   --svg-graph-plot-fill-color: #0F83;
   --svg-graph-plot-width: 1px;
+
+  --svg-graph-border-color: #d0d2d5;
 }
 
 svg.svg-graph {
@@ -24,7 +26,7 @@ svg.svg-graph {
   margin: var(--svg-graph-svg-margin);
   vertical-align: middle;
   transform: translate(0.5px, 0.5px);
-  border: 10px solid #333;
+  border: 10px solid var(--svg-graph-border-color);
   width: var(--svg-graph-width-px);
   height: var(--svg-graph-height-px);
 }
