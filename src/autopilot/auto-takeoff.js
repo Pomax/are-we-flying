@@ -399,14 +399,14 @@ export class AutoTakeoff {
       // trim hasn't fully taken effect yet, and if we keep adding trim, we'll end
       // up launching the plane into a stall.
       if (onGround && (vs < 50 || dVs < 25)) {
-        console.log(`on ground, trim up by ${trimStep}`);
         const touch = constrainMap(
           currentSpeed,
           50,
           130,
-          trimStep / 2,
-          2 * trimStep
+          trimStep / 4,
+          trimStep
         );
+        console.log(`on ground, trim up by ${touch}`);
         autopilot.set("ELEVATOR_TRIM_POSITION", pitchTrim + touch);
       }
 

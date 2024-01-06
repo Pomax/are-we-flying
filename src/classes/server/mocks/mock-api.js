@@ -16,14 +16,19 @@ export class MOCK_API {
   }
 
   async setAutopilot(autopilot) {
+    console.log(`Starting flight in 10 seconds`);
     runLater(() => {
       autopilot.setParameters({
         MASTER: true,
         LVL: true,
         ALT: 1500,
-        TER: true,
+        TER: 500,
       });
     }, 10000);
+    for (let i = 1; i < 10; i++) {
+      const msg = `${10 - i}...`;
+      setTimeout(() => console.log(msg), 1000 * i);
+    }
   }
 
   async connect(options) {

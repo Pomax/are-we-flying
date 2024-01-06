@@ -58,7 +58,7 @@ export class Plane {
       this.state.flightData?.long ?? Duncan[1],
       gridSize
     );
-    airports.forEach((airport) => {
+    airports?.forEach((airport) => {
       // draw the airport
       const { latitude: lat, longitude: long, runways } = airport;
       L.circle([lat, long], { radius: 30, color: "blue" }).addTo(map);

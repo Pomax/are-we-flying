@@ -24,13 +24,26 @@ let deviation = 15.8;
 let altitude = 0;
 
 const ONE_KTS_IN_KMS = 0.000514444;
-const UPDATE_FREQUENCY = 990;
+const UPDATE_FREQUENCY = 450;
 
 export class MockPlane {
   constructor() {
     this.TITLE = "Generic Airplane Number 1";
 
     // airplane data
+    this.CATEGORY = 2;
+    this.DESIGN_CRUISE_ALT = 12000;
+    this.DESIGN_SPEED_VS0 = 80;
+    this.ELEVATOR_TRIM_DOWN_LIMIT = 18;
+    this.ELEVATOR_TRIM_UP_LIMIT = 18;
+    this.ENGINE_TYPE = 1;
+    this.IS_GEAR_FLOATS = 0;
+    this.IS_GEAR_RETRACTABLE = 1;
+    this.STALL_ALPHA = 0;
+    this.TYPICAL_DESCENT_RATE = 80;
+    this.WING_AREA = 1000;
+    this.WING_SPAN = 100;
+
     this.TAILWHEEL_LOCK_ON = 0;
     this.BRAKE_PARKING_POSITION = 0;
     this.GEAR_HANDLE_POSITION = 100;
@@ -39,6 +52,12 @@ export class MockPlane {
     this.ELECTRICAL_TOTAL_LOAD_AMPS = -148.123;
 
     // flight data
+    this.AILERON_POSITION = 0;
+    this.ELEVATOR_TRIM_PCT = 0;
+    this['GEAR_POSITION:1'] = 1;
+    this.GEAR_SPEED_EXCEEDED = 0;
+    this.RUDDER_POSITION = 0;
+
     this.GPS_GROUND_TRUE_TRACK = radians(150);
     this.PLANE_BANK_DEGREES = 0;
     this.PLANE_PITCH_DEGREES = 0;
@@ -72,6 +91,8 @@ export class MockPlane {
     this.OVERSPEED_WARNING = 0;
     this.CAMERA_STATE = 2; // cockpit
     this.CAMERA_SUBSTATE = 2; // unlocked view
+    this.ELECTRICAL_AVIONICS_BUS_VOLTAGE = 480;
+    this.ELECTRICAL_TOTAL_LOAD_AMPS = 400;
 
     // non-simconnect values
     this.ALT = 1500;

@@ -33,10 +33,6 @@ svg.svg-graph .hidden {
   display: none !important;
 }
 
-svg.svg-graph + svg.svg-graph {
-  margin-top: 0.25em;
-}
-
 svg.positive.svg-graph {
   --svg-graph-data-offset: -50%;
 }

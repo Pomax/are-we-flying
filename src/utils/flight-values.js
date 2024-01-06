@@ -1,54 +1,32 @@
+import { FEET_PER_DEGREE, FEET_PER_METER, FPS_IN_KNOTS } from "./constants.js";
+import { exists } from "./utils.js";
+const noop = () => {};
+
 export const FLIGHT_MODEL = [
-  `BETA_DOT`,
   `CATEGORY`,
-  `DECISION_ALTITUDE_MSL`,
-  `DECISION_HEIGHT`,
   `DESIGN_CRUISE_ALT`,
-  `DESIGN_SPAWN_ALTITUDE_CRUISE`,
-  `DESIGN_SPAWN_ALTITUDE_DESCENT`,
   `DESIGN_SPEED_CLIMB`,
   `DESIGN_SPEED_MIN_ROTATION`,
   `DESIGN_SPEED_VC`,
   `DESIGN_SPEED_VS0`,
   `DESIGN_SPEED_VS1`,
   `DESIGN_TAKEOFF_SPEED`,
-  `DYNAMIC_PRESSURE`,
   `ELEVATOR_TRIM_DOWN_LIMIT`,
   `ELEVATOR_TRIM_UP_LIMIT`,
   `ENGINE_TYPE`,
-  `ESTIMATED_CRUISE_SPEED`,
-  `G_FORCE`,
-  `G_LIMITER_SETTING`,
-  `INCIDENCE_ALPHA`,
-  `INCIDENCE_BETA`,
   `IS_GEAR_FLOATS`,
   `IS_GEAR_RETRACTABLE`,
   `IS_TAIL_DRAGGER`,
-  `LINEAR_CL_ALPHA`,
-  `MACH_MAX_OPERATE`,
-  `MAX_G_FORCE`,
-  `MIN_DRAG_VELOCITY`,
-  `MIN_G_FORCE`,
   `NUMBER_OF_ENGINES`,
   `PLANE_LATITUDE`,
   `PLANE_LONGITUDE`,
-  `SEMIBODY_LOADFACTOR_Y`,
-  `SEMIBODY_LOADFACTOR_YDOT`,
-  `SIGMA_SQRT`,
-  `SIMULATED_RADIUS`,
   `STALL_ALPHA`,
   `STATIC_CG_TO_GROUND`,
-  `STATIC_PITCH`,
   `TITLE`,
   `TOTAL_WEIGHT`,
   `TYPICAL_DESCENT_RATE`,
   `WING_AREA`,
-  `WING_FLEX_PCT:1`,
-  `WING_FLEX_PCT:2`,
   `WING_SPAN`,
-  `YAW_STRING_ANGLE`,
-  `YAW_STRING_PCT_EXTENDED`,
-  `ZERO_LIFT_ALPHA`,
 ];
 
 export const FLIGHT_DATA = [
@@ -221,3 +199,79 @@ export const ENGINE_TYPES = [
   `unsupported`,
   `turboprop`,
 ];
+
+/**
+ * ...
+ * @param {*} data
+ */
+export function convertValues(data) {
+  // Convert values to the units they're supposed to be:
+  BOOLEAN_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] = !!data[p]) : noop
+  );
+  DEGREE_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] *= 180 / Math.PI) : noop
+  );
+  PERCENT_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 100) : noop));
+  FPM_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 60) : noop));
+  KNOT_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] *= FPS_IN_KNOTS) : noop
+  );
+  MTF_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] *= FEET_PER_METER) : noop
+  );
+
+  if (exists(data.ENGINE_TYPE)) {
+    data.ENGINE_TYPE = ENGINE_TYPES[data.ENGINE_TYPE];
+  }
+}
+
+/**
+ * ...
+ * @param {*} data
+ * @param {*} withDelta
+ */
+export function renameData(data, previousValues) {
+  // Whether or not we have previous values for delta computation,
+  // just preallocate the values we _might_ need for that.
+  const d = {};
+  const before = data.__date_time ?? 0;
+  const now = Date.now();
+  const dt = (now - before) / 1000; // delta per second
+
+  // Then copy all of that data to remapped names so we don't need to
+  // ever work with ALL_CAPS_SIMVAR_NAMES. Any information the client
+  // needs to "normally" work with should have normal JS varnames.
+  // At the same time, compute deltas for anything that has a JS name
+  // and is a numeric type (and isn't in the FIXED_PROPERTIES list).
+  Object.entries(data).forEach(([simName, value]) => {
+    const jsName = NAME_MAPPING[simName];
+
+    if (jsName === undefined) return;
+    if (!exists(data[simName])) return;
+
+    data[jsName] = value;
+    delete data[simName];
+
+    // Do we need to compute derivatives?
+    if (previousValues && DERIVATIVES.includes(jsName)) {
+      const previous = previousValues[jsName];
+      if (typeof previous !== `number`) return;
+      const current = data[jsName];
+      d[jsName] = (current - previous) / dt;
+
+      // ...do we need to compute *second* derivatives?
+      if (SECOND_DERIVATIVES.includes(jsName)) {
+        d.d ??= {};
+        const previousDelta = previousValues.d?.[jsName] ?? 0;
+        d.d[jsName] = d[jsName] - previousDelta;
+      }
+    }
+  });
+
+  // If we did delta computation work, save the result:
+  if (previousValues) {
+    data.__date_time = now;
+    data.d = d;
+  }
+}

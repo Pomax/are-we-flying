@@ -38,7 +38,6 @@ import { AutoLand as atl } from "./auto-land/auto-land.js";
 let AutoLand = atl;
 
 import { WayPoints as wp } from "./waypoints/waypoints.js";
-import { changeThrottle } from "../utils/controls.js";
 let WayPoints = wp;
 
 // ---- hot reloads end ---
@@ -144,6 +143,10 @@ export class AutoPilot {
       WayPoints = module.WayPoints;
       this.waypoints = new WayPoints(this, this.waypoints);
     });
+  }
+
+  disable() {
+    this.setParameters({ MASTER: false });
   }
 
   setPaused(value) {

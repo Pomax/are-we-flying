@@ -9,7 +9,20 @@
     margin: 0 auto;
   }
   img {
+    margin: 0;
     border: 1px solid black;
+  }
+  figure {
+    & img {
+      margin-bottom: -1.5em;
+    }
+    & figcaption {
+      margin: 0;
+      padding: 0;
+      size: 80%;
+      font-style: italic;
+      text-align: right;
+    }
   }
 </style>
 
@@ -87,7 +100,7 @@ API_PORT=8080
 
 Nothing fancy, just two ports for now.
 
-## A socketless API, and web servers
+## A "socketless" API, and web servers
 
 Before we look at the "real" code we need to write, let's quickly run through the code required to run our API server, which we'll put in `api-server.js`:
 
@@ -98,23 +111,23 @@ const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/.env` });
 
+// And get our API server's port from that environment:
+const { API_PORT } = process.env;
+
 // Then we set up socketless so it can do its thing:
 import { createServer } from "socketless";
 import { ServerClass } from "./src/classes/index.js";
 
-// Where "its thing" is creating an API server:
+// Where "its thing" is creating an API server instance:
 const { webserver } = createServer(ServerClass);
 
-// Which we then run like any other Node server.
-const { API_PORT } = process.env;
+// Which we then run like you would any other Node server.
 webserver.listen(API_PORT, () => {
   console.log(`Server listening on http://localhost:${API_PORT}`);
 });
 ```
 
-And that's it, that's all the code we need for our API server. At least in terms of the actual "running the server". We'll look at the server class in the next section.
-
-Next up, the code required to run the "web server" part of our above "diagram" which we'll put in `web-server.js`:
+And that's it, that's all the code we need for our API server. At least in terms of the actual "running the server". We'll look at the server class in the next section. So next up is the code required to run the "web server" part of our above diagram, which we'll put in `web-server.js`:
 
 ```js
 // We start the same was as above:
@@ -123,15 +136,15 @@ const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/.env` });
 
-// Then we set up socketless:
-import { ClientClass } from "./src/classes/client/client.js";
-import { createWebClient } from "socketless";
-
-// But instead of a server, we're going to build a "web client",
+// Instead of a server, we're going to build a "web client",
 // which is something that can both act as client to our server,
 // as well as running its own local web server so that browsers
 // can connect to it and present a UI based on the client state:
 const { API_PORT, WEB_PORT } = process.env;
+
+// So we set up a socketless client that has "browser connection" functionality:
+import { ClientClass } from "./src/classes/client/client.js";
+import { createWebClient } from "socketless";
 
 // Clients need to know which URL to find the server at:
 const serverURL = `http://localhost:${API_PORT}`;
@@ -139,12 +152,13 @@ const serverURL = `http://localhost:${API_PORT}`;
 // And web clients need to know which directory/folder to serve static content from:
 const dir = `${__dirname}/public`;
 
-// Which means we can create our web client:
+// Which means we can now create our "web-enabled client":
 const { clientWebServer } = createWebClient(ClientClass, serverURL, dir);
 
-// And then run its web server the same way we ran the API server, above:
+// And then we run its web server the same way we ran the API server:
 clientWebServer.listen(WEB_PORT, () => {
   console.log(`Server listening on http://localhost:${WEB_PORT}`);
+
   // With an extra bit that automatically opens a browser for us:
   if (process.argv.includes(`--browser`)) {
     import("open").then(({ default: open }) => {
@@ -169,16 +183,18 @@ First, let's install our dependencies: [dotenv](https://www.npmjs.com/package/do
 > npm i dotenv open socketless msfs-simconnect-api-wrapper
 ```
 
-And then we'll want to update our `package.json` to include `"type": "module"` since we'll be writing modern JS with normal `import` and `export` syntax rather than using the legacy Node.js `require` or the `module` global.
+And then we'll want to update our `package.json` to include `"type": "module"` since we'll be writing modern JS with normal `import` and `export` syntax rather than using the legacy Node.js `require` or the `module` globals.
 
-With that done, we can fill in `src/classes/index.js`:
+With that done, we can fill in `src/classes/index.js` with "dummy" client and server classes:
 
 ```js
 // Our client class will announce its own connection, as well as browser connections:
 export class ClientClass {
+  // nothing special going on here, just a console log
   onConnect() {
     console.log(`[client] We connected to the server!`);
   }
+  // and nothing special going on here either, just more console log
   onBrowserConnect() {
     console.log(`[client] A browser connected!`);
   }
@@ -186,10 +202,11 @@ export class ClientClass {
 
 // Our server class will also announce that it got client connections:
 export class ServerClass {
+  // still nothing special going on here...
   onConnect(client) {
     console.log(`[server] A client connected!`);
   }
-  // And has a little test function that both logs and returns a value:
+  // ...but we do add a little test function that the client can call:
   async test() {
     console.log(`[server] test!`);
     return "success!";
@@ -197,7 +214,7 @@ export class ServerClass {
 }
 ```
 
-And then we'll create a quick `public/index.html` page that we can load in the browser:
+And then to add the browser into the mix, we'll also create a quick `public/index.html` file that we can load in the browser:
 
 ```html
 <!doctype html>
@@ -205,10 +222,10 @@ And then we'll create a quick `public/index.html` page that we can load in the b
   <head>
     <meta charset="utf-8" />
     <title>Let's test our connections!</title>
-    <script src="js/setup.js" type="module" async></script>
+    <script src="js/index.js" type="module" async></script>
   </head>
   <body>
-    <!-- we only need the dev tools console tab for now -->
+    <!-- we only need to look at the developer tools "console" tab for now -->
   </body>
 </html>
 ```
@@ -217,8 +234,8 @@ With a bare minimum browser client in `public/js/index.js`:
 
 ```javascript
 // We don't need to put a "socketless.js" in our public dir,
-// this is a "magic import" provided by socketless itself
-// when we're connected to a socketless web server:
+// this is a "magic import" that works when we're connected
+// to a socketless web server:
 import { createBrowserClient } from "./socketless.js";
 
 // Then we set up our browser client to announce its connections:
@@ -232,12 +249,13 @@ class BrowserClient {
   }
 }
 
-// And then the only thing left to do in the browser
-// is to create a browser client instance:
+// Then the only thing left to do in the browser is to create a browser client instance:
 createBrowserClient(BrowserClient);
 ```
 
-So let's run `node api-server.js` in one terminal, and `node web-server.js --browser` in another. Doing so will show us the following text in the server terminal:
+And that's it, we just implemented a full server + client + browser constellation!
+
+So let's run `node api-server.js` in a terminal, and `node web-server.js --browser` in another. Doing so will show us the following text in the server terminal:
 
 ```
 ...> node api-server.js
@@ -256,10 +274,10 @@ Opening a browser...
 [client] A browser connected!
 ```
 
-And then, because the `--browser` flag opened a browser, if we look at the browser's developer tools' `console` tab, we see:
+And, because the `--browser` flag opened a browser, if we look at the browser's developer tools' `console` tab, we see:
 
 ```
-[browser] We're connected to our web client! index.js:9:17
+[browser] We're connected to our web client!                            index.js:9:17
 Calling test: success!
 ```
 
@@ -269,7 +287,7 @@ Awesome, we have a complete API server + web server + browser thin client and "t
 
 Our server class is how clients "talk" to MSFS. Any function we expose on the server class will end up being a function that, as far as clients know, is just part of the local `this.server` object, so we'll want to make sure to keep things that should not be directly accessible either off the class (i.e. declare and initialize them outside the class) or mark them as private using the `#` character, so that they can't be called by anyone else.
 
-Let's update our server class and let's move it into its own `src/classes/server.js` instead so we're not mixing our client and server code:
+With that in mind, let's update our server class and let's move it into its own `src/classes/server/server.js` instead, so we're not mixing our client and server code:
 
 ```js
 // load the environment:
@@ -278,234 +296,101 @@ const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../../.env` });
 
-// And then import the MSFS connector library and create an API instance:
-import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
-const api = new MSFS_API();
+// And some helper functions:
+import { connectServerToAPI, registerWithAPI } from "./helpers.js";
 
-// We have three "global" values that need to be communicated every time a client connects:
+// And then the most important import: the MSFS connector
+import { MSFS_API } from "msfs-simconnect-api-wrapper";
 
-// 1: our actual API connector:
+// In order to prevent clients from directly accessing the MSFS
+// connector, we're going to make it a global (to our module):
 let api = false;
 
-// 2: are we connected to MSFS?
+// And we'll do the same with the "is MSFS connected?" value:
 let MSFS = false;
-
-// 3: is a flight in progress right now?
-let flying = false;
-
-// Then we define a function that lets us set up the connection to MSFS
-// so we don't need all that code in our server class constructor:
-function connectServerToAPI(onConnect) {
-  api.connect({
-    // when we lose the connection, try to reconnect
-    autoReconnect: true,
-    // and keep doing that forever
-    retries: Infinity,
-    // at a 5 second interval.
-    retryInterval: 5,
-    // But when we *do* connect, call this:
-    onConnect,
-    // And every time we retry, do this:
-    onRetry: (_, s) =>
-      console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
-  });
-}
 
 // Next up, our server class:
 export class ServerClass {
-  constructor() {
-    this.init();
-  }
-
   async init() {
+    const { clients } = this;
+
     // set up the API variable - note that because this is a global,
     // clients can't directly access the API. However, we'll be setting
     // up some API routing to make that a non-issue in a bit.
     api = new MSFS_API();
 
     // Set up call handling for API calls: this will be explained after we
-    // finish writing this class. We bind this as `this.api` so that any
-    // client/ will be able to call `this.server.api...` and have things work.
-    this.api = new APIWrapper(api, () => MSFS);
-
-    // Add "function routing" for the api and autopilot
-    this.#setupRouting();
-
-    // Then wait for MSFS to come online
-    connectServerToAPI(() => this.#onMSFSConnect());
-  }
-
-  // Our routing, for now, is just some code that allows client to call
-  // endpoints that will get (after security checks) passed on to the API:
-  async #setupRouting() {
+    // finish writing this class. We bind it as `this.api` so that any
+    // client will be able to call `this.server.api...` and have things work.
     this.api = new APIRouter(api, () => MSFS);
 
-    // Note: with that, all clients will now be able to call server.api.[...]
-  }
+    // Then wait for MSFS to come online
+    connectServerToAPI(api, async () => {
+      console.log(`Connected to MSFS.`);
+      MSFS = true;
+      clients.forEach((client) => client.onMSFS(MSFS));
 
-  // Note that this is a private function: only "this" can access it, as
-  // above in the "connectServerToAPI(() => this.#onMSFSConnect());" line.
-  async #onMSFSConnect() {
-    // we have a connection, so:
-    MSFS = true;
-
-    console.log(`Connected to MSFS.`);
-    console.log(`${(await api.get(`ALL_AIRPORTS`)).ALL_AIRPORTS.length} airports loaded`);
-
-		// register for some of the events we're interested in...
-    this.#registerWithAPI(api);
-
-    // then notify all clients that my have connected already that we have connection:
-    this.clients.forEach((client) => client.onMSFS(MSFS));
-
-    // then, start polling the game state at a regular interval:
-    this.#poll();
+      // And when it's online and we're connected, start polling for when we're "in game".
+      (async function poll() {
+        checkGameState(autopilot, clients);
+        runLater(poll, POLLING_INTERVAL);
+      })();
+    });
   }
 
   /**
-   * register a bunch of events that we want to be notified of,
-   * without exposing this function to clients.
+   * Then a minimum amount of code for When a client connects to us,
+   * and MSFS is already connected.
    */
-  #registerWithAPI(api, autopilot) {
-    // Obviously, it'll be good to know if we're paused or not:
-    api.on(SystemEvents.PAUSED, async () => {
-      autopilot.setPaused(true);
-      this.clients.forEach((client) => client.pause());
-    });
-
-    api.on(SystemEvents.UNPAUSED, async () => {
-      autopilot.setPaused(false);
-      this.clients.forEach((client) => client.unpause());
-    });
-
-    // And, similarly, whether we just crashed the plane or not:
-    api.on(SystemEvents.CRASHED, async () => {
-      this.clients.forEach((client) => client.crashed());
-    });
-
-    api.on(SystemEvents.CRASH_RESET, async () => {
-      this.clients.forEach((client) => client.crashReset());
-    });
-
-    // And then, whenever the "sim" or "view" values change,
-    // check the camera to determine whether we're actually
-    // in-game or not.
-    api.on(SystemEvents.SIM, () => this.#checkFlying());
-    api.on(SystemEvents.VIEW, () => this.#checkFlying());
+  async onConnect(client) {
+    if (MSFS) client.onMSFS(true);
   }
+}
+```
 
-  /**
-   * If the camera enum is 9 or higher, we are not actually in-game,
-   * even if the SIM variable is 1, so we use this to determine whether
-   * we're in-flight (because there is no true "are we flying?" var that
-   * can be checked on connect)
-   */
-  async #checkFlying(client) {
-    // if we're not connected, we can't check on our flight status...
-    if (!MSFS) return;
+With some helper functions in `src/classes/server/helpers.js`
 
-    // we we are, get some important values:
-    const data = await api.get(
-      `CAMERA_STATE`,
-      `CAMERA_SUBSTATE`,
-      `SIM_ON_GROUND`,
-      `ELECTRICAL_AVIONICS_BUS_VOLTAGE`,
-      `ELECTRICAL_TOTAL_LOAD_AMPS`
-    );
+```javascript
+import { SystemEvents } from "msfs-simconnect-api-wrapper";
+let inGame = false;
 
-    // if we didn't get anything, that's... a problem...
-    if (!data) {
-      return console.warn(`there was no camera information? O_o`);
-    }
+export function connectServerToAPI(api, onConnect) {
+  api.connect({
+    autoReconnect: true,
+    retries: Infinity,
+    retryInterval: 5,
+    onConnect,
+    onRetry: (_, s) =>
+      console.log(`Can't connect to MSFS, retrying in ${s} seconds`),
+  });
+}
 
-    // If we did, get all the values we wanted:
-    const {
-      CAMERA_STATE: camera,
-      CAMERA_SUBSTATE: camerasub,
-      SIM_ON_GROUND: onGround,
-      ELECTRICAL_AVIONICS_BUS_VOLTAGE: load,
-      ELECTRICAL_TOTAL_LOAD_AMPS: amps,
-    } = data;
+export function registerWithAPI(clients, api, autopilot, flightInformation) {
+  console.log(`Registering API server to the general sim events.`);
 
-    // then, before we do anything, let connected clients know about the camera:
-    if (client) {
-      client.setCamera(camera, camerasub);
-    } else {
-      this.clients.forEach((client) => client.setCamera(camera, camerasub));
-    }
+  api.on(SystemEvents.PAUSED, () => {
+    autopilot.setPaused(true);
+    clients.forEach((client) => client.pause());
+  });
 
-    // Then, check whether or not we changed state from "not flying" to "flying":
-    const wasFlying = flying;
-    flying = (2 <= camera && camera < 9) && (onGround === 0 || load !== 0 || amps !== 0);
-    if (flying !== wasFlying) {
-      // If that happened, inform all connected clients that we're now flying:
-      this.clients.forEach((client) => client.setFlying(flying));
-    } else if (client) {
-      // If not, just let the "current client" know. If there is one:
-      client.setFlying(flying);
-    }
-  }
+  api.on(SystemEvents.UNPAUSED, () => {
+    autopilot.setPaused(false);
+    clients.forEach((client) => client.unpause());
+  });
 
-  /**
-   * Let's check out the polling function. For one: it's a private function,
-   * meaning that it can only be called using `this.#poll()`. Which means
-   * that remote clients can't call it either, which is *very* good.
-   */
-  async #poll() {
-    // Check if there's a flight in progress:
-    this.#checkFlying();
-    // Then rerun the check 5 seconds from now:
-    setTimeout(() => this.#poll(), 5000);
-  }
+  api.on(SystemEvents.CRASHED, () => {
+    flightInformation.general.crashed = true;
+    clients.forEach((client) => client.crashed());
+  });
 
-  /**
-   * Check whether a flight is in progress. And there is no single
-   * MSFS variable we can check for that, so strap in: we're doing
-   * some "well if X, Y, and Z, we *must* be flying".
-   */
-  async #checkFlying(client) {
-    if (!MSFS) return;
+  api.on(SystemEvents.CRASH_RESET, () => {
+    flightInformation.general.crashed = false;
+    clients.forEach((client) => client.crashReset());
+  });
+}
 
-    // Get the current camera settings, the "is the plane on
-    // the ground" variable, and how a value that tells us
-    // whether power is flowing in the aircraft:
-    const {
-      CAMERA_STATE: camera,
-      CAMERA_SUBSTATE: subcamera,
-      SIM_ON_GROUND: onGround,
-      ELECTRICAL_AVIONICS_BUS_VOLTAGE: load,
-    } = await this.api.get(
-      client,
-      `CAMERA_STATE`,
-      `CAMERA_SUBSTATE`,
-      `SIM_ON_GROUND`,
-      `ELECTRICAL_AVIONICS_BUS_VOLTAGE`
-    );
-
-    // Record whether we "were" flying or not:
-    const wasFlying = flying;
-
-    // Now, If the camera enum is 9 or higher, we are not actually in-game,
-    // even if the `SIM` variable, which tells us whether we're in-game or not,
-    // is 1. We could be in-game but with the plane turned off and parked
-    // somewhere, so let's check some more things: if the plane's not on the
-    // ground, obviously we're flying, but if the plane *is* on the ground, but
-    // we're powered up, then it's likely we're in the "ground part" of a flight,
-    // where we might be getting ready to taxi, or we're taxying, or we're
-    // barrelling down the runway about to take off...
-    flying = 2 <= camera && camera < 9 && (onGround === 0 || load !== 0);
-
-    // If this was in response to a client connecting, we immediately let
-    // them know whether we're flying or not. If not, we inform *all* clients
-    // of the flying state, but only if it's different from what it was before:
-    if (client) {
-      client.setFlying(flying);
-    } else if (flying !== wasFlying) {
-      this.clients.forEach((client) => client.setFlying(flying));
-    }
-  }
-
-  // And that's it, that's our server code for now!
+export async function checkGameState(autopilot, clients, flightInformation) {
+  // ...we'll fill in this function a bit later
 }
 ```
 
@@ -1334,66 +1219,45 @@ export class Plane {
 }
 ```
 
-And that's the "game state" readback sorted out! Easy-peasy! ...okay not really, because you might see `flightModel` and `flightData` in that code: what's that all about?
+And that's the "game state" read-back sorted out! Easy-peasy!
 
-### Getting flight model and flight data information
+...
 
-In order to work with flight informaiton, we could make the browser ask the server for that information, but since the server is polling MSFS anyway, it makes far more sense to just have the server get "all the flight data we might be even remotely interested in", once, and then just broadcast that data to every client. And then if those clients have browsers connected to them, those will update "for free" thanks to how the `setState` function works in `socketless`.
+Okay not really. You probably spotted those `flightModel` and `flightData` variables in th code: what's that all about?
 
-So let's write some code that lets us relatively easily work with flight models and flight data. Let's create a `src/utils/flight-values.js` file, and let's start with the flight model values:
+### Getting model and flight information
+
+In order to work with flight information, we could make the browser ask the server for that information, but since the server is polling MSFS anyway, it makes far more sense to just have the server get "all the flight data we might be even remotely interested in", once, and then just broadcast that data to every client. And then if those clients have browsers connected to them, those will update "for free" thanks to how the `setState` function works in `socketless`.
+
+So let's write some code that lets us relatively easily work with flight models and flight data. We'll create a `src/utils/flight-values.js` file, and then start with the flight model values:
 
 ```js
 export const FLIGHT_MODEL = [
-  `BETA_DOT`,
   `CATEGORY`,
-  `DECISION_ALTITUDE_MSL`,
-  `DECISION_HEIGHT`,
   `DESIGN_CRUISE_ALT`,
-  `DESIGN_SPAWN_ALTITUDE_CRUISE`,
-  `DESIGN_SPAWN_ALTITUDE_DESCENT`,
   `DESIGN_SPEED_CLIMB`,
   `DESIGN_SPEED_MIN_ROTATION`,
   `DESIGN_SPEED_VC`,
   `DESIGN_SPEED_VS0`,
   `DESIGN_SPEED_VS1`,
   `DESIGN_TAKEOFF_SPEED`,
-  `DYNAMIC_PRESSURE`,
   `ELEVATOR_TRIM_DOWN_LIMIT`,
   `ELEVATOR_TRIM_UP_LIMIT`,
   `ENGINE_TYPE`,
-  `ESTIMATED_CRUISE_SPEED`,
-  `G_FORCE`,
-  `G_LIMITER_SETTING`,
   `INCIDENCE_ALPHA`,
-  `INCIDENCE_BETA`,
   `IS_GEAR_FLOATS`,
   `IS_GEAR_RETRACTABLE`,
   `IS_TAIL_DRAGGER`,
-  `LINEAR_CL_ALPHA`,
-  `MACH_MAX_OPERATE`,
-  `MAX_G_FORCE`,
-  `MIN_DRAG_VELOCITY`,
-  `MIN_G_FORCE`,
   `NUMBER_OF_ENGINES`,
   `PLANE_LATITUDE`,
   `PLANE_LONGITUDE`,
-  `SEMIBODY_LOADFACTOR_Y`,
-  `SEMIBODY_LOADFACTOR_YDOT`,
-  `SIGMA_SQRT`,
-  `SIMULATED_RADIUS`,
   `STALL_ALPHA`,
   `STATIC_CG_TO_GROUND`,
-  `STATIC_PITCH`,
   `TITLE`,
   `TOTAL_WEIGHT`,
   `TYPICAL_DESCENT_RATE`,
   `WING_AREA`,
-  `WING_FLEX_PCT:1`,
-  `WING_FLEX_PCT:2`,
   `WING_SPAN`,
-  `YAW_STRING_ANGLE`,
-  `YAW_STRING_PCT_EXTENDED`,
-  `ZERO_LIFT_ALPHA`,
 ];
 
 export const ENGINE_TYPES = [
@@ -1406,9 +1270,9 @@ export const ENGINE_TYPES = [
 ];
 ```
 
-Do we need all that data? Probably not! But if we're going to ask SimConnect for a whole bunch of values anyway, we might as well as for more than we need. By the end of this, we'll actually be using a surprising number of these!
+Do we need all that data? Surprisingly: yes! Almost all of these will let us either bootstrap our autopilot parameters, or do things like "tick checkboxes on our page".
 
-Next up, our "while we're actually flying" data:
+Next up, our "things we want to know while we're actually flying" data:
 
 ```js
 export const FLIGHT_DATA = [
@@ -1454,11 +1318,12 @@ export const FLIGHT_DATA = [
 
 This also looks like a lot of data, but we really do need every single one of these values if we're going to implement an autopilot.
 
-But that does leave us with a problem: SimConnect isn't really all that fussy about making sure every single value uses a unit that makes sense, so something like `PLANE_BANK_DEGREES`, which you would expect to be a number in degrees, is actually a stored in radians. And `SPEED` is in knots, so surely `DESIGN_SPEED_CLIMB` is in knots, too, right? Nope, that's in feet per second. Which means `DESIGN_SPEED_VS1` is in feet per second, too? Haha, no, that one _is_ in knots, but "knots indicated", so not a real speed, but what the dial in the cockpit shows on the speed guage.
+But that does leave us with a problem: SimConnect isn't really all that fussy about making sure every single value uses a unit that makes sense, so something like `PLANE_BANK_DEGREES`, which you would expect to be a number in degrees, is actually a stored in radians. And `AIRSPEED_TRUE` is in knots, so surely `DESIGN_SPEED_CLIMB` is in knots, too, right? Nope, that's in feet per second. Which means `DESIGN_SPEED_VS1` is in feet per second, too? Haha, no, that one _is_ in knots, but "knots indicated", so not a real speed, but what the dial in the cockpit shows on the speed gauge.
 
-Oh and boolean values aren't true or false, they're 1 or 0. So let's write some code to take of all this nonsense because if we don't it's just going to be a huge headache:
+Oh and boolean values aren't true or false, they're 1 or 0. It's all a bit of a mess, so let's write some code to take of all this nonsense and make sure values are in units we can rely on, because if we don't it's just going to be a huge headache:
 
 ```js
+// These are all degree values that are actually stored as radians.
 export const DEGREE_VALUES = [
   `PLANE_LATITUDE`,
   `PLANE_LONGITUDE`,
@@ -1470,6 +1335,7 @@ export const DEGREE_VALUES = [
   `TURN_INDICATOR_RATE`,
 ];
 
+// These are all boolean values that are stored as a number.
 export const BOOLEAN_VALUES = [
   `AUTOPILOT_MASTER`,
   `ENG_COMBUSTION:1`,
@@ -1485,7 +1351,7 @@ export const BOOLEAN_VALUES = [
   `SIM_ON_GROUND`,
 ];
 
-// percent over 100 to percent
+// These are percentages, but stored as "percent divided by 100"
 export const PERCENT_VALUES = [
   `AILERON_POSITION`,
   `AILERON_TRIM_PCT`,
@@ -1495,13 +1361,14 @@ export const PERCENT_VALUES = [
   `RUDDER_TRIM_PCT`,
 ];
 
-// fps to fpm
+// In game, vertical speed is feet per minute.
+// SimConnect reports it as feet per second...
 export const FPM_VALUES = [`VERTICAL_SPEED`];
 
-// meters to feet
+// Plane altitude is in feet, so why is ground altitude in meters?
 export const MTF_VALUES = [`GROUND_ALTITUDE`];
 
-// fps to knots
+// And finally, please just turn all of these into values in knots.
 export const KNOT_VALUES = [
   `DESIGN_SPEED_MIN_ROTATION`,
   `DESIGN_SPEED_CLIMB`,
@@ -1538,6 +1405,8 @@ export function convertValues(data) {
   }
 }
 ```
+
+In this code, the contants are 364000, 3.28084, and 1/1.68781, respectively, and `exists` is just a tiny function that checks whether a value is either `undefined` or `null`, because we want to assign a value if a property _does_ exist, and there is no `!??=` operator =)
 
 Which leaves one more thing: working with `PLANE_ALT_ABOVE_GROUND_MINUS_CG` or `AUTOPILOT_HEADING_LOCK_DIR` is something we _could_ do, but it would be a heck of a lot nicer if those things had normal names that followed standard JS naming conventions. So let's write _even more utility code_ to take care of that for us:
 
@@ -1596,9 +1465,6 @@ export const NAME_MAPPING = {
   VERTICAL_SPEED: `VS`,
   WING_AREA: `wingArea`,
   WING_SPAN: `wingSpan`,
-  // custom values
-  ENGINES_RUNNING: "enginesRunning",
-  POWERED_UP: "hasPower",
 };
 
 export function rebindData(data) {
@@ -1614,9 +1480,10 @@ export function rebindData(data) {
 }
 ```
 
-And then that just leaves one more thing: several of the values we want to work with are "delta" values, which SimConnect doesn't offer. If we want to know the change in speed from moment to moment, or the changein bank angle from moment to moment, we're going to have to compute those ourselves. So.... here we go:
+And then that just leaves one more thing: several of the values we want to work with are "delta" values, which SimConnect doesn't offer. If we want to know the change in speed from moment to moment, or the change in bank angle from moment to moment, we're going to have to compute those ourselves. So.... here we go:
 
 ```js
+// Our list of derivatives
 export const DERIVATIVES = [
   `bank`,
   `heading`,
@@ -1629,9 +1496,10 @@ export const DERIVATIVES = [
   `VS`,
 ];
 
+// And our single "second derivative":
 export const SECOND_DERIVATIVES = [`VS`];
 
-// With an update to the `rebind` function:
+// And then an update to the `rebind` function:
 export function rebindData(data, previousValues) {
   // Whether or not we have previous values for delta computation,
   // just preallocate the values we _might_ need for that.
@@ -1675,10 +1543,9 @@ export function rebindData(data, previousValues) {
 }
 ```
 
-That only took forever. And we still need to write the actual code that pulls this data from SimConnect to keep us up to date. Thankfully with all the above work already done, that part's nowhere near as much work:
+That only took forever. And we still need to write the actual code that pulls this data from SimConnect to keep us up to date. Thankfully, with all the above work already done, that part is nowhere near as much work. First, we write a `FlightInformation` object to wrap all those values and functions:
 
 ```js
-import { MSFS_API } from "msfs-simconnect-api-wrapper";
 import * as Values from "./flight-values.js";
 
 const noop = () => {};
@@ -1695,6 +1562,8 @@ export class FlightInformation {
     this.flightData = false;
   }
 
+  // We'll have three update functions. Two for the two types
+  // of data, and then this one, which is a unified "call both":
   async update() {
     try {
       const [flightModel, flightData] = await Promise.all([
@@ -1707,6 +1576,7 @@ export class FlightInformation {
     }
   }
 
+  // Then our "update the model" code:
   async updateModel() {
     const modelData = await api.get(...Values.FLIGHT_MODEL);
     if (!modelData) {
@@ -1724,6 +1594,7 @@ export class FlightInformation {
     return (this.flightModel = modelData);
   }
 
+  // And our "update the current flight information" code:
   async updateFlight() {
     const flightData = await api.get(...Values.FLIGHT_DATA);
     if (!flightData) return (this.flightData = false);
@@ -1745,12 +1616,11 @@ export class FlightInformation {
     flightData.declination = flightData.trueHeading - flightData.heading;
 
     return (this.flightData = flightData);
-    F;
   }
 }
 ```
 
-And then, as last step, we now need to make the server actually use this thing:
+And then, as last step, we now need to make the server actually use this object:
 
 ```js
 import { FlightInformation as fi } from "../../utils/flight-information.js";
@@ -1762,11 +1632,12 @@ let flightInformation = false;
 
 ...
 
-
 class Server {
   ...
 
   async init() {
+    // We'll want to make sure to reload the import if we end up editing
+    // the flight information class, using our reload watcher:
     watch(__dirname, `../../utils/flight-information.js`, (module) => {
       FlightInformation = module.FlightInformation;
       if (flightInformation) {
@@ -1776,27 +1647,24 @@ class Server {
         );
       }
     });
-
     ...
   }
 
   ...
 
-  async #onMSFSConnect() {
-    MSFS = true;
-    console.log(`Connected to MSFS.`);
+  #registerWithAPI(api, autopilot) {
+    ...
     flightInformation = new FlightInformation(api);
     flightInformation.update();
-    this.#registerWithAPI(api);
-    this.clients.forEach((client) => client.onMSFS(MSFS));
-    this.#poll();
   }
 
   async #poll() {
+    // update the flight information and relay that to our clients:
     await flightInformation.update();
     this.clients.forEach((client) =>
       client.setFlightInformation(flightInformation)
     );
+    //
     this.#checkFlying();
     runLater(() => this.#poll(), 5000);
   }
@@ -2701,7 +2569,16 @@ And done, that's our attitude indicator hooked up.
 
 Before we consider our page work done, though, let's add one more thing: science.
 
-If we want to understand what our plane is doing, especially if we want to understand what our plane is doing in response to input changes (be those human or auto pilot in nature), we need some way to see what happens over time, which means we want graphs. And if we need graphs, we need some code that'll do that graphing for us!
+<figure>
+
+  ![All the science](image.png)
+
+  <figcaption>Look at all that science!</figcaption>
+</figure>
+
+If we want to understand what our plane is doing, especially if we want to understand what our plane is doing in response to input changes (be those human or auto pilot in nature), we need some way to see what happens over time. Which means we want graphs. Lots of graphs.
+
+And if we need graphs, we need some code that'll do that graphing for us!
 
 There's quite a few ways to get some nice charts on a page, so instead of running you through the code that this project uses, let's just say that you are spoiled for choice and the choice of whether to use an off-the-shelf library or rolling your own code is entirely up to you. In this specific case, I rolled us some custom code that you can find on the repo under `public/js/dashboard/`, mostly because I wanted something that generates plain SVG that I can just copy-paste from dev tools into a new file, save that as `.svg` and then be able to load it into any SVG viewer/editor. Something that's particularly useful for autopilot debugging.
 
@@ -2718,22 +2595,33 @@ export function initCharts() {
   };
 
   const chartables = {
-    ground: {
-      addLabel: true,
+    // basics
+    ground: { unit: `feet`, positive: true, fixed: 1, max: 1500, filled: true },
+    altitude: { unit: `feet`, positive: true, fixed: 1 },
+    speed: { unit: `knots`, positive: true, fixed: 2 },
+    dV: { unit: `knots/s`, fixed: 2 },
+    // elevator
+    VS: { unit: `fpm`, fixed: 1, /*autoscale: 60,*/ limits: [1000, -1000] },
+    dVS: { unit: `fpm/s`, fixed: 2 /*autoscale: 60*/ },
+    pitch: { unit: `degrees`, fixed: 1 },
+    dPitch: { unit: `deg/s`, fixed: 2, limits: [1, -1] },
+    // aileron
+    heading: {
+      unit: `degrees`,
+      positive: true,
       min: 0,
-      startMax: 500,
-      colors,
-      axes: {
-        minor: { interval: 100, },
-        major: { interval: 1000, strokeWidth: 2 },
-      },
+      max: 360,
+      discontinuous: true,
+      fixed: 0,
     },
-    altitude: {
-      min: 0,
-      startMax: 500,
-      ...
-    },
-    ...
+    bank: { unit: `degrees`, fixed: 2, limits: [30, -30] },
+    dBank: { unit: `deg/s`, fixed: 4 },
+    turnRate: { label: `turn rate`, unit: `deg/s`, fixed: 2 },
+    rudder: { label: `rudder`, unit: `%`, fixed: 2 },
+    // trim settings
+    pitchTrim: { label: `pitch trim`, unit: `%`, fixed: 3 },
+    aileronTrim: { label: `aileron trim`, unit: `%`, fixed: 3 },
+    rudderTrim: { label: `rudder trim`, unit: `%`, fixed: 3 },
   };
 
   return new Chart(chartables, colors);
@@ -2777,66 +2665,42 @@ export class Plane {
    */
   updateChart(varData, now) {
     // Get our variables...
-    const { alt, bank, galt, pitch, speed, heading } = varData;
-    const { vspeed, trim, aTrim, turnRate } = varData;
+    const { alt, bank, groundAlt, pitch, speed, heading, rudder } = flightData;
+    const { VS, pitchTrim, aileronTrim, turnRate, rudderTrim } = flightData;
+    const nullDelta = { VS: 0, pitch: 0, bank: 0 };
+    const {
+      VS: dVS,
+      pitch: dPitch,
+      bank: dBank,
+      speed: dV,
+    } = flightData.d ?? nullDelta;
 
-    // ...and update all the charts for them!
+    // and then update all our charts:
     this.charts.update({
-      ground: galt,
-      altitude: alt,
-      vspeed: vspeed,
-      dvs: (vspeed - this.lastUpdate.vspeed) / (now - this.lastUpdate.time),
-      speed: speed,
-      pitch: pitch,
-      trim: trim,
-      heading: heading - 180,
-      bank: bank,
-      dbank: (bank - this.lastUpdate.bank) / (now - this.lastUpdate.time),
-      "turn rate": turnRate,
-      "aileron trim": aTrim,
-    })
-}
-
-/**
- * And here's that function to make getting values out of flightData easier:
- */
-function getVarData(flightData) {
-  const {
-    AILERON_TRIM_PCT: aTrim,
-    AIRSPEED_INDICATED: speed,
-    AUTOPILOT_HEADING_LOCK_DIR: bug,
-    ELEVATOR_TRIM_POSITION: trim,
-    GROUND_ALTITUDE: galt,
-    INDICATED_ALTITUDE: alt,
-    PLANE_ALT_ABOVE_GROUND: paag,
-    PLANE_BANK_DEGREES: bank,
-    PLANE_HEADING_DEGREES_MAGNETIC: heading,
-    PLANE_HEADING_DEGREES_TRUE: trueHeading,
-    PLANE_LATITUDE: lat,
-    PLANE_LONGITUDE: long,
-    PLANE_PITCH_DEGREES: pitch,
-    STATIC_CG_TO_GROUND: cg,
-    TURN_INDICATOR_RATE: turnRate,
-    VERTICAL_SPEED: vspeed,
-  } = flightData;
-  return {
-    ...{ lat, long },
-    ...{ alt, bank, bug, cg, galt, paag },
-    ...{ heading, pitch, speed, trueHeading },
-    ...{ vspeed, trim, aTrim, turnRate },
-  };
+      // basics
+      ground: groundAlt, altitude: alt, speed, dV,
+      // elevator
+      VS, dVS, pitch, dPitch,
+      // ailleron
+      heading, bank, dBank, turnRate, rudder,
+      //trim
+      pitchTrim, aileronTrim, rudderTrim,
+    });
 }
 ```
 
-Now we can see what our plane is doing over time, which means we're ready to get down to what you started reading this page for. Now that we're some 10,000 words down the page.
+Now we can see what our plane is doing over time, which means we're ready to get down to what you started reading this page for!
 
-<figure style="width: 50%; margin: auto; margin-bottom: 1em; overflow: hidden;" >
-  <a href="images/page/science/charts.png" target="_blank">
-    <img src="images/page/science/charts.png" alt="Flight information for a flight from Raven's Field to Vancouver Island's south coast"/>
-  </a>
-  <figcaption style="font-style: italic; text-align: center;">All the data</figcaption>
+<figure>
+
+  ![That's some big science](./images/page/big-science.png)
+
+  <figcaption>That's some big science...</figcaption>
 </figure>
-Right. _Let's do this_...
+
+...Now that we're some 15,000 words down the page...
+
+_So let's finally do this._
 
 # Part three: writing an autopilot
 
@@ -3627,7 +3491,7 @@ Now that we have a working "fly level" and "hold altitude" implementation, let's
 
 In order to see how well our code works, we'll be flying around a bit in The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), a fun little piston engine bush plane:
 
-![image-20231105214745162](./beaver-shot.png)
+![image-20231105214745162](./images/planes/beaver-shot.png)
 
 And our order of operations will be to spawn the plane at cruise altitude in above the middle of the pacific ocean in fair weather, have it stabilize itself on the in-game autopilot as a substitute for manually trimming the plane, and then switch to our own autopilot (which will turn off the in-game one) to see how well that holds up. And then we're going to compare our "before" and "after" graphs to see what we can learn:
 
@@ -6716,7 +6580,7 @@ Lots of code, but not a lot of "logic". The bulk is "building points" based on k
 
 Consider the following setup:
 
-PUT A GRAPHICS-ELEMENT HERE 
+PUT A GRAPHICS-ELEMENT HERE
 
 base setup: a runway and six approach locations: prior, next to, and past the runway, on either side.
 

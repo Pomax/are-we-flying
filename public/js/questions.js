@@ -42,12 +42,11 @@ export const Questions = {
   update(state) {
     elements.serverOnline.checked = !!state.serverConnection;
     elements.msfsRunning.checked = state.MSFS;
-    elements.inGame.checked = state.camera?.main < 9;
+    elements.inGame.checked = state.general?.inGame;
     elements.isAcrobatic.checked = state.flightModel?.isAcrobatic;
     elements.poweredUp.checked = state.flightData?.hasPower;
     elements.enginesRunning.checked = state.flightData?.enginesRunning;
-    elements.inTheAir.checked =
-      state.flightData && !state.flightData.onGround;
+    elements.inTheAir.checked = state.general?.flying;
     elements.usingAp.checked = state.flightData?.MASTER;
     elements.planeCrashed.checked = state.crashed;
     this.whereAreWeFlying(state);
