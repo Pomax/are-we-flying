@@ -1,6 +1,6 @@
 import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-
+const { sign } = Math;
 import {
   ACROBATIC,
   ALTITUDE_HOLD,
@@ -12,7 +12,7 @@ import {
   LEVEL_FLIGHT,
   TERRAIN_FOLLOW,
 } from "../utils/constants.js";
-import { degrees, runLater, nf } from "../utils/utils.js";
+import { constrainMap, degrees, runLater, nf } from "../utils/utils.js";
 import { ALOSInterface } from "../elevation/alos-interface.js";
 
 // allow hot-reloading of flyLevel and altitudeHold code,
@@ -107,10 +107,6 @@ export class AutoPilot {
       rollLocked: false, // bypass wing leveler
       yawLocked: false, // bypass auto rudder
     };
-  }
-
-  test() {
-    console.log(`AutoPilot.test(): there is currently no test code defined.`);
   }
 
   // Hot-reload watching
@@ -409,5 +405,9 @@ export class AutoPilot {
     if (this.modes[AUTO_THROTTLE]) {
       this.autoThrottle(this, this.flightInformation);
     }
+  }
+
+  async test() {
+    console.log(`AutoPilot.test(): there is currently no test code defined.`);
   }
 }

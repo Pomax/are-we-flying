@@ -56,16 +56,19 @@ export async function checkGameState(autopilot, clients, flightInformation) {
   }
 
   // Is there's a state change from "not in game" to "in game"?
-  const notInGame = inGame;
+  const wasInGame = inGame;
   inGame = flightInformation.general.inGame;
-  if (inGame !== notInGame) {
-    if (inGame) {
-      autopilot.reset(flightInformation, (data) =>
-        sendFlightInformation(clients, data)
-      );
-    } else {
-      autopilot.disable();
-    }
+
+  if (wasInGame && !inGame) {
+    console.log(`left the game, disabling autopilot`);
+    autopilot.disable();
+  }
+
+  if (!wasInGame && inGame) {
+    console.log(`new game started, resetting autopilot`);
+    autopilot.reset(flightInformation, (data) =>
+      sendFlightInformation(clients, data)
+    );
   }
 }
 

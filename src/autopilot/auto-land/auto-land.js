@@ -1,4 +1,4 @@
-import { performAirportCalculations } from "./helpers.js";
+import { setPitch, performAirportCalculations } from "./helpers.js";
 
 import {
   radians,
@@ -259,6 +259,7 @@ class AutoLand {
     const { flightData, flightModel } = flightInformation;
     const {
       bank,
+      elevator,
       gearSpeedExceeded,
       isGearDown,
       lat,
@@ -268,6 +269,7 @@ class AutoLand {
       pitch,
       speed,
     } = flightData;
+    const { pitch: dPitch } = flightData.d;
     const {
       climbSpeed,
       engineCount,
@@ -276,6 +278,7 @@ class AutoLand {
       vs0,
       weight,
     } = flightModel;
+    const pitchFlightInformation = { elevator, pitch, dPitch };
     const approachSpeed = climbSpeed + 20;
     const waypoints = (await autopilot.getWaypoints()).filter((w) => w.landing);
     const remainingWaypoints = waypoints.filter((w) => !w.completed).length;
@@ -284,7 +287,7 @@ class AutoLand {
 
     // At what point do we cut the throttle and just glide?
     const lowerLimit = constrainMap(weight, 3000, 6000, 0, 0.3);
-    const upperLimit = constrainMap(weight, 3000, 6000, 0.4, 0.5);
+    const upperLimit = constrainMap(weight, 3000, 6000, 0.3, 0.5);
     const dropDistance = constrainMap(speed, 80, 150, lowerLimit, upperLimit);
 
     // What stage are we in?
@@ -407,12 +410,12 @@ class AutoLand {
       for (let i = 1; i <= engineCount; i++) {
         await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
       }
-      console.log(`Disable ALT mode in order to glide`);
-      if (FEATURES.PITCH_PROTECTION) {
-        autopilot.setParameters({
-          [ALTITUDE_HOLD]: false,
-        });
-      }
+      // if (FEATURES.PITCH_PROTECTION) {
+      //   console.log(`Disable ALT mode in order to glide`);
+      //   autopilot.setParameters({
+      //     [ALTITUDE_HOLD]: false,
+      //   });
+      // }
       stageManager.nextStage();
     }
 
@@ -423,7 +426,14 @@ class AutoLand {
       for (let i = 1; i <= engineCount; i++) {
         await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
       }
-      if (lift < 50) {
+
+      // if (FEATURES.PITCH_PROTECTION) {
+      // Make sure the aircraft isn't angled such that we're nose-diving into the runway - neutral pitch
+      setPitch(this.api, -2, pitchFlightInformation);
+      // }
+
+      if (lift < 20) {
+        console.log(`Sort-Of-Flare`);
         stageManager.nextStage();
       }
     }
@@ -431,21 +441,10 @@ class AutoLand {
     // ============================
 
     if (stageManager.currentStage === TOUCH_DOWN) {
-      if (FEATURES.PITCH_PROTECTION) {
-        // Make sure the aircraft isn't angled such that we're nose-diving into the runway.
-        const targetPitch = -2;
-        const data = await this.api.get(`ELEVATOR_POSITION`);
-        this.currel ??= 16384 * data.ELEVATOR_POSITION;
-        const step = 100 * (targetPitch - pitch);
-        const next = (this.currel + step) | 0;
-        console.log(
-          `[ORIGINAL] pitch check: current=${nf(
-            pitch
-          )}, target=${targetPitch}, elevator=${this.currel}, next=${next}`
-        );
-        this.currel = next;
-        this.api.trigger(`ELEVATOR_SET`, this.currel);
-      }
+      // if (FEATURES.PITCH_PROTECTION) {
+      // Make sure the aircraft isn't angled such that we're nose-diving into the runway - nose up a little
+      setPitch(this.api, -2, pitchFlightInformation);
+      // }
 
       if (onGround) {
         console.log(`Touchdown`);

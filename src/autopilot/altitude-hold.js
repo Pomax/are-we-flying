@@ -101,7 +101,6 @@ export async function altitudeHold(
   // END OF INLINE FUNCTION
   // ======================
 
-
   // are we allowed to trim?
   if (trim.pitchLocked) return;
 

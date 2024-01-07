@@ -36,7 +36,7 @@ export async function flyLevel(
   { flightData, flightModel },
   useStickInstead = false
 ) {
-  const { trim } = autopilot;
+  const { trim, modes } = autopilot;
   const { bank, speed, heading, lat, long, declination } = flightData;
   const { bank: dBank } = flightData.d ?? { bank: 0 };
   const { weight, isAcrobatic } = flightModel;

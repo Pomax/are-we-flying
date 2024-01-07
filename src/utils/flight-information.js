@@ -6,6 +6,8 @@ import {
 } from "./flight-values.js";
 import { checkTrimCapability } from "./flight-exceptions.js";
 
+let api;
+
 /**
  *
  *  Adds two custom flight data properties:
@@ -15,13 +17,11 @@ import { checkTrimCapability } from "./flight-exceptions.js";
  *
  */
 export class FlightInformation {
-  #api;
-
   /**
    * ...docs go here...
    */
-  constructor(api) {
-    this.#api = api;
+  constructor(_api) {
+    api = _api;
     this.reset();
   }
 
@@ -45,7 +45,7 @@ export class FlightInformation {
    */
   async update() {
     try {
-      if (!this.#api.connected) throw new Error(`API not connected`);
+      if (!api.connected) throw new Error(`API not connected`);
       await Promise.all([this.updateModel(), this.updateFlight()]);
     } catch (e) {
       console.warn(e);
@@ -57,7 +57,7 @@ export class FlightInformation {
    * ...docs go here...
    */
   async updateModel() {
-    const modelData = await this.#api.get(...FLIGHT_MODEL);
+    const modelData = await api.get(...FLIGHT_MODEL);
     if (!modelData) {
       return (this.flightModel = false);
     }
@@ -81,7 +81,7 @@ export class FlightInformation {
    * ...docs go here...
    */
   async updateFlight() {
-    const flightData = await this.#api.get(...FLIGHT_DATA);
+    const flightData = await api.get(...FLIGHT_DATA);
     if (!flightData) return (this.flightData = false);
 
     convertValues(flightData);

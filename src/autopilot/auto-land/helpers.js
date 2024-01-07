@@ -1,4 +1,5 @@
 import {
+  constrainMap,
   getHeadingFromTo,
   getPointAtDistance,
   radians,
@@ -6,7 +7,7 @@ import {
 
 import { FEET_PER_METER, KM_PER_NM } from "../../utils/constants.js";
 
-const { tan } = Math;
+const { sign, tan } = Math;
 
 /**
  *
@@ -103,4 +104,30 @@ export function calculateRunwayApproaches(flightInformation, runway) {
       [tlat3, tlong3],
     ];
   });
+}
+
+/**
+ * A utility function for targeting a specific pitch, which is pretty important during the actual landing itself
+ * @param {*} api
+ * @param {*} targetPitch
+ * @param {*} flightInformation
+ */
+export async function setPitch(api, targetPitch, data) {
+  const { pitch, dPitch } = data;
+  let { elevator } = data;
+  elevator = -(elevator / 100) * 2 ** 14;
+  const diff = targetPitch - pitch;
+  let correction = constrainMap(diff, -2, 2, -300, 300);
+  if (sign(dPitch) === sign(diff)) correction /= 3;
+  let next = elevator + correction;
+  console.log(`pitch check:`, {
+    pitch,
+    dPitch,
+    targetPitch,
+    diff,
+    elevator,
+    correction,
+    next,
+  });
+  await api.trigger(`ELEVATOR_SET`, next | 0);
 }

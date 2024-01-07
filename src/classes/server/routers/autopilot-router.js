@@ -18,8 +18,8 @@ export class AutopilotRouter {
     this.#autopilot = autopilot;
   }
 
-  async test() {
-    this.#autopilot.test();
+  async test(client, ...args) {
+    this.#autopilot.test(...args);
   }
 
   /**
