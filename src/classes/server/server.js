@@ -92,7 +92,7 @@ export class ServerClass {
 
       // And register for the pause and crash events:
       registerWithAPI(clients, api, autopilot, flightInformation);
-      clients.forEach((client) => client.onMSFS(MSFS));
+      clients.forEach((client) => client.onMSFS(true));
 
       // And start polling to see if we're "in game".
       (async function poll() {

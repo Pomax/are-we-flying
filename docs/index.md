@@ -89,20 +89,38 @@ In high fidelity image media, we'll be implementing this:
 
 And as mentioned, to make our lives a little easier we're going to be using the [socketless](https://www.npmjs.com/package/socketless) library to take care of the actual client/server management, so we can just focus on writing the code that's going to let us show a user interface based on talking to MSFS. The nice thing about this library is that it does some magic that lets clients and servers call functions on each other "without knowing there's a network". If the server has a function called `test` then the client can just call `const testResult = await this.server.test()` and done, as far as the client knows, the server is just a local variable. Similarly, if the client has a function called `test` then server can call that with a `const testResult = await this.clients[...].test()` and again, as far as the server knows it's just working with a local variable.
 
+## Setting up our project
+
+Let's start by creating a new dir somewher called `are-we-flying` and initialising it as a Node project:
+
+```bash
+> mkdir are-we-flying
+> cd are-we-flying
+are-we-flying> npm init -y
+```
+
+after which we can install the dependencies that we'll need: [dotenv](https://www.npmjs.com/package/dotenv), [open](https://www.npmjs.com/package/open), [socketless](https://www.npmjs.com/package/socketless), and [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper).
+
+```bash
+> npm i dotenv open socketless msfs-simconnect-api-wrapper
+```
+
+Then, we want to make sure to tell Node that we we'll be writing normal, modern JS with JS modules, rather than Node's legacy module system: open `package.json` and add the key/value pair `"type": "module"` .
+
 ## An .env file
 
-Let's start with an `.env` file for housing a few variables that we want to be using across all our code:
+Next up, we'll create a file called `.env` that will house a few variables that we want to be using across all our code:
 
 ```env
 WEB_PORT=3000
 API_PORT=8080
 ```
 
-Nothing fancy, just two ports for now.
+Nothing fancy, just two port numbers for now.
 
 ## A "socketless" API, and web servers
 
-Before we look at the "real" code we need to write, let's quickly run through the code required to run our API server, which we'll put in `api-server.js`:
+Before we look at the "real" code we want to write, let's quickly run through the "boilerplate" code we need to run our API server, which we'll put in `api-server.js`:
 
 ```js
 // First we load our .env file:
@@ -127,7 +145,7 @@ webserver.listen(API_PORT, () => {
 });
 ```
 
-And that's it, that's all the code we need for our API server. At least in terms of the actual "running the server". We'll look at the server class in the next section. So next up is the code required to run the "web server" part of our above diagram, which we'll put in `web-server.js`:
+And that's all the code we need to set up a server (ignoring the actualy `ServerClass`, which we'll look at in a bit). So next up is the code required to run the "web server" part of our above diagram, which we'll put in `web-server.js`:
 
 ```js
 // We start the same was as above:
@@ -136,13 +154,13 @@ const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/.env` });
 
-// Instead of a server, we're going to build a "web client",
-// which is something that can both act as client to our server,
-// as well as running its own local web server so that browsers
-// can connect to it and present a UI based on the client state:
+// Instead of "just a server" our web server will act as a client
+// to our API server, but as web server for browsers that try to
+// connect. As such we need to know both the port for our API server
+// as well as what port we should use for our own server:
 const { API_PORT, WEB_PORT } = process.env;
 
-// So we set up a socketless client that has "browser connection" functionality:
+// Then we set up a socketless client with "browser connection" functionality:
 import { ClientClass } from "./src/classes/client/client.js";
 import { createWebClient } from "socketless";
 
@@ -175,17 +193,7 @@ So a tiny bit more code, but that's all we need to do in terms of setting up our
 
 ### But first, some testing!
 
-Before we implement those though, let's verify that the code we wrote even works by implementing some tiny client and server classes with just enough code to show connections and function calls to work.
-
-First, let's install our dependencies: [dotenv](https://www.npmjs.com/package/dotenv), [open](https://www.npmjs.com/package/open), [socketless](https://www.npmjs.com/package/socketless), and [msfs-simconnect-api-wrapper](https://www.npmjs.com/package/msfs-simconnect-api-wrapper).
-
-```javascript
-> npm i dotenv open socketless msfs-simconnect-api-wrapper
-```
-
-And then we'll want to update our `package.json` to include `"type": "module"` since we'll be writing modern JS with normal `import` and `export` syntax rather than using the legacy Node.js `require` or the `module` globals.
-
-With that done, we can fill in `src/classes/index.js` with "dummy" client and server classes:
+Before we implement those though, let's verify that the code we wrote even works by implementing some tiny client and server classes with just enough code to show connections and function calls to work. Let's create a `src/classes/index.js` with "dummy" client and server classes:
 
 ```js
 // Our client class will announce its own connection, as well as browser connections:
@@ -206,7 +214,7 @@ export class ServerClass {
   onConnect(client) {
     console.log(`[server] A client connected!`);
   }
-  // ...but we do add a little test function that the client can call:
+  // ...but we do add a little test function that clients can call:
   async test() {
     console.log(`[server] test!`);
     return "success!";
@@ -214,10 +222,10 @@ export class ServerClass {
 }
 ```
 
-And then to add the browser into the mix, we'll also create a quick `public/index.html` file that we can load in the browser:
+Then, to add the browser into the mix, we'll also create a quick `public/index.html` file:
 
 ```html
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en-GB">
   <head>
     <meta charset="utf-8" />
@@ -230,7 +238,7 @@ And then to add the browser into the mix, we'll also create a quick `public/inde
 </html>
 ```
 
-With a bare minimum browser client in `public/js/index.js`:
+And then a bare minimum amount of browser JS in `public/js/index.js`:
 
 ```javascript
 // We don't need to put a "socketless.js" in our public dir,
@@ -285,19 +293,30 @@ Awesome, we have a complete API server + web server + browser thin client and "t
 
 ## Our API server
 
-Our server class is how clients "talk" to MSFS. Any function we expose on the server class will end up being a function that, as far as clients know, is just part of the local `this.server` object, so we'll want to make sure to keep things that should not be directly accessible either off the class (i.e. declare and initialize them outside the class) or mark them as private using the `#` character, so that they can't be called by anyone else.
+Let's finish up the basics.
 
-With that in mind, let's update our server class and let's move it into its own `src/classes/server/server.js` instead, so we're not mixing our client and server code:
+Our server is where we "talk to MSFS", and any functions that we expose on the server class will end up being a function that, as far as clients know, is just part of their local `this.server` object, so we'll want to make sure to keep things that should not be directly accessible to clients either out of the serverclass (i.e. declare and initialize them in module scope instead) or mark them as private using the `#` character, so that they can't be called by anyone else.
+
+With that in mind, let's write a _real_ server clas, in its own `src/classes/server/server.js` file instead, so we're not mixing client and server code:
 
 ```js
-// load the environment:
+// Load the environment:
 import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../../.env` });
 
-// And some helper functions:
+// And get the "how frequentlu to poll" from theÏ environment.
+const POLLING_INTERVAL = process.env.POLLING_INTERVAL ?? 2500;
+
+// Then, an import for a setTimeout that ignores throws:
+import { runLater } "../utils.js";
+
+// And two helper functions for setting up the API connection:
 import { connectServerToAPI, registerWithAPI } from "./helpers.js";
+
+// Plus a helper that we can expose as `this.api` for clients to work with:
+import { APIRouter } from "./routers/api-router.js";
 
 // And then the most important import: the MSFS connector
 import { MSFS_API } from "msfs-simconnect-api-wrapper";
@@ -305,9 +324,6 @@ import { MSFS_API } from "msfs-simconnect-api-wrapper";
 // In order to prevent clients from directly accessing the MSFS
 // connector, we're going to make it a global (to our module):
 let api = false;
-
-// And we'll do the same with the "is MSFS connected?" value:
-let MSFS = false;
 
 // Next up, our server class:
 export class ServerClass {
@@ -328,11 +344,12 @@ export class ServerClass {
     connectServerToAPI(api, async () => {
       console.log(`Connected to MSFS.`);
       MSFS = true;
-      clients.forEach((client) => client.onMSFS(MSFS));
+      clients.forEach((client) => client.onMSFS(trueÏ));
 
       // And when it's online and we're connected, start polling for when we're "in game".
       (async function poll() {
-        checkGameState(autopilot, clients);
+        // We'll look at what actually goes here once we have everything in place.
+        // For now, we just schedule a poll 
         runLater(poll, POLLING_INTERVAL);
       })();
     });
@@ -348,12 +365,31 @@ export class ServerClass {
 }
 ```
 
-With some helper functions in `src/classes/server/helpers.js`
+So let's look at those secondary imports: first, the simplest one, in `src/utils.js`:
+
+```js
+export function runLater(fn, timeoutInMillis) {
+  // this is literally just setTimeout, but with a try/catch so
+  // that if the function we're running throws an error, we
+  // completely ignore that instead of crashing the server.
+  setTimeout(() => {
+    try {
+      fn();
+    } catch (e) {
+      console.error(e);
+    }
+  }, timeoutInMillis);
+}
+```
+
+Then those helper functions for working with the API in `src/classes/server/helpers.js`
 
 ```javascript
+// We'll grab the list of system events from the MSFS connector, so we can register for a few events:
 import { SystemEvents } from "msfs-simconnect-api-wrapper";
-let inGame = false;
 
+// Then mostly for organizational purposes ("to keep the code clean")
+// we house the actually MSFS API connection properties here.
 export function connectServerToAPI(api, onConnect) {
   api.connect({
     autoReconnect: true,
@@ -365,6 +401,8 @@ export function connectServerToAPI(api, onConnect) {
   });
 }
 
+// And since this is basically a "run once" thing we also house the code
+// that registers for pause and crash events here.
 export function registerWithAPI(clients, api, autopilot, flightInformation) {
   console.log(`Registering API server to the general sim events.`);
 
@@ -388,13 +426,13 @@ export function registerWithAPI(clients, api, autopilot, flightInformation) {
     clients.forEach((client) => client.crashReset());
   });
 }
-
-export async function checkGameState(autopilot, clients, flightInformation) {
-  // ...we'll fill in this function a bit later
-}
 ```
 
-Now, if you were paying attention you'll have noticed that we've glossed over the `APIRouter` code, which is arguably some of the most important code, because it's the code that lets clients interface "directly" with MSFS. The MSFS library offers five functions for this, which we need to expose to clients:
+Which leaves the code that lets clients call API functions through the server
+
+### The API Router 
+
+The `APIRouter` code lets clients interface "directly" with MSFS through the SimConnect driver, with five main functions that we can expose to clients:
 
 - register: register as event listener for one of the (few) "subscription" based MSFS event.
 - forget: the opposite of register.
@@ -405,22 +443,28 @@ Now, if you were paying attention you'll have noticed that we've glossed over th
 So let's look at how we expose those to the client in a file that we'll call `src/classes/routes/api-router.js`:
 
 ```js
-import { createHash } from "node:crypto";
+// Obviously we'll need to load the list of events if we're going to let clients register for events:
 import { SystemEvents } from "msfs-simconnect-api-wrapper";
 
-const resultCache = {};
 const eventTracker = {};
 
-// There is only one API instance, so we can keep that out of the router.
+// And in order to cache GET requests, we're going to hash requests based on
+// the varname collection we get passed, which we'll do by hashing.
+import { createHash } from "node:crypto";
+
+const resultCache = {};
+
+// Since there is only one API instance, we can cache that 
+// at the module level, just like in the server class.
 let api;
 
 export class APIRouter {
-  // Which we bind as part of our constructor:
+  // And then we bind that variable using the constructor:
   constructor(_api) {
     api = _api;
   }
 
-  // Then, when clients call this.server.register(...), we do:
+  // Then, when clients call this.server.register(...), we
   async register(client, ...eventNames) {
     if (!api.connected) return;
     eventNames.forEach((eventName) => this.#registerEvent(client, eventName));
@@ -430,12 +474,12 @@ export class APIRouter {
   #registerEvent(client, eventName) {
     const tracker = (eventTracker[eventName] ??= { listeners: [] });
 
-    // One that can response to custom "api server only" event requests
+    // One that can response to custom "api server only" event requests:
     if (eventName === `MSFS`) {
       return client.onMSFS(api.connected);
     }
 
-    // Is this client already registered for this event?
+    // And has additional logic for making sure a client doesn't "double-register":
     if (tracker.listeners.includes(client)) {
       console.log(
         `Ignoring ${eventName} registration: client already registered. Current value: ${tracker.value}`
@@ -443,19 +487,19 @@ export class APIRouter {
       return false;
     }
 
-    // Turn sim event variables like "SIM" and "FLIGHT_LOADED" into
-    // callback function names like onSim and onFlightLoaded:
+    // When a client registers for a sim event like "SIM" or "FLIGHT_LOADED",
+    // we assume we can call them back with event information on function
+    // names like onSim and onFlightLoaded:
     const eventHandlerName =
       `on` +
       eventName
         .split(`_`)
         .map((v) => v[0].toUpperCase() + v.substring(1).toLowerCase())
         .join(``);
-    tracker.listeners.push(client);
-
+  
+    // So: ask the API to register for this event, with an appropriate
+    // bit of code to handle "what to do when SimConnect flags this event".
     if (!tracker.off) {
-      // Then ask the API to register for this event, with an appropriate
-      // bit of code to handle "what to do when SimConnect flags this event".
       tracker.off = api.on(SystemEvents[eventName], (...result) => {
         tracker.value = result;
         tracker.listeners.forEach((client) =>
@@ -465,7 +509,7 @@ export class APIRouter {
     }
   }
 
-  // And when clients call this.server.forget(...), we do:
+  // And when clients call this.server.forget(...), we do the opposite:
   async forget(client, eventName) {
     if (!api.connected) return;
     const pos = eventTracker[eventName].listeners.findIndex(
@@ -478,38 +522,44 @@ export class APIRouter {
     }
   }
 
-  // and when clients call this.server.get(...), we do:
+  // And when clients call this.server.get(...), we cache the set of simvars
+  // that are being requested, so we don't ask SimConnect for the same data
+  // several times, if several clients want the same information at the same time.
   async get(client, ...simVarNames) {
     if (!api.connected) return {};
     const now = Date.now();
-    // Instead of simply "getting and returning", we make sure to cache
-    // get requests, so that if multiple clients all ask for the same data,
-    // we don't end up asking simconnect for the same data over and over.
     const key = createHash("sha1").update(simVarNames.join(`,`)).digest("hex");
+    // assign a new expiry, if there is no cached entry already:
     resultCache[key] ??= { expires: now };
-    // did our cached entry "expire"?
+    // did our cached entry "expire"? (which, if we just made it, won't be the case of course)
     if (resultCache[key]?.expires <= now === true) {
       resultCache[key].expires = now + 100; // ms
+      // we cache a promise, rather than data, so we can "await"
       resultCache[key].data = new Promise(async (resolve) => {
         try {
           resolve(await api.get(...simVarNames));
         } catch (e) {
+          // Also make sure to never crash the server if there's a problem with a simvar:
           console.warn(e);
           resolve({});
         }
       });
     }
-    // Then we await the cache entry's data before responding.
+    // And then we await the cache entry's data before responding. If this is a 
+    // request for data that was previously cached already, then this will pretty
+    // much resolve instantly. Otherwise, it'll resolve once we get data from the API.
     return await resultCache[key].data;
   }
 
-  // when clients call this.server.set(...), we do:
+  // when clients call this.server.set(...), we forward that to the API:
   async set(client, simVars) {
     if (!api.connected) return false;
 
     if (typeof simVars !== `object`)
       throw new Error(`api.set input must be an object.`);
 
+    // But we make sure to handle each setter separately, so we can
+    // report any and all errors, without breaking the entire call.
     const errors = [];
     const entries = Object.entries(simVars);
     entries.forEach(([key, value]) => {
@@ -522,10 +572,9 @@ export class APIRouter {
     return errors.length ? errors : true;
   }
 
-  // for triggers, when clients call this.server.trigger(...), we do:
+  // And for triggers, we forward those too, but we only allow single triggers per call.Ï
   async trigger(client, eventName, value) {
     if (!api.connected) return false;
-    if (!client.authenticated) return false;
     api.trigger(eventName, value);
   }
 }
@@ -535,18 +584,21 @@ Phew. That was a lot of code! But hopefully, it all made sense. Because we still
 
 ## Our client (which also acts as web server)
 
-In addition to our API server, we're going to need a client that is also a web server, so that we can connect a browser and actually, you know, _use_ all of this. This means we'll have to define a client class such that `socketless` can take care of the rest. Thankfully, this is super easy: our client doesn't need to "do" anything other than make sure that values make it from the server to the browser, and vice versa, so we're going to essentially be writing a state-manager, where the client takes signals from the server and turns them into `this.state` updates, and then `socketless` will take care of the tedious "making sure the browser gets that" parts. So: client class time! (which we put in its own `src/classes/client.js`)
+In addition to our API server, we're going to need a client that is also a web server, so that we can connect a browser and actually, you know, _use_ all of this. This means we'll have to define a client class such that `socketless` can take care of the rest. Thankfully, this is super easy: our client doesn't need to "do" anything other than make sure that values make it from the server to the browser, and vice versa, so we're going to essentially be writing a state-manager, where the client takes signals from the server and turns them into updates to its `this.state` variable, and then `socketless` will take care of the tedious "making sure the browser gets that" parts. So: client class time! (which we put in its own `src/classes/client.js`)
 
 ```js
+import { runLater } from "../../utils/utils.js";
+
 // when we lose the connection to the server, this will be our reconnection interval:
 const RECONNECT_TIMEOUT_IN_MS = 5000;
+
+// A timeer variable for when we need to (re)try (re)connecting.
+let reconnection;
 
 /**
  * Our client class
  */
 export class ClientClass {
-  #reconnection;
-
   /**
    * When our client starts up, start a "reconnect 5 seconds
    * from now" attempt, cleaned up when we connect.
@@ -560,7 +612,7 @@ export class ClientClass {
    * A private function that lets us reconnect to the server
    * in case it disappears and comes back online.
    */
-  async #tryReconnect() {
+  async #resetReconnect() {
     // "setState" is a magic function that comes with socketless, and will
     // automatically lead to a browser sync, if there's a browser connected.
     this.setState({
@@ -578,13 +630,13 @@ export class ClientClass {
    */
   async #tryReconnect() {
     if (this.server) {
-      clearTimeout(this.#reconnection);
+      clearTimeout(reconnection);
       return console.log(`reconnected`);
     }
     console.log(`trying to reconnect to the server...`);
     this.#resetState();
     this.reconnect(); // <- this is also a magic socketless function
-    this.#reconnection = setTimeout(
+    reconnection = setTimeout(
       () => this.#tryReconnect(),
       RECONNECT_TIMEOUT_IN_MS
     );
@@ -598,11 +650,8 @@ export class ClientClass {
    * updating that based on server signals.
    */
   async onConnect() {
-    clearTimeout(this.#reconnection);
+    clearTimeout(reconnection);
     console.log(`client connected to server`);
-    // Set up our "initial" state. However, we might already have been
-    // sent events by the server by the time this kicks in, so we need
-    // to make sure to not overwrite any values that are "not nullish".
     this.setState({
       serverConnection: true,
     });
@@ -640,35 +689,12 @@ export class ClientClass {
     this.setState({ browserConnected: false });
   }
 
-  // And finally a set of self-explanatory "state copies" based on server events:
+  // Then a set of self-explanatory functions based on events:
   async onMSFS(value) { this.setState({ MSFS: value }); }
   async pause() { this.setState({ paused: true }); }
   async unpause() { this.setState({ paused: false }); }
   async crashed() { this.setState({ crashed: true }); }
   async crashReset() { this.setState({ crashed: false }); }
-
-  async setCamera(camera, cameraSubState) {
-    this.setState({
-      camera: {
-        main: camera,
-        sub: cameraSubState,
-      },
-    });
-  }
-
-  async setFlying(flying) {
-    const wasFlying = this.state.flying;
-    this.setState({ flying });
-    // Did we switch from "not flying" to "flying"?
-    if (flying && !wasFlying) {
-      console.log(`starting a new flight...`);
-      this.setState({
-        crashed: false,
-        MSFS: true,
-        paused: false,
-      });
-    }
-  }
 }
 ```
 
@@ -676,24 +702,27 @@ With that, let's move on to the browser.
 
 ## The browser code
 
-In order for the browser to be able to "do something", we'll use the same `index.html` we made earlier, but let's update our `index.js`:
+In order for the browser to be able to "do something", we'll use the `index.html` we made earlier without any modifications, but we'll update `index.js`:
 
 ```js
 import { createBrowserClient } from "./socketless.js";
 
-// Let's import a class that's *actually* going to do the work...
+// Let's import a class that's *actually* going to do all the work...
 import { Plane } from "./plane.js";
 
 // And then we update our browser client, whose sole responsibility
-// is to hand off state updates to our "Plane":
+// is to hand off state updates to our new "Plane" object:
 class BrowserClient {
   async init() {
     this.plane = new Plane(this.server);
   }
+
   async update(prevState) {
+    // set a class on the HTML body based on our connection state...
     document.body.classList.toggle(`connected`, this.state.serverConnection);
-    // Rather than "doing anything here", we just pass the current state
-    // on to the Plane, and all we do here is wait for the next update.
+    
+    // And then, ather than "doing anything" here, we just pass the current
+    // state on to the Plane. All we do in this file is wait for the next update.
     this.plane.updateState(this.state);
   }
 }
@@ -701,7 +730,7 @@ class BrowserClient {
 createBrowserClient(BrowserClient);
 ```
 
-As mentioned in the code, the `socketless.js` import is handled by the web client itself, it "just exists" if you're using `socketless`. So that just leaves looking at our `Plane` code, which we'll put in `public/js/plane.js`:
+So that just leaves looking at our `Plane` code, which will minimal for now, andwe'll put in `public/js/plane.js`:
 
 ```js
 // We'll be building this out throughout this document, but this
@@ -723,7 +752,7 @@ export class Plane {
     const now = Date.now();
 
     // ...nothing here yet, but we'll be filling this out in soon enough!
-
+    
     this.lastUpdate = { time: now, ...state };
   }
 }
@@ -733,14 +762,14 @@ And that's it. There's nothing "meaningful" in our plane class yet, but for the 
 
 ## Adding "write protection"
 
-That just leaves one last thing: making sure everyone can _read_ values, but that only "we" get to _write_ values. You don't want someone just randomly messing with your flight!
-
-In order to do that, we first add a new key to our `.env` file to act as a security key:
+That just leaves one last thing: making sure that only "we" get to set simvar and trigger events. We don't want someone just randomly messing with our flight! In order to do that, we first add three new keys to our `.env` file to act as a security key:
 
 ```sh
 export API_PORT=8080
 export WEB_PORT=3000
-export FLIGHT_OWNER_KEY=FOK-12345
+export FLIGHT_OWNER_KEY="dXNlcm5hbWVwYXNzd29yZA=="
+export FLIGHT_OWNER_USERNAME=username
+export FLIGHT_OWNER_PASSWORD=passwerd
 ```
 
 Super secure!
@@ -764,9 +793,12 @@ export class ServerClass {
    * if we get the right value, the client's authenticated.
    * If not, they're not
    */
-  async authenticate(client, flightOwnerKey) {
-    if (flightOwnerKey !== FLIGHT_OWNER_KEY) return false;
-    console.log(`authenticating client`);
+  async authenticate(client, username, password) {
+    // This should go without saying, but: don't do this in real code,
+    // of course. Use a secure login solution instead =)
+    const hash = btoa(username + password);
+    if (hash !== FLIGHT_OWNER_KEY) return false;
+    console.log(`authenticated client`);
     return (client.authenticated = true);
   }
 }
@@ -776,33 +808,31 @@ export class ServerClass {
 With that, we can now make clients, and by extension browsers, authenticate by having them call `this.server.authenticate(...)`, so let's make that work by updating our `client.js` so it loads that key (if it has access to it) and calls the authentication function:
 
 ```js
-import { FlightInformation } from "./flight-information.js";
+// Load in our environment variables now we have 
+import url from "node:url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+import dotenv from "dotenv";
+dotenv.config({ path: `${__dirname}/../../../.env` });
 
-// First, we try to get the key from our environment,
-// if the client is running with the --owner runtim flag:
-let fok = undefined;
-if (process.argv.includes(`--owner`)) {
-  fok = process.env.FLIGHT_OWNER_KEY;
-}
+// Do we have a flight owner key that we need to authenticate with?
+const username = process.env.FLIGHT_OWNER_USERNAME;
+const password = process.env.FLIGHT_OWNER_PASSWORD;
+
+...
 
 export class ClientClass {
-  #reconnection;
-
   ...
 
   // The only update will be to our "onConnect", where we're
   // going to immediately try to authenticate with the server:
   async onConnect() {
-    ...
-
-    // If we have a flight owner key (because we might not!),
-    // use that to authenticate with the server:
-    if (fok) {
-      this.setState({
-        authenticated: await this.server.authenticate(fok)
-      });
-    }
-
+    clearTimeout(reconnection);
+    console.log(`client connected to server`);
+    this.setState({
+      // authenticate with the server, using our stored username and password
+      authenticated: await this.server.authenticate(username, password),
+      serverConnection: true,
+    });
     await this.server.api.register(`MSFS`);
   }
 
@@ -810,7 +840,7 @@ export class ClientClass {
 }
 ```
 
-With that, all that's left is making sure that the `set` and `trigger` calls to the API will only work for authenticated clients:
+With that, all that's left is to make sure that the `set` and `trigger` calls to the API only work for authenticated clients:
 
 ```js
 ...
@@ -819,15 +849,15 @@ export class APIRouter {
   ...
 
   async set(client, simVars) {
-    if (!this.#api.connected) return false;
+    if (!api.connected) return false;
     if (!client.authenticated) return false;
     ...
   }
 
   async trigger(client, eventName, value) {
-    if (!this.#api.connected) return false;
+    if (!api.connected) return false;
     if (!client.authenticated) return false;
-    this.#api.trigger(eventName, value);
+    api.trigger(eventName, value);
   }
 }
 ```
@@ -842,7 +872,7 @@ And that's our "authentication" added, so we have all the parts in place:
 
 ## Testing our code
 
-So, let's run this code and _actually_ talk to MSFS. First, let's make sure we have direct access to our browser client by updating that `setup.js`:
+So, let's run this code and _actually_ talk to MSFS. First, let's make sure we have direct access to our browser client by updating our `index.js`:
 
 ```js
 ...
@@ -964,7 +994,7 @@ Now, being able to write code is all well and good, but we're going to be _worki
 We can, for instance, write a function that will selectively watch a single file for changes, and if it sees any, load the new code in, and then trigger an event handler for "whoever might need it":
 
 ```javascript
-// We'll be using Node's own file watch mechanism
+// We'll be using Node's own file watch mechanism for this:
 import { watchFile } from "node:fs";
 
 export function watch(filePath, onChange) {
@@ -1002,18 +1032,20 @@ export function watch(filePath, onChange) {
 }
 ```
 
-The thing that makes this work is usually considered a memory leak: modules are cached based on their URL, and URL query arguments count towards URL "uniqueness", so by loading the module using a URL ending in `...?ts=${Date.now()}` we effectively load a separate, new module. That sounds great, but because there is no mechanism for "unloading" modules is modern JS (...yet?) every save-and-reload will effectively cause a new file to be loaded in without the old file getting unloaded, so we're going to slowly fill up our memory... is what I would say if our files weren't tiny compared to how much memory modern computers, and even cell phones, have. So this is going to be a non-issue, but it's still good to know about, and an _excellent_ idea to make sure it doesn't kick in for production code.
+The thing that makes this work is usually considered a memory leak: modules are cached based on their URL, and URL query arguments count towards URL "uniqueness", so by loading the module using a URL ending in `...?ts=${Date.now()}` we effectively load a separate, new module (this is known as "cache busting").
 
-A more practical problem, though, is that we can no longer "just import something from a module", because imports are considered constants, with `import { x } from Y` being equivalent to a `const x = ...`, so we can't "reimport" onto the same variable name...
+That sounds great, but because there is no mechanism for "unloading" modules is modern JS, every save-and-reload will effectively cause a new file to be loaded in, without the old file getting unloaded, so we're going to slowly fill up our memory... which would be a problem if our files weren't tiny compared to how much memory modern computers (or even cell phones for that matter), have. So this is going to be a non-issue, but it's still good to know about, and an _excellent_ idea to make sure it doesn't kick in for production code.
 
-Instead, we need to be a little more clever about how we import code: we can do a renamed import using the `as` keyword, and then we can create an explicit `let` variable that we _actually_ use:
+A more practical problem, though, is that we can no longer "just import something from a module", because imports are considered constants, with `import { x } from Y` being equivalent to declarig a `const x = ...`, so we can't "reimport" onto the same variable name. That would be a runtime error.
+
+Instead, we need to be a little more clever about how we import code: we can do a [renamed import](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import#named_import) using the `as` keyword, and then we can create an explicit `let` variable that we _actually_ use, but which we can reassign as reload warrant:
 
 ```javascript
 import { Something as _s } from "./some-module.js";
 let Something = _s;
 ```
 
-That way, we can slap a `watch` on that import URL, and then update `Something` without running into JS going "yeah, no, that's a const, can't do that":
+That way, we can slap a `watch` on that import URL, and then update `Something` without running into JS throwing runtime errors:
 
 ```javascript
 // Get the url for "this script", since that's what relative imports will be relative to:
@@ -1036,7 +1068,9 @@ watch(__dirname, `some-module.js`, (lib) => {
 });
 ```
 
-And while that's a bit more code: every time we edit `some-module.js` and save it, the watcher will reload it and our `Something` variable will get updated. So that leaves one issue: making sure that instances of our variable get updated, too, by taking advantage of how inheritance works in JS. We can update running instances' prototypes and thus "switch them over" to the new flavour of our code:
+And while that's a bit more code, now every time we edit `some-module.js` and save it, the watcher will reload that code for us and our `Something` variable will get updated. So that solved half of the reloading problem. The other half is making sure that if our module exports a class, that _instances_ of that class get updated, too, by taking advantage of how prototype inheritance works in JS.
+
+Because objects in JS are just key/value objects where some values can be functions, with a prototype property that points to "another object" with more key/value properties, some of which can be functions, objects don't really have "a class" so much as they have "a prototype object". And we can change that prototype object if we really need to. Normally, this would be a bad idea(tm) but in this specific case, it's exactly what we need to make sure that instances of any classes we write get updated "on the fly" as part of the reload process:
 
 ```javascript
 // Imagine we load a class from a module and create an instance of that class:
