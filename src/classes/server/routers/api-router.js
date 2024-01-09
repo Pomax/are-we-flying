@@ -67,7 +67,6 @@ export class APIRouter {
    */
   async set(client, simVars) {
     if (!api.connected) return false;
-    if (!client.authenticated) return false;
     if (typeof simVars !== `object`)
       throw new Error(`api.set input must be an object.`);
 
@@ -92,7 +91,6 @@ export class APIRouter {
    */
   async trigger(client, eventName, value) {
     if (!api.connected) return false;
-    if (!client.authenticated) return false;
     api.trigger(eventName, value);
   }
 

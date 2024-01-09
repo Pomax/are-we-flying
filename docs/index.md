@@ -462,7 +462,7 @@ export class APIRouter {
     api = _api;
   }
 
-  // Then, when clients call this.server.register(...), we
+  // Then, when clients call this.server.register(...), we:
   async register(client, ...eventNames) {
     if (!api.connected) return;
     eventNames.forEach((eventName) => this.#registerEvent(client, eventName));
@@ -758,9 +758,11 @@ export class Plane {
 
 And that's it. There's nothing "meaningful" in our plane class yet, but for the moment we're done: we've set up a complete API server, web server, and browser system.
 
-## Adding "write protection"
+## Adding "permission control"
 
-That just leaves one last thing: making sure that only "we" get to set simvar and trigger events. We don't want someone just randomly messing with our flight! In order to do that, we first add three new keys to our `.env` file to act as a security key:
+That just leaves one last thing: making sure that only "we" get to talk to MSFS directly. We don't want people to just spam MSFS with API requests or even set values or trigger MSFS event and mess with our flight, or worse!
+
+In order to do that, we first add three new keys to our `.env` file to act as a security key:
 
 ```sh
 export API_PORT=8080
@@ -770,11 +772,9 @@ export FLIGHT_OWNER_USERNAME=username
 export FLIGHT_OWNER_PASSWORD=passwerd
 ```
 
-Super secure!
+Just a [bae64](https://en.wikipedia.org/wiki/Base64) conversion of the string `usernamepassword`... super secure! Of course, when we make our web page available, we'll want to make triple-sure that we change this key to something a little more secret-appropriate =)
 
-Of course, when we make our web page available, we'll want to make triple-sure that we change this key to something a little more secret-appropriate =)
-
-Let's update our `server.js` class to tap into the key:
+Then, let's update our `server.js` class with a bit of code that lets clients authenticate
 
 ```js
 ...
@@ -784,26 +784,45 @@ const { FLIGHT_OWNER_KEY } = process.env;
 ...
 
 export class ServerClass {
-  ...
+  #authenticatedClients = [];
+  
+  async init() {
+    const { clients } = this;
+
+    api = new MSFS_API();
+
+    // Set up call routing so that clients can call this.server.api.[...]
+    // in order to talk directly to the API, but only allow this for
+    // authenticated clients, rather than everyone:
+    this.api = this.lock(
+      new APIRouter(api),
+      (client) => this.#authenticatedClients.includes(client)
+    );
+
+    connectServerToAPI(api, async () => {
+      ...
+    });
+  }
+                       
+  ..
 
   /**
    * An almost trivially simple authentication function:
-   * if we get the right value, the client's authenticated.
-   * If not, they're not
    */
   async authenticate(client, username, password) {
-    // This should go without saying, but: don't do this in real code,
-    // of course. Use a secure login solution instead =)
+    // This should go without saying, but: don't do this in real
+    // code. Use a proper, secure login solution, instead =)
     const hash = btoa(username + password);
     if (hash !== FLIGHT_OWNER_KEY) return false;
     console.log(`authenticated client`);
-    return (client.authenticated = true);
+    this.#authenticatedClients.push(client);
+    return true;
   }
 }
 
 ```
 
-With that, we can now make clients, and by extension browsers, authenticate by having them call `this.server.authenticate(...)`, so let's make that work by updating our `client.js` so it loads that key (if it has access to it) and calls the authentication function:
+With that, we can now make clients (and by extension, browsers) authenticate by having them call `this.server.authenticate(...)`, so let's make that work by updating our `client.js` so it loads that key (if it has access to it) and calls the authentication function:
 
 ```js
 // Load in our environment variables now we have 
@@ -813,8 +832,11 @@ import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../../.env` });
 
 // Do we have a flight owner key that we need to authenticate with?
-const username = process.env.FLIGHT_OWNER_USERNAME;
-const password = process.env.FLIGHT_OWNER_PASSWORD;
+let username, password;
+if (process.argv.includes(`--owner`)) {
+  username = process.env.FLIGHT_OWNER_USERNAME;
+  password = process.env.FLIGHT_OWNER_PASSWORD;
+}
 
 ...
 
@@ -831,32 +853,15 @@ export class ClientClass {
       authenticated: await this.server.authenticate(username, password),
       serverConnection: true,
     });
-    await this.server.api.register(`MSFS`);
+    
+    // Since API access is now restricted, make sure we only call it
+    // when we know (or think we know) that we won't be rejected.
+    if (this.state.authenticated) {
+      await this.server.api.register(`MSFS`);
+    }
   }
 
   ...
-}
-```
-
-With that, all that's left is to make sure that the `set` and `trigger` calls to the API only work for authenticated clients:
-
-```js
-...
-
-export class APIRouter {
-  ...
-
-  async set(client, simVars) {
-    if (!api.connected) return false;
-    if (!client.authenticated) return false;
-    ...
-  }
-
-  async trigger(client, eventName, value) {
-    if (!api.connected) return false;
-    if (!client.authenticated) return false;
-    api.trigger(eventName, value);
-  }
 }
 ```
 
@@ -864,9 +869,9 @@ And that's our "authentication" added, so we have all the parts in place:
 
 1. we can start up MSFS,
 2. we can start up our API server using `node api-server.js`,
-3. we can start up our web server using `node web-server.js`
-4. we can load up http://localhost:3000 in the browser, and then
-5. we can use a UI that's based on the current client state, with the option to get values from MSFS as well as set values and trigger events in MSFS as needed.
+3. we can start up our web server using `node web-server.js --owner --browser`
+4. we can have the browser open http://localhost:3000, and then
+5. we can use a UI that's based on the current client state, with the option to get values from MSFS as well as set values and trigger events in MSFS as needed using the developer tools console.
 
 ## Testing our code
 
@@ -987,17 +992,19 @@ Which means our crash event listener worked. So this is promising, we have a ful
 
 ## Hot-reloading to make our dev lives easier
 
-Now, being able to write code is all well and good, but we're going to be _working on that code_ a lot, so it'd be nice if we don't constantly have to stop and restart the server and just have code changes kick in automatically. And while there isn't anything baked into JS to make that happen, with a bit of smart programming we can take advantage of filesystem watching, as we well as how `import` works, to do this for us.
+Now, being able to write code is all well and good, but we're going to be _working on that code_ a lot, so it'd be nice if we don't constantly have to stop and restart the server for every line we change, and instead just have code changes kick in automatically when we save files. And while there isn't anything baked into JS to make that happen, with a bit of smart programming we can take advantage of filesystem watching, as we well as how `import` works, to make this happen for us. Anyway
 
-We can, for instance, write a function that will selectively watch a single file for changes, and if it sees any, load the new code in, and then trigger an event handler for "whoever might need it":
+We can, for instance, write a function that will selectively watch a single file for changes, and if it sees any, load the new code in, and then trigger an event handler for "whoever might need it" with the newly loaded code:
 
 ```javascript
 // We'll be using Node's own file watch mechanism for this:
 import { watchFile } from "node:fs";
 
-export function watch(filePath, onChange) {
+export async function watch(filePath, onChange) {
   // Step 1: don't run file-watching in production. Obviously.
-  if (process.env.NODE_ENV.toLowerCase() === `production`) return;
+  if (process.env.NODE_ENV.toLowerCase() === `production`) {
+    return import(filePath);
+  }
 
   // Next, we get the current call stack (by "abusing" the Error object)
   // so we can report on that when a file change warrants an update.
@@ -1027,6 +1034,9 @@ export function watch(filePath, onChange) {
     // And then we run whatever code needs to run now that the module's been reloaded.
     onChange(module);
   });
+  
+  // Finally, load the module for its  
+  return import(filePath};
 }
 ```
 
@@ -1036,14 +1046,7 @@ That sounds great, but because there is no mechanism for "unloading" modules is 
 
 A more practical problem, though, is that we can no longer "just import something from a module", because imports are considered constants, with `import { x } from Y` being equivalent to declarig a `const x = ...`, so we can't "reimport" onto the same variable name. That would be a runtime error.
 
-Instead, we need to be a little more clever about how we import code: we can do a [renamed import](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import#named_import) using the `as` keyword, and then we can create an explicit `let` variable that we _actually_ use, but which we can reassign as reload warrant:
-
-```javascript
-import { Something as _s } from "./some-module.js";
-let Something = _s;
-```
-
-That way, we can slap a `watch` on that import URL, and then update `Something` without running into JS throwing runtime errors:
+Instead, we need to be a little more clever about how we import code: we can use a top-level `await` to make the watcher load the module we want, and assign that to a mutable variable:
 
 ```javascript
 // Get the url for "this script", since that's what relative imports will be relative to:
@@ -1054,43 +1057,33 @@ const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import { watch } from "./reload-watcher.js";
 
 // Then, as above, we write our import with an "as":
-import { Something as _s } from "./some-module.js";
-
-// And then we bind that to a mutable variable
-let Something = _s;
-
-// We can then set up our reload watcher to update that mutable variable
-// every time something changes in our module file:
-watch(__dirname, `some-module.js`, (lib) => {
+let { Something } = await watch(__dirname, `some-module.js`, (lib) => {
   Something = lib.Something;
 });
 ```
 
 And while that's a bit more code, now every time we edit `some-module.js` and save it, the watcher will reload that code for us and our `Something` variable will get updated. So that solved half of the reloading problem. The other half is making sure that if our module exports a class, that _instances_ of that class get updated, too, by taking advantage of how prototype inheritance works in JS.
 
-Because objects in JS are just key/value objects where some values can be functions, with a prototype property that points to "another object" with more key/value properties, some of which can be functions, objects don't really have "a class" so much as they have "a prototype object". And we can change that prototype object if we really need to. Normally, this would be a bad idea(tm) but in this specific case, it's exactly what we need to make sure that instances of any classes we write get updated "on the fly" as part of the reload process:
+Since objects don't have their type "baked in", but simply follow a chain of prototype objects, we can change one of those prototype objects and basically change the identity of the object itself. Normally, this would be a bad idea(tm) but in this specific case, it's exactly what we need to make sure that instances of any hot-reloadable classes we use get updated as part of the reload process:
 
 ```javascript
-// Imagine we load a class from a module and create an instance of that class:
-import { Something as _s } from "./some/dir/with/some-module.js";
-let Something = _s;
-let instance = new Something();
-
-// We can then set up our reload watcher to update that mutable
-// variable everytime something changes in our module file:
-watch(__dirname, `some/dir/with/some-module.js`, (lib) => {
+// We can set up our reload watcher to update not just the 
+// variable for our class, but also instances of that class:
+let { Something } = await watch(__dirname, `some-module.js`, (lib) => {
   // Update our class binding:
   Something = lib.Something;
 
-  // And then update our class instance's prototype
+  // And then update our class instance's prototype. This only works because
+  // by the time this code runs, the "instance" variable will exist.
   if (instance) {
     Object.setPrototypeOf(instance, Something.prototype);
-    // This swaps the old prototype for the new code, without affecting
-    // any of the methods that were set on our instance, while leaving any
-    // data unaffected. Something that is particularly useful for autopilot
-    // updates *while* we're flying!
+    // This swaps the old prototype for the new code, while leaving any
+    // of the instance's own properties unaffected. Something that will
+    // be particularly useful for autopilot updates *while* we're flying!
   }
 });
+
+let instance = new Something();
 ```
 
 # Part two: visualizing flights
@@ -1591,8 +1584,7 @@ Nothing particularly fancy (although we can pretty much use any amount of CSS to
 ```html
 <h1>Are we flying?</h1>
 <p>
-  Let's see if we're currently flying around in Microsoft Flight Simulator
-  2020...
+  Let's see if we're currently flying around in Microsoft Flight Simulator 2020...
 </p>
 <ul>
   <li>
@@ -1619,8 +1611,7 @@ Nothing particularly fancy (although we can pretty much use any amount of CSS to
   </li>
   <li>Are we flying?? <input type="checkbox" disabled class="in-the-air" /></li>
   <li>
-    <em>Where</em> are we flying? <span class="latitude">-</span>,
-    <span class="longitude">-</span>
+    <em>Where</em> are we flying? <span class="latitude">-</span>, <span class="longitude">-</span>
   </li>
   <li>
     Are we on the in-game autopilot?
@@ -1659,15 +1650,13 @@ const qss = [
 // A bit of house-keeping
 const vowels = [`a`, `i`, `u`, `e`, `o`, `A`, `I`, `U`, `E`, `O`];
 
-function titleCase(s) {
+function titleCase(s, p) {
+  if (p === 0) return s;
   return s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase();
 }
 
 function reCase(e) {
-  return e
-    .split(`-`)
-    .map((s, p) => (p === 0 ? s : titleCase(s)))
-    .join(``);
+  return e.split(`-`).map(titleCase).join(``);
 }
 
 // Let's create an object that's { serverOnline: span, msfsRunning: span, ... }
@@ -1685,20 +1674,27 @@ const elements = Object.fromEntries(
 // depending on whether the title starts with a vowel or not:
 export const Questions = {
   update(state) {
-    elements.serverOnline.checked = !state.offline;
+    const { general, model: flightModel, data: flightData } = state.flightInformation;
+    elements.serverOnline.checked = !!state.serverConnection;
     elements.msfsRunning.checked = state.MSFS;
-    elements.inGame.checked = state.camera?.main < 9;
-    elements.poweredUp.checked = state.flightData?.POWERED_UP;
-    elements.enginesRunning.checked = state.flightData?.ENGINES_RUNNING;
-    elements.inTheAir.checked =
-      state.flightData && !state.flightData.SIM_ON_GROUND;
-    elements.usingAp.checked = state.flightData?.AUTOPILOT_MASTER;
+    elements.inGame.checked = general?.inGame;
+    elements.isAcrobatic.checked = flightModel?.isAcrobatic;
+    elements.poweredUp.checked = flightData?.hasPower;
+    elements.enginesRunning.checked = flightData?.enginesRunning;
+    elements.inTheAir.checked = general?.flying;
+    elements.usingAp.checked = flightData?.MASTER;
     elements.planeCrashed.checked = state.crashed;
-    elements.latitude.textContent =
-      state.flightData?.PLANE_LATITUDE.toFixed(6) ?? `-`;
-    elements.longitude.textContent =
-      state.flightData?.PLANE_LONGITUDE.toFixed(6) ?? `-`;
-    this.modelLoaded(state.flightModel?.TITLE);
+    // And we'll do thrsr two separately because they're a bit more than just a checkmark:
+    this.whereAreWeFlying(flightData);
+    this.modelLoaded(flightModel?.title);
+  },
+
+  whereAreWeFlying(flightData) {
+    const lat = flightData?.lat?.toFixed(6);
+    const long = flightData?.long?.toFixed(6);
+    elements.gmapsLink.href = `https://www.google.com/maps/place/${lat}+${long}/@${lat},${long},13z`;
+    elements.latitude.textContent = lat ?? `-`;
+    elements.longitude.textContent = long ?? `-`;
   },
 
   modelLoaded(modelName) {
@@ -1736,15 +1732,9 @@ export class Plane {
 
 And that's the "game state" read-back sorted out! Easy-peasy!
 
-...
-
-Okay not really. You probably spotted those `flightModel` and `flightData` variables in th code: what's that all about?
-
-
-
 ### Trying our question list out
 
-Oh right! Ticking HTML checkboxes! Let's try this out:
+So: let's tick some HTML checkboxes!
 
 - Start MSFS,
 - then up the server with `node api-server.js` and our client with `node web-server.js --browser` ,
@@ -1753,13 +1743,13 @@ Oh right! Ticking HTML checkboxes! Let's try this out:
 - Load up a plane mid-flight and see what the checkboxes do! And of course,
 - look at what happens when you shut down MSFS, and what happens when you shut down the API server _before_ you shut down the web client.
 
-So, on the one hand: _that was a LOT of work just to check some boxes_! But the upside is that with all of that work out of the way, we're done in terms of "making sure we have up to date information to work with": all we need to do is call the `update` function from now on, and that's going to make things like visualizations or autopilot code a lot easier.
+So, on the one hand: _that was a LOT of work just to check some boxes_! But the upside is that with all of that work out of the way, we're done in terms of "making sure we have up to date information to work with": all we need to do is call our flight information `update` function on the server side, and hook into our Plane's `updateState` function on the browser side from now on, and that's going to make things like running autopilot code and showing flight visualizations a lot easier.
 
 And speaking of visualizations...
 
 ## Putting our plane on the map
 
-Even with all that work done, we still only implemented page code that lets us answer the question list, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually see something _cool_ on our webpage: let's set up a [Leaflet](https://leafletjs.com/) map that we can put our plane on, so we can see ourselves flying around on a map.
+Even with all that work done, we've still only implemented page code that lets us answer a bunch of questions, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually see something _cool_ on our webpage: let's set up a [Leaflet](https://leafletjs.com/) map that we can put our plane on, so we can see ourselves flying around on a map.
 
 Step one: some HTML to make that work:
 
@@ -1794,7 +1784,7 @@ L.tileLayer(`https://tile.openstreetmap.org/{z}/{x}/{y}.png`, {
 With a quick look at that `waitFor` function:
 
 ```javascript
-// Return a promise that doesn't resolve until `fn()` returns a truthy value
+// Return a promise that doesn't resolve until `fn()` returns a truthy value, or we run out of retries.
 export function waitFor(fn, timeout = 5000, retries = 100) {
   return new Promise((resolve, reject) => {
     (async function run() {
@@ -1811,11 +1801,29 @@ export function waitFor(fn, timeout = 5000, retries = 100) {
 }
 ```
 
-We use this because we don't want to do any map work until Leaflet's been loaded in, and as an external third party library, we have no idea when that might be. We can now add an `import { map: defaultMap } from "./maps.js"` to our `plane.js` and presto! Now our browser page actually has more than just text:
+We use this because we don't want to do any map work until Leaflet's been loaded in, and as an external third party library, we have no idea when that might be. With that, we can update our `plane.js`:
+
+```javascript
+import { map: defaultMap } from "./maps.js"
+
+...
+
+export class Plane {
+  constructor(server, map = defaultMap) {
+    this.server = server;
+    this.map = map;
+    ...
+  }
+}
+```
+
+And presto! Now our browser page actually has more than just text:
 
 ![A basic page overview with questions and map](./images/page/page-overview.png)
 
-Which is pretty good, but it's lacking something... oh right: our plane. Let's make a quick little plane icon and put that on the map, at the correct latitude and longitude, pointing in the right direction. Let's make a `public/map-marker.html` file and put some code in there:
+Which is pretty good, but it's lacking something... oh right: our plane. Let's make a quick little plane icon and put that on the map, at the correct latitude and longitude, pointing in the right direction.
+
+Let's start by making a `public/map-marker.html` file and putting some code in there:
 
 ```html
 <div id="plane-icon">
@@ -1836,7 +1844,7 @@ With that `plane.png` being a simple little non-existent plane silhouette:
 
 <img src="../public/planes/plane.png" style="width: 72px; height: 50px" />
 
-Although we do want a bit of CSS here, because while we _could_ rotate this image using JS to point in the right direction, that's a bit silly when CSS lets you use `tranform: rotate(...)` : all we need to do is make sure that the CSS variable `--heading` is some plain number in degrees, and then CSS will do the rest. So...
+Although we do want a bit of CSS here, because while we _could_ rotate this image using JS so that it points in the right direction, that's a bit silly when CSS lets you use `tranform: rotate(...)` and get the same thing done. All we need to do is make sure that the CSS variable `--heading` is some plain number in degrees, and then CSS will do the rest. So...
 
 ```css
 #plane-icon {
@@ -1848,24 +1856,28 @@ Although we do want a bit of CSS here, because while we _could_ rotate this imag
 }
 
 #plane-icon .basics {
-  /* we want to overlay the plane and its shadow, so mark this element relative */
+  /*
+    we want to overlay the plane and its shadow, so mark this element relative
+    and then mark the contained plane and shadow as absolute, so they end up on
+    top of each other.
+  */
   position: relative;
 }
 
 #plane-icon .basics .shadow {
-  /* the higher we're flying, the more our shadow should blur: */
+  /* the higher we're flying, the more blurred our shadow should be: */
   --shadow-blur-size: calc(1px * var(--alt-em) / 2);
   position: absolute;
   filter: blur(var(--shadow-blur-size)) opacity(0.3);
   transform-origin: center center;
-  /* we only need to rotate the shadow */
+  /* we only need to rotate the shadow, so it's pointing in the right direction: */
   transform: rotate(var(--degrees));
 }
 
 #plane-icon .basics .plane {
+  /* but we rotate *and* move the real plane icon up, based on how high it's flying: */
   --elevation-offset: calc(-1em * var(--alt-em)) position: absolute;
   transform-origin: center center;
-  /* but we rotate *and* move the real plane icon up based on high it's flying */
   transform: translate(0, var(--elevation-offset)) rotate(var(--degrees));
 }
 ```
@@ -1897,10 +1909,11 @@ import { MapMarker } from "./map-marker.js";
 
 ...
 
+const { abs, max } = Math;
+
 class Plane {
   constructor(server, map = defaultMap, location = DUNCAN_AIRPORT, heading = 135) {
-    ...
-    // bind the map, and add our plane icon:
+    this.server = server;
     this.map = map;
     this.addPlaneIconToMap(map, location, heading);
   }
@@ -1914,12 +1927,13 @@ class Plane {
         iconSize: [36, 25],
         iconAnchor: [36/2, 25/2],
         className: `map-pin`,
+        // Get our little plane icon, with a prespecified initial heading:
         html: MapMarker.getHTML(heading)
       }),
     };
-    // Create our plane icon on the map:
+    // Turn our plane icon into a Leaflet map marker:
     this.marker = L.marker(location, props).addTo(map);
-    // And then cache the resulting HTML element so we can use it later in the code:
+    // And then cache the resulting HTML element so we can use it later in our code:
     this.planeIcon = document.querySelector(`#plane-icon`);
   }
 
@@ -1931,9 +1945,10 @@ class Plane {
     const now = Date.now();
     Questions.update(state);
 
-    // let's update our map!
-    if (state.flightData) {
-      this.updateMap(state);
+    // So let's start live-updating our map!
+    const { data: flightData } = state.flightInformation;
+    if (flightData) {
+      this.updateMap(flightData);
     }
 
     this.lastUpdate = { time: now, ...state };
@@ -1942,22 +1957,22 @@ class Plane {
   /**
    * A dedicated function for updating the map!
    */
-  async updateMap({ flightData }) {
+  async updateMap(flightData) {
     const { map, marker, planeIcon } = this;
-    const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } = flightData;
+    const { lat, long } = flightData;
 
     // Do we have a GPS coordinate? (And not the 0,0 off the West coast
     // of Africa that you get while you're not in game?)
     if (lat === undefined || long === undefined) return;
     if (abs(lat) < 0.1 && abs(long) < 0.1) return;
 
-    // Update our plane's position on the map:
+    // Update our plane's position on the Leaflet map:
     marker.setLatLng([lat, long]);
 
     // And make sure the map follows our plane, so we don't fly off the screen:
     map.setView([lat, long]);
 
-    // And then set our CSS variables so that the browser "does the rest":
+    // Then set our CSS variables so that the browser "does the rest":
     this.updateMarker(planeIcon.style, flightData);
   }
 
@@ -1965,29 +1980,24 @@ class Plane {
    * A dedicated function for updating the marker, which right now means
    * updating the CSS variables we're using to show our plane and shadow.
    */
-  updateMarker(css, flightData) {
+  updateMarker(css, { heading, lift }) {
     // Point the plane in the right direction:
-    const heading = flightData.PLANE_HEADING_DEGREES_MAGNETIC;
     css.setProperty(`--heading`, heading);
 
     // And then also place the plane itself higher than
     // its shadown on the ground, if we're in the air:
-    const cg = flightData.STATIC_CG_TO_GROUND;
-    const paag = flightData.PLANE_ALT_ABOVE_GROUND;
-    css.setProperty(`--altitude`, Math.max(paag - cg, 0));
+    css.setProperty(`--altitude`, max(lift, 0));
   }
 }
 ```
 
-And through the magic of "the O.G. web stack" we suddenly have a visualization that shows our plane somewhere in the air, and its shadow on the ground:
+And through the magic of "the original web stack" we suddenly have a visualization that shows our plane somewhere in the air, and its shadow on the ground:
 
 ![A basic map with plane icon](./images/page/basic-map.png)
 
 Nice!
 
-...
-
-...I mean... I guess it's nicer than not having a plane on the map, but this doesn't really tell us much, does it? How high are we flying? What's our airspeed? Which heading are we flying, exactly? I think we're going to need some more HTML. And some SVG. And probably some CSS variables. And a smattering of JS.
+That is to say, it's nicer than not having a plane on the map, but this doesn't really tell us much, does it? How high are we flying? What's our airspeed? Which heading are we flying, exactly? I think we're going to need some more HTML. And some SVG. And probably some CSS variables. And a smattering of JS.
 
 ### Improving our visualization
 
@@ -2054,16 +2064,18 @@ How do we build that? With HTML and SVG:
 </div>
 ```
 
-Now, I'm skipping over the SVG code here mostly because it's just a _lot_ of SVG and really all you need is to copy-paste the code [here](https://github.com/Pomax/are-we-flying/blob/main/public/map-marker.html) to keep following along. What's more important is the updates to our CSS:
+Now, I'm skipping over the SVG code here mostly because it's just a _lot_ of SVG for all those little lines in the compass rings, and really all you need is to copy-paste the code [here](https://github.com/Pomax/are-we-flying/blob/main/public/map-marker.html) to keep following along. What's more important is the updates we make to our CSS:
 
 ```css
 #plane-icon {
   --speed: 120; /* our airspeed in knots, without a unit */
   --altitude: 1500; /* our altitude in feet, without a unit */
   --heading: 150; /* our magnetic compass heading in degrees, without a unit */
-  --heading-bug: 220; /* our "heading bug" compass angle in degrees, without a unit */
+  --heading-bug: 220; /* our "heading bug" compass indicator angle in degrees, without a unit */
   --north: 15.8; /* the compass deviation from true north in degrees, without a unit */
   --alt-em: calc(sqrt(var(--sqrt-alt)) / 20);
+
+  /* and a bit of value magic that scales the text based on the size of the marker */
   --f: 250;
   --dim: calc(var(--f) * 1px);
   --font-size: calc(var(--dim) / 17);
@@ -2084,7 +2096,7 @@ Again, if you want to follow along grab the CSS [here](https://github.com/Pomax/
 
 ```javascript
 import { getAirplaneSrc } from "./airplane-src.js";
-const { max, sqrt } = Math;
+const { abs, max, sqrt } = Math;
 
 ...
 
@@ -2098,7 +2110,7 @@ export class Plane {
   async updateMap(flightData, now) {
     const { map, marker, planeIcon } = this;
     const { paused, crashed, flightModel } = this.state;
-    const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } = flightData;
+    const { lat, long } = flightData;
 
     if (lat === undefined || long === undefined) return;
     if (abs(lat) < 0.1 && abs(long) < 0.1) return;

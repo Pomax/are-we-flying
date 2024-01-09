@@ -167,7 +167,7 @@ export class Plane {
     // Update plane visualisation
     const { data: flightData } = state.flightInformation;
     if (flightData) {
-      this.updateMap(flightData, now);
+      this.updateMap(flightData);
       // Update the attitude indicator:
       Attitude.setPitchBank(flightData.pitch, flightData.bank);
     }
@@ -220,7 +220,7 @@ export class Plane {
    * @param {*} flightData
    * @returns
    */
-  async updateMap(flightData, now) {
+  async updateMap(flightData) {
     const { paused, crashed, flightInformation } = this.state;
     const { model: flightModel } = flightInformation;
     const { lat, long, speed } = flightData;

@@ -2,9 +2,11 @@ import fs from "node:fs";
 import { __root } from "./constants.js";
 import { rootRelative } from "./utils.js";
 
-export function watch(basePath, modulePath, onChange) {
+export async function watch(basePath, modulePath, onChange) {
   // Step 1: don't run file-watching in production. Obviously.
-  if (process.env.NODE_ENV === `production`) return;
+  if (process.env.NODE_ENV === `production`) {
+    return import(filePath);
+  }
 
   // Next, get the current callstack, so we can report on
   // that when a file change warrants an update.
@@ -20,7 +22,6 @@ export function watch(basePath, modulePath, onChange) {
     })
     .join(`\n`)
     .replace(/\.constructor \(([^)]+)\)(.|[\n\r])*/, `.constructor ($1)`);
-
 
   // If we're not running in production, check this file for changes every second:
   const filePath = basePath + modulePath;
@@ -51,4 +52,7 @@ export function watch(basePath, modulePath, onChange) {
       console.error(e);
     }
   });
+
+  // then as part of the call, run an immediate load.
+  return await import(filePath);
 }

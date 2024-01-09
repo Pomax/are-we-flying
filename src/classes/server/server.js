@@ -16,23 +16,27 @@ import {
 } from "./helpers.js";
 
 // we'll make the autopilot hot-reloadable:
-import { AutoPilot as ap } from "../../autopilot/autopilot.js";
-let AutoPilot = ap;
 let autopilot = false;
-watch(__dirname, `../../autopilot/autopilot.js`, (module) => {
-  AutoPilot = module.AutoPilot;
-  if (autopilot) Object.setPrototypeOf(autopilot, AutoPilot.prototype);
-});
+let { AutoPilot } = await watch(
+  __dirname,
+  `../../autopilot/autopilot.js`,
+  (module) => {
+    AutoPilot = module.AutoPilot;
+    if (autopilot) Object.setPrototypeOf(autopilot, AutoPilot.prototype);
+  }
+);
 
 // as well as our flight information:
-import { FlightInformation as fi } from "../../utils/flight-information.js";
-let FlightInformation = fi;
 let flightInformation = false;
-watch(__dirname, `../../utils/flight-information.js`, (module) => {
-  FlightInformation = module.FlightInformation;
-  if (flightInformation)
-    Object.setPrototypeOf(flightInformation, FlightInformation.prototype);
-});
+let { FlightInformation } = await watch(
+  __dirname,
+  `../../utils/flight-information.js`,
+  (module) => {
+    FlightInformation = module.FlightInformation;
+    if (flightInformation)
+      Object.setPrototypeOf(flightInformation, FlightInformation.prototype);
+  }
+);
 
 // routers
 import { APIRouter } from "./routers/api-router.js";
