@@ -359,7 +359,7 @@ export class AutoPilot {
   async run() {
     // get the up to date flight information
     this.flightInfoUpdateHandler(await this.flightInformation.update());
-    const { flightData, flightModel } = this.flightInformation;
+    const { data: flightData, model: flightModel } = this.flightInformation;
 
     if (
       !this.modes[AUTO_TAKEOFF] &&

@@ -18,7 +18,7 @@ export function connectServerToAPI(api, onConnect) {
 /**
  * ...docs go here...
  */
-export function registerWithAPI(clients, api, autopilot, flightInformation) {
+export function registerWithAPI(clients, api, autopilot) {
   console.log(`Registering API server to the general sim events.`);
 
   api.on(SystemEvents.PAUSED, () => {
@@ -32,13 +32,10 @@ export function registerWithAPI(clients, api, autopilot, flightInformation) {
   });
 
   api.on(SystemEvents.CRASHED, () => {
-    flightInformation.general ??= {};
-    flightInformation.general.crashed = true;
     clients.forEach((client) => client.crashed());
   });
 
   api.on(SystemEvents.CRASH_RESET, () => {
-    flightInformation.general.crashed = false;
     clients.forEach((client) => client.crashReset());
   });
 }

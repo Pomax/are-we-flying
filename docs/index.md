@@ -338,13 +338,15 @@ export class ServerClass {
     // Set up call handling for API calls: this will be explained after we
     // finish writing this class. We bind it as `this.api` so that any
     // client will be able to call `this.server.api...` and have things work.
-    this.api = new APIRouter(api, () => MSFS);
+    this.api = new APIRouter(api);
 
     // Then wait for MSFS to come online
     connectServerToAPI(api, async () => {
       console.log(`Connected to MSFS.`);
       MSFS = true;
-      clients.forEach((client) => client.onMSFS(trueÏ));
+
+      registerWithAPI(clients, api);
+      clients.forEach((client) => client.onMSFS(true));
 
       // And when it's online and we're connected, start polling for when we're "in game".
       (async function poll() {
@@ -403,26 +405,22 @@ export function connectServerToAPI(api, onConnect) {
 
 // And since this is basically a "run once" thing we also house the code
 // that registers for pause and crash events here.
-export function registerWithAPI(clients, api, autopilot, flightInformation) {
+export function registerWithAPI(clients, api) {
   console.log(`Registering API server to the general sim events.`);
 
   api.on(SystemEvents.PAUSED, () => {
-    autopilot.setPaused(true);
     clients.forEach((client) => client.pause());
   });
 
   api.on(SystemEvents.UNPAUSED, () => {
-    autopilot.setPaused(false);
     clients.forEach((client) => client.unpause());
   });
 
   api.on(SystemEvents.CRASHED, () => {
-    flightInformation.general.crashed = true;
     clients.forEach((client) => client.crashed());
   });
 
   api.on(SystemEvents.CRASH_RESET, () => {
-    flightInformation.general.crashed = false;
     clients.forEach((client) => client.crashReset());
   });
 }
@@ -582,7 +580,7 @@ export class APIRouter {
 
 Phew. That was a lot of code! But hopefully, it all made sense. Because we still have to look at our client class... which is going to be a _lot_ less code =)
 
-## Our client (which also acts as web server)
+## Our browser-connection-accepting client
 
 In addition to our API server, we're going to need a client that is also a web server, so that we can connect a browser and actually, you know, _use_ all of this. This means we'll have to define a client class such that `socketless` can take care of the rest. Thankfully, this is super easy: our client doesn't need to "do" anything other than make sure that values make it from the server to the browser, and vice versa, so we're going to essentially be writing a state-manager, where the client takes signals from the server and turns them into updates to its `this.state` variable, and then `socketless` will take care of the tedious "making sure the browser gets that" parts. So: client class time! (which we put in its own `src/classes/client.js`)
 
@@ -829,7 +827,7 @@ export class ClientClass {
     clearTimeout(reconnection);
     console.log(`client connected to server`);
     this.setState({
-      // authenticate with the server, using our stored username and password
+      // authenticate with the server, using our stored username and password:
       authenticated: await this.server.authenticate(username, password),
       serverConnection: true,
     });
@@ -866,7 +864,7 @@ And that's our "authentication" added, so we have all the parts in place:
 
 1. we can start up MSFS,
 2. we can start up our API server using `node api-server.js`,
-3. we can start up our web server using `node web-server.js --owner` (to enable the `/fok` route),
+3. we can start up our web server using `node web-server.js`
 4. we can load up http://localhost:3000 in the browser, and then
 5. we can use a UI that's based on the current client state, with the option to get values from MSFS as well as set values and trigger events in MSFS as needed.
 
@@ -877,13 +875,13 @@ So, let's run this code and _actually_ talk to MSFS. First, let's make sure we h
 ```js
 ...
 
-// we won't leave this in, but it'll let us do some testing using our dev tools:
+// Let's get a direct reference to our client so we can do some testing using our developer tools:
 window.browserClient = createBrowserClient(BrowserClient);
 ```
 
 As you can see the `createBrowserClient` returns the actual instance it builds. There's rarely a reason to capture that, but it can be _very_ useful for testing, like now!
 
-Let's fire up MSFS and load up a plane on on a runway somewhere, run our API server, run our client with the `--owner` and `--browser` flags, and then let's open the developer tools in the browser and get to the `Console` tab. While there, let's ask MSFS for some things:
+Let's fire up MSFS and load up a plane on on a runway somewhere, run our API server, run our client with the `--browser` flag, and then let's open the developer tools in the browser and get to the "console" tab. While there, let's ask MSFS for some things:
 
 ```javascript
 » await browserClient.server.api.get(
@@ -1097,9 +1095,492 @@ watch(__dirname, `some/dir/with/some-module.js`, (lib) => {
 
 # Part two: visualizing flights
 
-Before we try to automate flight by writing an autopilot, it helps if we can know what "a flight" is, in that it'd be good to know what our plane is doing and how it's responding to control inputs. So before we get to the best part three, part two is going to be about building out our web page so that we get some insight into our plane's behaviour.
+Before we try to automate flight by writing an autopilot, it helps if we can know what "a flight" is. I mean, you and I know what a flight is, but computers not so much, especially when they can't even see your game, so let's figure out what information we need our code to know about before we can ask it to do the things we might want it to do.
 
-## Checking the game data
+## Checking the game data: what do we want to know?
+
+There are two kinds of information that we'll want our code to know about: "static" information like the name of the plane we're flying, whether it has a tail wheel, how much it weighs, etc. and "dynamic information" like what lat/long the plane is current at, how fast it's going, what its current pitch angle is, etc. 
+
+We can compile a list of properties that we're likely going to need in order to write our autopilot, and then request all those values from MSFS at a regular interval using SimConnect, so that we can then forward that information to our autopilot code, as well as all clients, and consequently, any connected browser.
+
+### Getting game state data
+
+So let's write some code that lets us relatively easily work with flight models and flight data. We'll create a `src/utils/flight-values.js` file, and then start with the list flight model values we'll want:
+
+```js
+export const FLIGHT_MODEL = [
+  `CATEGORY`,
+  `DESIGN_CRUISE_ALT`,
+  `DESIGN_SPEED_CLIMB`,
+  `DESIGN_SPEED_MIN_ROTATION`,
+  `DESIGN_SPEED_VC`,
+  `DESIGN_SPEED_VS0`,
+  `DESIGN_SPEED_VS1`,
+  `DESIGN_TAKEOFF_SPEED`,
+  `ELEVATOR_TRIM_DOWN_LIMIT`,
+  `ELEVATOR_TRIM_UP_LIMIT`,
+  `ENGINE_TYPE`,
+  `INCIDENCE_ALPHA`,
+  `IS_GEAR_FLOATS`,
+  `IS_GEAR_RETRACTABLE`,
+  `IS_TAIL_DRAGGER`,
+  `NUMBER_OF_ENGINES`,
+  `PLANE_LATITUDE`,
+  `PLANE_LONGITUDE`,
+  `STALL_ALPHA`,
+  `STATIC_CG_TO_GROUND`,
+  `TITLE`,
+  `TOTAL_WEIGHT`,
+  `TYPICAL_DESCENT_RATE`,
+  `WING_AREA`,
+  `WING_SPAN`,
+];
+
+export const ENGINE_TYPES = [
+  `piston`,
+  `jet`,
+  `none`,
+  `helo(Bell) turbine`,
+  `unsupported`,
+  `turboprop`,
+];
+```
+
+Do we need all that data? Surprisingly: yes! Almost all of these will let us either bootstrap our autopilot parameters, or will let us show things we're interested in on our web page.
+
+Next up, our "things we want to know while we're actually flying" data:
+
+```js
+export const FLIGHT_DATA = [
+  `AILERON_POSITION`,
+  `AILERON_TRIM_PCT`,
+  `AIRSPEED_INDICATED`,
+  `AIRSPEED_TRUE`,
+  `AUTOPILOT_HEADING_LOCK_DIR`,
+  `AUTOPILOT_MASTER`,
+  `CAMERA_STATE`,
+  `CAMERA_SUBSTATE`,
+  `CRASH_FLAG`,
+  `CRASH_SEQUENCE`,
+  `ELECTRICAL_AVIONICS_BUS_VOLTAGE`,
+  `ELECTRICAL_TOTAL_LOAD_AMPS`,
+  `ELEVATOR_POSITION`,
+  `ELEVATOR_TRIM_PCT`,
+  `ELEVATOR_TRIM_POSITION`,
+  `ENG_COMBUSTION:1`,
+  `ENG_COMBUSTION:2`,
+  `ENG_COMBUSTION:3`,
+  `ENG_COMBUSTION:4`,
+  `GEAR_POSITION:1`,
+  `GEAR_SPEED_EXCEEDED`,
+  `GROUND_ALTITUDE`,
+  `INDICATED_ALTITUDE`,
+  `OVERSPEED_WARNING`,
+  `PLANE_ALT_ABOVE_GROUND_MINUS_CG`,
+  `PLANE_ALT_ABOVE_GROUND`,
+  `PLANE_BANK_DEGREES`,
+  `PLANE_HEADING_DEGREES_MAGNETIC`,
+  `PLANE_HEADING_DEGREES_TRUE`,
+  `PLANE_LATITUDE`,
+  `PLANE_LONGITUDE`,
+  `PLANE_PITCH_DEGREES`,
+  `RUDDER_POSITION`,
+  `RUDDER_TRIM_PCT`,
+  `SIM_ON_GROUND`,
+  `TURN_INDICATOR_RATE`,
+  `VERTICAL_SPEED`,
+];
+```
+
+This also looks like a lot of data, but we really do need every single one of these values if we're going to implement an autopilot.
+
+### Converting SimConnect values
+
+But: this does leave us with a problem: SimConnect isn't really all that fussy about making sure every single value uses a unit that makes sense, or that collections of variables all use the same unit, so we're in a situation where something like `PLANE_BANK_DEGREES`, which you would expect to be a number in degrees, is actually a number in radians. And `AIRSPEED_TRUE` is in knots, so surely `DESIGN_SPEED_CLIMB` is in knots, too, right? Nope, that's in feet per second. Which means `DESIGN_SPEED_VS1` is in feet per second, too? Haha, no, that one _is_ in knots, but "knots indicated", so not a real speed, but what the dial in the cockpit shows on the speed gauge. Oh, and: boolean values aren't true or false, they're 1 or 0.
+
+It's all a bit of a mess, so let's write some code to take of all this nonsense and make sure values are in units we can rely on, because if we don't it's just going to be a huge headache:
+
+```js
+// These are all degree values that are actually stored as radians.
+export const DEGREE_VALUES = [
+  `PLANE_LATITUDE`,
+  `PLANE_LONGITUDE`,
+  `PLANE_BANK_DEGREES`,
+  `PLANE_HEADING_DEGREES_MAGNETIC`,
+  `PLANE_HEADING_DEGREES_TRUE`,
+  `PLANE_PITCH_DEGREES`,
+  `STALL_ALPHA`,
+  `TURN_INDICATOR_RATE`,
+];
+
+// These are all boolean values that are stored as a number.
+export const BOOLEAN_VALUES = [
+  `AUTOPILOT_MASTER`,
+  `ENG_COMBUSTION:1`,
+  `ENG_COMBUSTION:2`,
+  `ENG_COMBUSTION:3`,
+  `ENG_COMBUSTION:4`,
+  `IS_GEAR_FLOATS`,
+  `IS_GEAR_RETRACTABLE`,
+  `IS_TAIL_DRAGGER`,
+  `GEAR_POSITION:1`,
+  `GEAR_SPEED_EXCEEDED`,
+  `OVERSPEED_WARNING`,
+  `SIM_ON_GROUND`,
+];
+
+// These are percentages, but stored as "percent divided by 100"
+export const PERCENT_VALUES = [
+  `AILERON_POSITION`,
+  `AILERON_TRIM_PCT`,
+  `ELEVATOR_POSITION`,
+  `ELEVATOR_TRIM_PCT`,
+  `RUDDER_POSITION`,
+  `RUDDER_TRIM_PCT`,
+];
+
+// In game, vertical speed is shown feet per minute,
+// but SimConnect reports it as feet per second...
+export const FPM_VALUES = [`VERTICAL_SPEED`];
+
+// Plane altitude is in feet, so why is ground altitude in meters?
+export const MTF_VALUES = [`GROUND_ALTITUDE`];
+
+// And finally, please just turn all of these into
+// values in knots instead of feet per second...
+export const KNOT_VALUES = [
+  `DESIGN_SPEED_MIN_ROTATION`,
+  `DESIGN_SPEED_CLIMB`,
+  `DESIGN_SPEED_VC`,
+];
+```
+
+We can pair this with a function that runs through a bunch of rewrites for each of the categories, to give us values to work with that actually make sense:
+
+```js
+import { FEET_PER_DEGREE, FEET_PER_METER, FPS_IN_KNOTS } from "./constants.js";
+import { exists } from "./utils.js";
+
+const noop = () => {};
+
+export function convertValues(data) {
+  // Convert values to the units they're supposed to be:
+  BOOLEAN_VALUES.forEach((p) => exists(data[p]) ? (data[p] = !!data[p]) : noop);
+  DEGREE_VALUES.forEach((p) => exists(data[p]) ? (data[p] *= 180 / Math.PI) : noop);
+  PERCENT_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 100) : noop));
+  FPM_VALUES.forEach((p) => exists(data[p]) ? (data[p] *= 60) : noop);
+  KNOT_VALUES.forEach((p) => exists(data[p]) ? (data[p] *= FPS_IN_KNOTS) : noop);
+  MTF_VALUES.forEach((p) => exists(data[p]) ? (data[p] *= FEET_PER_METER) : noop);
+  if (exists(data.ENGINE_TYPE)) data.ENGINE_TYPE = ENGINE_TYPES[data.ENGINE_TYPE];
+}
+```
+
+In this code, the contants that we import have the values 364000, 3.28084, and 1/1.68781, respectively, and the `exists` function is just a tiny function that checks whether a value is either `undefined` or `null`, because we want to overwrite a value if it exist, rather than if it doesn't exist, and there is no opposite of the `??=` operator.
+
+Which leaves one more thing: calming all those words down a little, because working with `PLANE_ALT_ABOVE_GROUND_MINUS_CG` or `AUTOPILOT_HEADING_LOCK_DIR` is something we _could_ do, but it would be a heck of a lot nicer if those things had normal names that followed standard JS naming conventions.
+
+So let's write _even more utility code_ to take care of that for us:
+
+```js
+export const NAME_MAPPING = {
+  AILERON_POSITION: `aileron`,
+  AILERON_TRIM_PCT: `aileronTrim`,
+  AIRSPEED_INDICATED: `speed`,
+  AIRSPEED_TRUE: `trueSpeed`,
+  AUTOPILOT_HEADING_LOCK_DIR: `headingBug`,
+  AUTOPILOT_MASTER: `MASTER`,
+  CAMERA_STATE: `camera`,
+  CAMERA_SUBSTATE: `cameraSub`,
+  CATEGORY: `category`,
+  CRASH_FLAG: `crashed`,
+  CRASH_SEQUENCE: `crashSequence`,
+  DESIGN_CRUISE_ALT: `cruiseAlt`,
+  DESIGN_SPEED_CLIMB: `climbSpeed`,
+  DESIGN_SPEED_MIN_ROTATION: `minRotation`,
+  DESIGN_SPEED_VC: `cruiseSpeed`,
+  DESIGN_SPEED_VS0: `vs0`,
+  DESIGN_SPEED_VS1: `vs1`,
+  DESIGN_TAKEOFF_SPEED: `takeoffSpeed`,
+  ELEVATOR_POSITION: `elevator`,
+  ELEVATOR_TRIM_DOWN_LIMIT: `trimDownLimit`,
+  ELEVATOR_TRIM_PCT: `pitchTrim`,
+  ELEVATOR_TRIM_POSITION: `trimPosition`,
+  ELEVATOR_TRIM_UP_LIMIT: `trimUpLimit`,
+  ENGINE_TYPE: `engineType`,
+  "GEAR_POSITION:1": `isGearDown`,
+  GEAR_SPEED_EXCEEDED: `gearSpeedExceeded`,
+  GROUND_ALTITUDE: `groundAlt`,
+  INDICATED_ALTITUDE: `alt`,
+  IS_GEAR_FLOATS: `isFloatPlane`,
+  IS_GEAR_RETRACTABLE: `hasRetractibleGear`,
+  IS_TAIL_DRAGGER: `isTailDragger`,
+  NUMBER_OF_ENGINES: `engineCount`,
+  OVERSPEED_WARNING: `overSpeed`,
+  PLANE_ALT_ABOVE_GROUND_MINUS_CG: `lift`,
+  PLANE_ALT_ABOVE_GROUND: `altAboveGround`,
+  PLANE_BANK_DEGREES: `bank`,
+  PLANE_HEADING_DEGREES_MAGNETIC: `heading`,
+  PLANE_HEADING_DEGREES_TRUE: `trueHeading`,
+  PLANE_LATITUDE: `lat`,
+  PLANE_LONGITUDE: `long`,
+  PLANE_PITCH_DEGREES: `pitch`,
+  RUDDER_POSITION: `rudder`,
+  RUDDER_TRIM_PCT: `rudderTrim`,
+  SIM_ON_GROUND: `onGround`,
+  STATIC_CG_TO_GROUND: `cg`,
+  STALL_ALPHA: `stallAlpha`,
+  TITLE: `title`,
+  TOTAL_WEIGHT: `weight`,
+  TURN_INDICATOR_RATE: `turnRate`,
+  TYPICAL_DESCENT_RATE: `descentRate`,
+  VERTICAL_SPEED: `VS`,
+  WING_AREA: `wingArea`,
+  WING_SPAN: `wingSpan`,
+};
+
+export function rebindData(data) {
+  Object.entries(data).forEach(([simName, value]) => {
+    const jsName = NAME_MAPPING[simName];
+
+    if (jsName === undefined) return;
+    if (!exists(data[simName])) return;
+
+    data[jsName] = value;
+    delete data[simName];
+  });
+}
+```
+
+And that's us nearly here. However, SimConnect typically only serves up "values" and if we're going to write an autopilot, we generally also care the _change_ in certain values over time. For instance, just knowing our current vertical speed doesn't tell us whether we're ascending or descending, and just knowing that we're turning at 3 degrees per second  _right now_ doesn't tell us anything about whether we're about to spiral out of control or whether we're about to stop turning entirely. 
+
+So we need a little bit of extra code to track the "delta" values for some of the flight properties we listed earlier:
+
+```js
+// Our list of "first derivatives", i.e. our deltas
+export const DERIVATIVES = [
+  `bank`,
+  `heading`,
+  `lift`,
+  `pitch`,
+  `speed`,
+  `trueHeading`,
+  `trueSpeed`,
+  `turnRate`,
+  `VS`,
+];
+
+// And our single "second derivative":
+export const SECOND_DERIVATIVES = [`VS`];
+
+// And then an update to the `rebind` function:
+export function rebindData(data, previousValues) {
+  // Whether or not we have previous values for delta computation,
+  // just preallocate the values we _might_ need for that.
+  const d = {};
+  const before = this.flightData.__datetime;
+  const now = Date.now();
+  const dt = (now - before) / 1000; // delta per second seconds
+
+  // Then perform the name mapping, but with extra code for getting
+  // our "delta" values, which we'll add into a `.d` property.
+  Object.entries(data).forEach(([simName, value]) => {
+    const jsName = NAME_MAPPING[simName];
+
+    if (jsName === undefined) return;
+    if (!exists(data[simName])) return;
+
+    data[jsName] = value;
+    delete data[simName];
+
+    // Do we need to compute derivatives?
+    if (previousValues && DERIVATIVES.includes(jsName)) {
+      const previous = previousValues[jsName];
+      if (typeof previous !== `number`) return;
+      const current = data[jsName];
+      d[jsName] = (current - previous) / dt;
+
+      // ...do we need to compute *second* derivatives?
+      if (SECOND_DERIVATIVES.includes(jsName)) {
+        d.d ??= {};
+        const previousDelta = previousValues.d?.[jsName] ?? 0;
+        d.d[jsName] = d[jsName] - previousDelta;
+      }
+    }
+  });
+
+  // If we did delta computation work, save the result:
+  if (previousValues) {
+    data.__datetime = now;
+    data.d = d;
+  }
+}
+```
+
+Well that only took forever...
+
+### Our `FlightInformation` object
+
+And we still need to write the actual code that actually pulls this data from SimConnect to keep us up to date. Thankfully, with all the above work completed, that part is nowhere near as much work. First, we write a `FlightInformation` object to wrap all those values and functions:
+
+```js
+import {
+  FLIGHT_MODEL,
+  FLIGHT_DATA,
+  convertValues,
+  renameData,
+} from "./flight-values.js";
+
+let api;
+
+export class FlightInformation {
+  constructor(_api) {
+    api = _api;
+    this.reset();
+  }
+
+  reset() {
+    this.flightModel = false;
+    this.flightData = false;
+    this.general = {
+      flying: false,
+      inGame: false,
+      moving: false,
+      planeActive: false,
+    };
+  }
+
+  // We'll have three update functions. Two for the two types
+  // of data, and then this one, which is a unified "call both":
+  async update() {
+    try {
+      if (!api.connected) throw new Error(`API not connected`);
+      await Promise.all([this.updateModel(), this.updateFlight()]);
+    } catch (e) {
+      console.warn(e);
+    }
+    return this;
+  }
+
+  // Then our "update the model" code:
+  async updateModel() {
+    const modelData = await api.get(...FLIGHT_MODEL);
+    if (!modelData) return (this.flightModel = false);
+    // Make sure to run our quality-of-life functions:
+    convertValues(modelData);
+    renameData(modelData);
+    return (this.flightModel = modelData);
+  }
+
+  // And our "update the current flight information" code:
+  async updateFlight() {
+    const flightData = await api.get(...FLIGHT_DATA);
+    if (!flightData) return (this.flightData = false);
+    // Make sure to run our quality-of-life functions here, too:
+    convertValues(flightData);
+    renameData(flightData, this.flightData);
+
+    // Create a convenience value for "are any engines running?",
+    // which would otherwise require checking four separate variables:
+    flightData.enginesRunning = [1, 2, 3, 4].reduce((t, num) => t || flightData[`ENG_COMBUSTION:${num}`], false);
+
+    // Create a convenience value for "is the plane powered on?",
+    // which would otherwise require checking two variables:
+    flightData.hasPower =
+      flightData.ampLoad !== 0 || flightData.busVoltage !== 0;
+
+    // And create a convenience value for compass correction:
+    flightData.declination = flightData.trueHeading - flightData.heading;
+
+    // Then update our general flight values and return;
+    this.setGeneralProperties(flightData);
+    return (this.flightData = flightData);
+  }
+
+  // The general properties are mostly there so we don't have to
+  // constantly derive them on the client side:
+  setGeneralProperties(flightData) {
+    const { onGround, hasPower, enginesRunning, speed, camera } = flightData;
+    const inGame = 2 <= camera && camera < 9;
+    const flying = inGame ? !onGround : false;
+    const moving = inGame ? speed > 0 : false;
+    const planeActive = inGame ? hasPower || enginesRunning : false;
+    Object.assign(this.general, { flying, inGame, planeActive, moving });
+  }
+}
+```
+
+And then, as last step, we now need to make the server actually use this object, and make sure that clients can receive it. So, on the server side:
+
+```js
+...
+
+// Import our fancy new class, in a way that lets us hot-reload it:
+import { FlightInformation as fi } from "../../utils/flight-information.js";
+let FlightInformation = fi;
+let flightInformation = false;
+watch(__dirname, `../../utils/flight-information.js`, (module) => {
+  FlightInformation = module.FlightInformation;
+  if (flightInformation)
+    Object.setPrototypeOf(flightInformation, FlightInformation.prototype);
+});
+
+class Server {
+  ...
+
+  async init() {
+    ...
+    connectServerToAPI(api, async () => {
+      ...
+      (async function poll() {
+        checkGameState(clients, flightInformation);
+        runLater(poll, POLLING_INTERVAL);
+      })();
+    });
+  }
+}
+```
+
+With the `flightInformation` added to the `checkGameState` function we created earlier in the helpers file:
+
+```javascript
+export async function checkGameState(clients, flightInformation) {
+  await flightInformation.update();
+  clients.forEach(async (client) => {
+    await client.setFlightInformation(flightInformation);
+  });
+}
+```
+
+And then we add the `setFlightInformation` function to the client class, to close the loop:
+
+```js
+...
+
+export class ClientClass {
+  ...
+
+  // our base state now includes the flightinformation properties:
+  #resetState() {
+    this.setState({
+      ...
+      flightInformation: {}
+    });
+  }
+
+  ...
+
+  async setFlightInformation(flightInformation) {
+    // Just straight-up copy all the flight information state
+    // values, which will then automatically update any browser
+    // that's connected, as well.
+    this.setState({ flightInformation });
+  }
+}
+```
+
+Well that only took forever, but we can finally get back to _&lt;checks notes&gt;_ ticking a few HTML checkboxes?
+
+## Showing the game data
 
 We know when we're connected to MSFS, so let's write a few functions that let us cascade through the various stages of the game before we get to "actually controlling a plane". Let's start with what we want that to look like:
 
@@ -1259,484 +1740,14 @@ And that's the "game state" read-back sorted out! Easy-peasy!
 
 Okay not really. You probably spotted those `flightModel` and `flightData` variables in th code: what's that all about?
 
-### Getting model and flight information
 
-In order to work with flight information, we could make the browser ask the server for that information, but since the server is polling MSFS anyway, it makes far more sense to just have the server get "all the flight data we might be even remotely interested in", once, and then just broadcast that data to every client. And then if those clients have browsers connected to them, those will update "for free" thanks to how the `setState` function works in `socketless`.
-
-So let's write some code that lets us relatively easily work with flight models and flight data. We'll create a `src/utils/flight-values.js` file, and then start with the flight model values:
-
-```js
-export const FLIGHT_MODEL = [
-  `CATEGORY`,
-  `DESIGN_CRUISE_ALT`,
-  `DESIGN_SPEED_CLIMB`,
-  `DESIGN_SPEED_MIN_ROTATION`,
-  `DESIGN_SPEED_VC`,
-  `DESIGN_SPEED_VS0`,
-  `DESIGN_SPEED_VS1`,
-  `DESIGN_TAKEOFF_SPEED`,
-  `ELEVATOR_TRIM_DOWN_LIMIT`,
-  `ELEVATOR_TRIM_UP_LIMIT`,
-  `ENGINE_TYPE`,
-  `INCIDENCE_ALPHA`,
-  `IS_GEAR_FLOATS`,
-  `IS_GEAR_RETRACTABLE`,
-  `IS_TAIL_DRAGGER`,
-  `NUMBER_OF_ENGINES`,
-  `PLANE_LATITUDE`,
-  `PLANE_LONGITUDE`,
-  `STALL_ALPHA`,
-  `STATIC_CG_TO_GROUND`,
-  `TITLE`,
-  `TOTAL_WEIGHT`,
-  `TYPICAL_DESCENT_RATE`,
-  `WING_AREA`,
-  `WING_SPAN`,
-];
-
-export const ENGINE_TYPES = [
-  `piston`,
-  `jet`,
-  `none`,
-  `helo(Bell) turbine`,
-  `unsupported`,
-  `turboprop`,
-];
-```
-
-Do we need all that data? Surprisingly: yes! Almost all of these will let us either bootstrap our autopilot parameters, or do things like "tick checkboxes on our page".
-
-Next up, our "things we want to know while we're actually flying" data:
-
-```js
-export const FLIGHT_DATA = [
-  `AILERON_POSITION`,
-  `AILERON_TRIM_PCT`,
-  `AIRSPEED_INDICATED`,
-  `AIRSPEED_TRUE`,
-  `AUTOPILOT_HEADING_LOCK_DIR`,
-  `AUTOPILOT_MASTER`,
-  `CAMERA_STATE`,
-  `CAMERA_SUBSTATE`,
-  `CRASH_FLAG`,
-  `CRASH_SEQUENCE`,
-  `ELECTRICAL_AVIONICS_BUS_VOLTAGE`,
-  `ELECTRICAL_TOTAL_LOAD_AMPS`,
-  `ELEVATOR_POSITION`,
-  `ELEVATOR_TRIM_PCT`,
-  `ELEVATOR_TRIM_POSITION`,
-  `ENG_COMBUSTION:1`,
-  `ENG_COMBUSTION:2`,
-  `ENG_COMBUSTION:3`,
-  `ENG_COMBUSTION:4`,
-  `GEAR_POSITION:1`,
-  `GEAR_SPEED_EXCEEDED`,
-  `GROUND_ALTITUDE`,
-  `INDICATED_ALTITUDE`,
-  `OVERSPEED_WARNING`,
-  `PLANE_ALT_ABOVE_GROUND_MINUS_CG`,
-  `PLANE_ALT_ABOVE_GROUND`,
-  `PLANE_BANK_DEGREES`,
-  `PLANE_HEADING_DEGREES_MAGNETIC`,
-  `PLANE_HEADING_DEGREES_TRUE`,
-  `PLANE_LATITUDE`,
-  `PLANE_LONGITUDE`,
-  `PLANE_PITCH_DEGREES`,
-  `RUDDER_POSITION`,
-  `RUDDER_TRIM_PCT`,
-  `SIM_ON_GROUND`,
-  `TURN_INDICATOR_RATE`,
-  `VERTICAL_SPEED`,
-];
-```
-
-This also looks like a lot of data, but we really do need every single one of these values if we're going to implement an autopilot.
-
-But that does leave us with a problem: SimConnect isn't really all that fussy about making sure every single value uses a unit that makes sense, so something like `PLANE_BANK_DEGREES`, which you would expect to be a number in degrees, is actually a stored in radians. And `AIRSPEED_TRUE` is in knots, so surely `DESIGN_SPEED_CLIMB` is in knots, too, right? Nope, that's in feet per second. Which means `DESIGN_SPEED_VS1` is in feet per second, too? Haha, no, that one _is_ in knots, but "knots indicated", so not a real speed, but what the dial in the cockpit shows on the speed gauge.
-
-Oh and boolean values aren't true or false, they're 1 or 0. It's all a bit of a mess, so let's write some code to take of all this nonsense and make sure values are in units we can rely on, because if we don't it's just going to be a huge headache:
-
-```js
-// These are all degree values that are actually stored as radians.
-export const DEGREE_VALUES = [
-  `PLANE_LATITUDE`,
-  `PLANE_LONGITUDE`,
-  `PLANE_BANK_DEGREES`,
-  `PLANE_HEADING_DEGREES_MAGNETIC`,
-  `PLANE_HEADING_DEGREES_TRUE`,
-  `PLANE_PITCH_DEGREES`,
-  `STALL_ALPHA`,
-  `TURN_INDICATOR_RATE`,
-];
-
-// These are all boolean values that are stored as a number.
-export const BOOLEAN_VALUES = [
-  `AUTOPILOT_MASTER`,
-  `ENG_COMBUSTION:1`,
-  `ENG_COMBUSTION:2`,
-  `ENG_COMBUSTION:3`,
-  `ENG_COMBUSTION:4`,
-  `IS_GEAR_FLOATS`,
-  `IS_GEAR_RETRACTABLE`,
-  `IS_TAIL_DRAGGER`,
-  `GEAR_POSITION:1`,
-  `GEAR_SPEED_EXCEEDED`,
-  `OVERSPEED_WARNING`,
-  `SIM_ON_GROUND`,
-];
-
-// These are percentages, but stored as "percent divided by 100"
-export const PERCENT_VALUES = [
-  `AILERON_POSITION`,
-  `AILERON_TRIM_PCT`,
-  `ELEVATOR_POSITION`,
-  `ELEVATOR_TRIM_PCT`,
-  `RUDDER_POSITION`,
-  `RUDDER_TRIM_PCT`,
-];
-
-// In game, vertical speed is feet per minute.
-// SimConnect reports it as feet per second...
-export const FPM_VALUES = [`VERTICAL_SPEED`];
-
-// Plane altitude is in feet, so why is ground altitude in meters?
-export const MTF_VALUES = [`GROUND_ALTITUDE`];
-
-// And finally, please just turn all of these into values in knots.
-export const KNOT_VALUES = [
-  `DESIGN_SPEED_MIN_ROTATION`,
-  `DESIGN_SPEED_CLIMB`,
-  `DESIGN_SPEED_VC`,
-  `DESIGN_TAKEOFF_SPEED`,
-];
-```
-
-We can pair this with a function that runs through a bunch of rewrites for each of the categories, to give us values to work with that actually make sense:
-
-```js
-import { FEET_PER_DEGREE, FEET_PER_METER, FPS_IN_KNOTS } from "./constants.js";
-import { exists } from "./utils.js";
-
-export function convertValues(data) {
-  // Convert values to the units they're supposed to be:
-  BOOLEAN_VALUES.forEach((p) =>
-    exists(data[p]) ? (data[p] = !!data[p]) : noop
-  );
-  DEGREE_VALUES.forEach((p) =>
-    exists(data[p]) ? (data[p] *= 180 / Math.PI) : noop
-  );
-  PERCENT_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 100) : noop));
-  FPM_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 60) : noop));
-  KNOT_VALUES.forEach((p) =>
-    exists(data[p]) ? (data[p] *= FPS_IN_KNOTS) : noop
-  );
-  MTF_VALUES.forEach((p) =>
-    exists(data[p]) ? (data[p] *= FEET_PER_METER) : noop
-  );
-
-  if (exists(data.ENGINE_TYPE)) {
-    data.ENGINE_TYPE = ENGINE_TYPES[data.ENGINE_TYPE];
-  }
-}
-```
-
-In this code, the contants are 364000, 3.28084, and 1/1.68781, respectively, and `exists` is just a tiny function that checks whether a value is either `undefined` or `null`, because we want to assign a value if a property _does_ exist, and there is no `!??=` operator =)
-
-Which leaves one more thing: working with `PLANE_ALT_ABOVE_GROUND_MINUS_CG` or `AUTOPILOT_HEADING_LOCK_DIR` is something we _could_ do, but it would be a heck of a lot nicer if those things had normal names that followed standard JS naming conventions. So let's write _even more utility code_ to take care of that for us:
-
-```js
-export const NAME_MAPPING = {
-  AILERON_POSITION: `aileron`,
-  AILERON_TRIM_PCT: `aileronTrim`,
-  AIRSPEED_INDICATED: `speed`,
-  AIRSPEED_TRUE: `trueSpeed`,
-  AUTOPILOT_HEADING_LOCK_DIR: `headingBug`,
-  AUTOPILOT_MASTER: `MASTER`,
-  CAMERA_STATE: `camera`,
-  CAMERA_SUBSTATE: `cameraSub`,
-  CATEGORY: `category`,
-  CRASH_FLAG: `crashed`,
-  CRASH_SEQUENCE: `crashSequence`,
-  DESIGN_CRUISE_ALT: `cruiseAlt`,
-  DESIGN_SPEED_CLIMB: `climbSpeed`,
-  DESIGN_SPEED_MIN_ROTATION: `minRotation`,
-  DESIGN_SPEED_VC: `cruiseSpeed`,
-  DESIGN_SPEED_VS0: `vs0`,
-  DESIGN_SPEED_VS1: `vs1`,
-  DESIGN_TAKEOFF_SPEED: `takeoffSpeed`,
-  ELEVATOR_POSITION: `elevator`,
-  ELEVATOR_TRIM_DOWN_LIMIT: `trimDownLimit`,
-  ELEVATOR_TRIM_PCT: `pitchTrim`,
-  ELEVATOR_TRIM_POSITION: `trimPosition`,
-  ELEVATOR_TRIM_UP_LIMIT: `trimUpLimit`,
-  ENGINE_TYPE: `engineType`,
-  "GEAR_POSITION:1": `isGearDown`,
-  GEAR_SPEED_EXCEEDED: `gearSpeedExceeded`,
-  GROUND_ALTITUDE: `groundAlt`,
-  INDICATED_ALTITUDE: `alt`,
-  IS_GEAR_FLOATS: `isFloatPlane`,
-  IS_GEAR_RETRACTABLE: `hasRetractibleGear`,
-  IS_TAIL_DRAGGER: `isTailDragger`,
-  NUMBER_OF_ENGINES: `engineCount`,
-  OVERSPEED_WARNING: `overSpeed`,
-  PLANE_ALT_ABOVE_GROUND_MINUS_CG: `lift`,
-  PLANE_ALT_ABOVE_GROUND: `altAboveGround`,
-  PLANE_BANK_DEGREES: `bank`,
-  PLANE_HEADING_DEGREES_MAGNETIC: `heading`,
-  PLANE_HEADING_DEGREES_TRUE: `trueHeading`,
-  PLANE_LATITUDE: `lat`,
-  PLANE_LONGITUDE: `long`,
-  PLANE_PITCH_DEGREES: `pitch`,
-  RUDDER_POSITION: `rudder`,
-  RUDDER_TRIM_PCT: `rudderTrim`,
-  SIM_ON_GROUND: `onGround`,
-  STATIC_CG_TO_GROUND: `cg`,
-  STALL_ALPHA: `stallAlpha`,
-  TITLE: `title`,
-  TOTAL_WEIGHT: `weight`,
-  TURN_INDICATOR_RATE: `turnRate`,
-  TYPICAL_DESCENT_RATE: `descentRate`,
-  VERTICAL_SPEED: `VS`,
-  WING_AREA: `wingArea`,
-  WING_SPAN: `wingSpan`,
-};
-
-export function rebindData(data) {
-  Object.entries(data).forEach(([simName, value]) => {
-    const jsName = NAME_MAPPING[simName];
-
-    if (jsName === undefined) return;
-    if (!exists(data[simName])) return;
-
-    data[jsName] = value;
-    delete data[simName];
-  });
-}
-```
-
-And then that just leaves one more thing: several of the values we want to work with are "delta" values, which SimConnect doesn't offer. If we want to know the change in speed from moment to moment, or the change in bank angle from moment to moment, we're going to have to compute those ourselves. So.... here we go:
-
-```js
-// Our list of derivatives
-export const DERIVATIVES = [
-  `bank`,
-  `heading`,
-  `lift`,
-  `pitch`,
-  `speed`,
-  `trueHeading`,
-  `trueSpeed`,
-  `turnRate`,
-  `VS`,
-];
-
-// And our single "second derivative":
-export const SECOND_DERIVATIVES = [`VS`];
-
-// And then an update to the `rebind` function:
-export function rebindData(data, previousValues) {
-  // Whether or not we have previous values for delta computation,
-  // just preallocate the values we _might_ need for that.
-  const d = {};
-  const before = this.flightData.__datetime;
-  const now = Date.now();
-  const dt = (now - before) / 1000; // delta per second seconds
-
-  // Then perform the name mapping, but with extra code for getting
-  // our "delta" values, which we'll add into a `.d` property.
-  Object.entries(data).forEach(([simName, value]) => {
-    const jsName = NAME_MAPPING[simName];
-
-    if (jsName === undefined) return;
-    if (!exists(data[simName])) return;
-
-    data[jsName] = value;
-    delete data[simName];
-
-    // Do we need to compute derivatives?
-    if (previousValues && DERIVATIVES.includes(jsName)) {
-      const previous = previousValues[jsName];
-      if (typeof previous !== `number`) return;
-      const current = data[jsName];
-      d[jsName] = (current - previous) / dt;
-
-      // ...do we need to compute *second* derivatives?
-      if (SECOND_DERIVATIVES.includes(jsName)) {
-        d.d ??= {};
-        const previousDelta = previousValues.d?.[jsName] ?? 0;
-        d.d[jsName] = d[jsName] - previousDelta;
-      }
-    }
-  });
-
-  // If we did delta computation work, save the result:
-  if (previousValues) {
-    data.__datetime = now;
-    data.d = d;
-  }
-}
-```
-
-That only took forever. And we still need to write the actual code that pulls this data from SimConnect to keep us up to date. Thankfully, with all the above work already done, that part is nowhere near as much work. First, we write a `FlightInformation` object to wrap all those values and functions:
-
-```js
-import * as Values from "./flight-values.js";
-
-const noop = () => {};
-let api;
-
-export class FlightInformation {
-  constructor(_api) {
-    api = _api;
-    this.reset();
-  }
-
-  reset() {
-    this.flightModel = false;
-    this.flightData = false;
-  }
-
-  // We'll have three update functions. Two for the two types
-  // of data, and then this one, which is a unified "call both":
-  async update() {
-    try {
-      const [flightModel, flightData] = await Promise.all([
-        this.updateModel(),
-        this.updateFlight(),
-      ]);
-      return { flightModel, flightData };
-    } catch (e) {
-      console.warn(e);
-    }
-  }
-
-  // Then our "update the model" code:
-  async updateModel() {
-    const modelData = await api.get(...Values.FLIGHT_MODEL);
-    if (!modelData) {
-      return (this.flightModel = false);
-    }
-    Values.convertValues(modelData);
-    Values.rebindData(modelData);
-
-    // Create a convenience value for trimming. We'll need it later.
-    modelData.pitchTrimLimit = [
-      modelData.trimUpLimit ?? 10,
-      modelData.trimDownLimit ?? -10,
-    ];
-
-    return (this.flightModel = modelData);
-  }
-
-  // And our "update the current flight information" code:
-  async updateFlight() {
-    const flightData = await api.get(...Values.FLIGHT_DATA);
-    if (!flightData) return (this.flightData = false);
-
-    Values.convertValues(flightData);
-    Values.rebindData(flightData, this.flightData);
-
-    // Create an extra convenience value for "are any of the engines running?"
-    flightData.enginesRunning = [1, 2, 3, 4].reduce(
-      (t, num) => t || flightData[`ENG_COMBUSTION:${num}`],
-      false
-    );
-
-    // Create a extra convenience value for "is the plane powered on at all?"
-    flightData.hasPower =
-      flightData.ampLoad !== 0 || flightData.busVoltage !== 0;
-
-    // Create a convenience value for compass correction:
-    flightData.declination = flightData.trueHeading - flightData.heading;
-
-    return (this.flightData = flightData);
-  }
-}
-```
-
-And then, as last step, we now need to make the server actually use this object:
-
-```js
-import { FlightInformation as fi } from "../../utils/flight-information.js";
-// our class
-let FlightInformation = fi;
-
-// our class instance
-let flightInformation = false;
-
-...
-
-class Server {
-  ...
-
-  async init() {
-    // We'll want to make sure to reload the import if we end up editing
-    // the flight information class, using our reload watcher:
-    watch(__dirname, `../../utils/flight-information.js`, (module) => {
-      FlightInformation = module.FlightInformation;
-      if (flightInformation) {
-        Object.setPrototypeOf(
-          flightInformation,
-          FlightInformation.prototype
-        );
-      }
-    });
-    ...
-  }
-
-  ...
-
-  #registerWithAPI(api, autopilot) {
-    ...
-    flightInformation = new FlightInformation(api);
-    flightInformation.update();
-  }
-
-  async #poll() {
-    // update the flight information and relay that to our clients:
-    await flightInformation.update();
-    this.clients.forEach((client) =>
-      client.setFlightInformation(flightInformation)
-    );
-    //
-    this.#checkFlying();
-    runLater(() => this.#poll(), 5000);
-  }
-}
-```
-
-With the corresponding `setFlightInformation` on the client side:
-
-```js
-...
-
-export class ClientClass {
-  ...
-
-  #resetState() {
-    this.setState({
-      ...
-      flightData: false,
-      flightModel: false,
-    });
-  }
-
-  ...
-
-  async setFlightInformation({ flightData, flightModel }) {
-    this.setState({ flightData, flightModel });
-  }
-}
-```
-
-Well that only took forever, but we can finally get back to _&lt;checks notes&gt;_ ticking a few HTML checkboxes?
 
 ### Trying our question list out
 
 Oh right! Ticking HTML checkboxes! Let's try this out:
 
 - Start MSFS,
-- then up the server with `node api-server.js` and our client with `node web-server.js --owner --browser` ,
+- then up the server with `node api-server.js` and our client with `node web-server.js --browser` ,
 - then look at what happens in the browser as MSFS finished starting up.
 - Load up a plane on a runway somewhere, and see what happens.
 - Load up a plane mid-flight and see what the checkboxes do! And of course,
@@ -3089,7 +3100,7 @@ The hot reloading section needs to come earlier, that should be part of our init
 Let's make sure to test this before we move on. Let's:
 
 - start our API server
-- start our client web server (with the `--owner` and `--browser` flags)
+- start our client web server (with the `--browser` flag)
 - we won't need to start MSFS for this one, as nothing we're doing relies on having the game running
 - we should see our browser page with our autopilot button:<br>![image-20231105095108092](./images/page/ap-button-off.png)
 

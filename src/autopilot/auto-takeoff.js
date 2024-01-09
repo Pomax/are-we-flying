@@ -75,8 +75,7 @@ export class AutoTakeoff {
    *
    * @param {*} FlightInformation
    */
-  async run({ flightData, flightModel }) {
-    const { autopilot } = this;
+  async run({ data: flightData, model: flightModel }) {
 
     const {
       engineCount,

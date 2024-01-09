@@ -4,9 +4,12 @@ import { constrainMap, nf } from "../utils/utils.js";
 
 const { abs } = Math;
 
-export function autoThrottle(autopilot, { flightData, flightModel }) {
+export function autoThrottle(
+  autopilot,
+  { data: flightData, model: flightModel }
+) {
   const { modes } = autopilot;
-  const { alt, speed, vs1 } = flightData;
+  const { alt, speed } = flightData;
   const { speed: dV } = flightData.d;
   const { engineCount, isAcrobatic } = flightModel;
   const targetAlt = modes[ALTITUDE_HOLD];

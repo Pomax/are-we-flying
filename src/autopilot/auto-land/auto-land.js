@@ -120,7 +120,7 @@ class AutoLand {
       return;
     }
 
-    const { flightData, flightModel } = flightInformation;
+    const { data: flightData, model: flightModel } = flightInformation;
     const { title } = flightModel;
     const { lat, long } = flightData;
     const waterLanding = title.includes(`float`) || title.includes(`amphi`);
@@ -256,7 +256,7 @@ class AutoLand {
     }
 
     // All the values we're going to need:
-    const { flightData, flightModel } = flightInformation;
+    const { data: flightData, model: flightModel } = flightInformation;
     const {
       bank,
       elevator,

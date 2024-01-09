@@ -1,9 +1,6 @@
 import { Attitude } from "./attitude.js";
 import { Autopilot } from "./autopilot.js";
-import {
-  getDistanceBetweenPoints,
-  waitFor,
-} from "./utils.js";
+import { getDistanceBetweenPoints, waitFor } from "./utils.js";
 import { Duncan } from "./locations.js";
 import { getAirplaneSrc } from "./airplane-src.js";
 import { initCharts } from "./dashboard/charts.js";
@@ -42,9 +39,8 @@ export class Plane {
       long,
       flying: false,
       crashed: false,
-      flightData: {
-        PLANE_LATITUDE: lat,
-        PLANE_LONGITUDE: long,
+      flightInformation: {
+        data: { lat, long },
       },
     };
   }
@@ -53,29 +49,32 @@ export class Plane {
     this.testRan = true;
     const { map } = this;
     const gridSize = 5;
-    const airports = await this.server.api.getNearbyAirports(
-      this.state.flightData?.lat ?? Duncan[0],
-      this.state.flightData?.long ?? Duncan[1],
-      gridSize
-    );
-    airports?.forEach((airport) => {
-      // draw the airport
-      const { latitude: lat, longitude: long, runways } = airport;
-      L.circle([lat, long], { radius: 30, color: "blue" }).addTo(map);
-      // draw the runways
-      runways.forEach((runway) => {
-        const { start, end, bbox, width } = runway;
-        const outline = L.polygon(bbox, {
-          color: "red",
-          bubblingMouseEvents: false,
-        }).addTo(map);
-        L.circle(start, { radius: width }).addTo(map);
-        outline.on(`click`, (leafletEvt) => {
-          L.DomEvent.preventDefault(leafletEvt);
-          confirm(`land here?`);
+    const { flightInformation } = this.state;
+    if (flightInformation) {
+      const airports = await this.server.api.getNearbyAirports(
+        flightInformation.data.lat ?? Duncan[0],
+        flightInformation.data.long ?? Duncan[1],
+        gridSize
+      );
+      airports?.forEach((airport) => {
+        // draw the airport
+        const { latitude: lat, longitude: long, runways } = airport;
+        L.circle([lat, long], { radius: 30, color: "blue" }).addTo(map);
+        // draw the runways
+        runways.forEach((runway) => {
+          const { start, end, bbox, width } = runway;
+          const outline = L.polygon(bbox, {
+            color: "red",
+            bubblingMouseEvents: false,
+          }).addTo(map);
+          L.circle(start, { radius: width }).addTo(map);
+          outline.on(`click`, (leafletEvt) => {
+            L.DomEvent.preventDefault(leafletEvt);
+            confirm(`land here?`);
+          });
         });
       });
-    });
+    }
   }
 
   /**
@@ -165,18 +164,18 @@ export class Plane {
     if (debounceState(this, state)) return;
 
     // Update plane visualisation
-    const { flightData } = state;
-    if (flightData) this.updateMap(flightData, now);
-
-    // Update the attitude indicator:
-    Attitude.setPitchBank(flightData.pitch, flightData.bank);
+    const { data: flightData } = state.flightInformation;
+    if (flightData) {
+      this.updateMap(flightData, now);
+      // Update the attitude indicator:
+      Attitude.setPitchBank(flightData.pitch, flightData.bank);
+    }
 
     // Update the autopilot
     const { landingTarget, waypoints, elevation, ...params } =
       state.autopilot ?? {};
     this.autopilot.update(params);
     this.manageWaypoints(waypoints);
-    this.setElevationProbe(flightData.lat, flightData.long, elevation);
 
     // If we're in auto-landing, show that airport on the map
     if (landingTarget && !this.landingTarget) {
@@ -204,8 +203,12 @@ export class Plane {
       // });
     }
 
-    // Update our science
-    this.updateChart(flightData, now);
+    if (flightData) {
+      // show the elevation probe, if there is one.
+      this.setElevationProbe(flightData.lat, flightData.long, elevation);
+      // Update our science
+      this.updateChart(flightData, now);
+    }
 
     // Cache and wait for the next state
     this.lastUpdate = { time: now, ...state };
@@ -217,7 +220,8 @@ export class Plane {
    * @returns
    */
   async updateMap(flightData, now) {
-    const { paused, crashed, flightModel } = this.state;
+    const { paused, crashed, flightInformation } = this.state;
+    const { model: flightModel } = flightInformation;
     const { lat, long, speed } = flightData;
 
     // Do we have a GPS coordinate? (And not the 0/0 you get
@@ -227,10 +231,13 @@ export class Plane {
 
     // Did we teleport?
     const latLong = [lat, long];
-    const { lat: lat2, long: long2 } = this.lastUpdate.flightData;
+    const { data: prevFlightData } = this.lastUpdate.flightInformation;
+    if (!prevFlightData) return;
+
+    const { lat: lat2, long: long2 } = prevFlightData;
     const d = getDistanceBetweenPoints(lat2, long2, lat, long);
     const kmps = (speed ?? 0) / 1944;
-    const teleported = this.lastUpdate.flightData && d > 5 * kmps;
+    const teleported = d > 5 * kmps;
     if (teleported) {
       this.startNewTrail(latLong);
       this.autopilot.update(await this.server.autopilot.getParameters());

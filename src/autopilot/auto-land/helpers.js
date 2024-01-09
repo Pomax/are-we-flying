@@ -26,7 +26,7 @@ export function performAirportCalculations(flightInformation, airport) {
  * @param {*} runway
  */
 export function calculateRunwayApproaches(flightInformation, runway) {
-  const { flightData } = flightInformation;
+  const { data: flightData } = flightInformation;
   const { alt } = flightData;
   const { start, end, altitude } = runway;
 

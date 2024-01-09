@@ -29,12 +29,11 @@ export class FlightInformation {
    * ...docs go here...
    */
   reset() {
-    this.flightModel = false;
-    this.flightData = false;
+    this.model = false;
+    this.data = false;
     this.general = {
       inGame: false,
       planeActive: false,
-      crashed: false,
       moving: false,
       flying: false,
     };
@@ -57,57 +56,51 @@ export class FlightInformation {
    * ...docs go here...
    */
   async updateModel() {
-    const modelData = await api.get(...FLIGHT_MODEL);
-    if (!modelData) {
-      return (this.flightModel = false);
-    }
+    const data = await api.get(...FLIGHT_MODEL);
+    if (!data) return (this.model = false);
 
-    convertValues(modelData);
-    renameData(modelData);
+    convertValues(data);
+    renameData(data);
 
     // Create a convenience value for trimming
-    modelData.pitchTrimLimit = [
-      modelData.trimUpLimit ?? 10,
-      modelData.trimDownLimit ?? -10,
-    ];
+    data.pitchTrimLimit = [data.trimUpLimit ?? 10, data.trimDownLimit ?? -10];
 
     // Check whether this plane has shitty trimming
-    checkTrimCapability(modelData);
+    checkTrimCapability(data);
 
-    return (this.flightModel = modelData);
+    return (this.model = data);
   }
 
   /**
    * ...docs go here...
    */
   async updateFlight() {
-    const flightData = await api.get(...FLIGHT_DATA);
-    if (!flightData) return (this.flightData = false);
+    const data = await api.get(...FLIGHT_DATA);
+    if (!data) return (this.data = false);
 
-    convertValues(flightData);
-    renameData(flightData, this.flightData);
+    convertValues(data);
+    renameData(data, this.data);
 
     // Create a convenience value for "are any engines running?"
-    flightData.enginesRunning = [1, 2, 3, 4].reduce(
-      (t, num) => t || flightData[`ENG_COMBUSTION:${num}`],
+    data.enginesRunning = [1, 2, 3, 4].reduce(
+      (t, num) => t || data[`ENG_COMBUSTION:${num}`],
       false
     );
 
     // Create a convenience value for "is the plane powered on?"
-    flightData.hasPower =
-      flightData.ampLoad !== 0 || flightData.busVoltage !== 0;
+    data.hasPower = data.ampLoad !== 0 || data.busVoltage !== 0;
 
     // Create a convenience value for compass correction:
-    flightData.declination = flightData.trueHeading - flightData.heading;
+    data.declination = data.trueHeading - data.heading;
 
-    this.setGeneralProperties(flightData);
-    return (this.flightData = flightData);
+    this.setGeneralProperties(data);
+    return (this.data = data);
   }
 
   // Set a few general properties so we don't have to
   // constantly derive them on the client side:
-  setGeneralProperties(flightData) {
-    const { onGround, hasPower, enginesRunning, speed, camera } = flightData;
+  setGeneralProperties(data) {
+    const { onGround, hasPower, enginesRunning, speed, camera } = data;
     const inGame = 2 <= camera && camera < 9;
     const planeActive = inGame ? hasPower || enginesRunning : false;
     const moving = speed > 0;

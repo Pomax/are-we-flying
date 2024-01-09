@@ -30,9 +30,7 @@ export class ClientClass {
     this.setState({
       autopilot: null,
       crashed: false,
-      flightData: false,
-      flightModel: false,
-      general: {},
+      flightInformation: false,
       flying: false,
       MSFS: false,
       serverConnection: false,
@@ -142,7 +140,8 @@ export class ClientClass {
    * ...docs go here...
    */
   async setFlightInformation(flightInformation) {
-    const { planeActive: wasPlaneActive } = this.state.general;
+    const prevInformation = this.state.flightInformation;
+    const { planeActive: wasPlaneActive } = prevInformation.general ?? {};
     const { planeActive } = flightInformation.general;
     if (!wasPlaneActive && planeActive) {
       console.log(`starting a new flight...`);
@@ -152,6 +151,6 @@ export class ClientClass {
         paused: false,
       });
     }
-    this.setState({ ...flightInformation });
+    this.setState({ flightInformation });
   }
 }

@@ -27,7 +27,7 @@ export const LOAD_TIME = Date.now();
  * @param {*} state
  * @param {*} altitude
  */
-export async function followTerrain(autopilot, { flightData }) {
+export async function followTerrain(autopilot, { data: flightData }) {
   const altitude = parseFloat(autopilot.modes[TERRAIN_FOLLOW]) ?? 500;
   const { lat, long, trueHeading, speed } = flightData;
   const distance = getDistanceGivenSpeed(speed);

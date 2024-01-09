@@ -40,23 +40,28 @@ const elements = Object.fromEntries(
 
 export const Questions = {
   update(state) {
+    const {
+      general,
+      model: flightModel,
+      data: flightData,
+    } = state.flightInformation;
     elements.serverOnline.checked = !!state.serverConnection;
     elements.msfsRunning.checked = state.MSFS;
-    elements.inGame.checked = state.general?.inGame;
-    elements.isAcrobatic.checked = state.flightModel?.isAcrobatic;
-    elements.poweredUp.checked = state.flightData?.hasPower;
-    elements.enginesRunning.checked = state.flightData?.enginesRunning;
-    elements.inTheAir.checked = state.general?.flying;
-    elements.usingAp.checked = state.flightData?.MASTER;
+    elements.inGame.checked = general?.inGame;
+    elements.isAcrobatic.checked = flightModel?.isAcrobatic;
+    elements.poweredUp.checked = flightData?.hasPower;
+    elements.enginesRunning.checked = flightData?.enginesRunning;
+    elements.inTheAir.checked = general?.flying;
+    elements.usingAp.checked = flightData?.MASTER;
     elements.planeCrashed.checked = state.crashed;
-    this.whereAreWeFlying(state);
+    this.whereAreWeFlying(flightData);
     // And we'll do this one separately because it's a more than just a checkmark:
-    this.modelLoaded(state.flightModel?.title);
+    this.modelLoaded(flightModel?.title);
   },
 
-  whereAreWeFlying(state) {
-    const lat = state.flightData?.lat?.toFixed(6);
-    const long = state.flightData?.long?.toFixed(6);
+  whereAreWeFlying(flightData) {
+    const lat = flightData?.lat?.toFixed(6);
+    const long = flightData?.long?.toFixed(6);
     elements.gmapsLink.href = `https://www.google.com/maps/place/${lat}+${long}/@${lat},${long},13z`;
     elements.latitude.textContent = lat ?? `-`;
     elements.longitude.textContent = long ?? `-`;

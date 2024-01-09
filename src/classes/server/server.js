@@ -76,7 +76,7 @@ export class ServerClass {
     if (MOCKED) api.setAutopilot(autopilot);
 
     // Set up call routing so that clients can call this.server.api.[...]
-    this.api = new APIRouter(api, () => MSFS);
+    this.api = new APIRouter(api);
 
     // Set up call routing so that clients can call this.server.autopilot.[...]
     this.autopilot = new AutopilotRouter(autopilot);
@@ -91,7 +91,7 @@ export class ServerClass {
       flightInformation = new FlightInformation(api);
 
       // And register for the pause and crash events:
-      registerWithAPI(clients, api, autopilot, flightInformation);
+      registerWithAPI(clients, api, autopilot);
       clients.forEach((client) => client.onMSFS(true));
 
       // And start polling to see if we're "in game".

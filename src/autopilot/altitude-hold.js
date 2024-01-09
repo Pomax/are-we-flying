@@ -55,7 +55,7 @@ export const LOAD_TIME = Date.now();
  */
 export async function altitudeHold(
   autopilot,
-  { flightData, flightModel },
+  { data: flightData, model: flightModel },
   useStickInstead = false
 ) {
   // The local and state values we'll be working with:

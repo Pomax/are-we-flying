@@ -2,6 +2,7 @@ import { radians, constrainMap, getCompassDiff } from "../utils/utils.js";
 
 import { AUTO_LAND, AUTO_TAKEOFF, HEADING_MODE } from "../utils/constants.js";
 import { AutoPilot } from "./autopilot.js";
+import { GET_TO_RUNWAY } from "./auto-land/auto-land.js";
 
 const { abs } = Math;
 const DEFAULT_TARGET_BANK = 0;
@@ -33,7 +34,7 @@ export const LOAD_TIME = Date.now();
  */
 export async function flyLevel(
   autopilot,
-  { flightData, flightModel },
+  { data: flightData, model: flightModel },
   useStickInstead = false
 ) {
   const { trim, modes } = autopilot;
@@ -81,6 +82,9 @@ export async function flyLevel(
   update += constrainMap(dBank, -maxdBank, maxdBank, -step / 2, step / 2);
 
   if (!isNaN(update)) {
+    if (modes[AUTO_LAND] === GET_TO_RUNWAY) {
+      update *= 2;
+    }
     if (useStickInstead) {
       // add the update, scaled to [-1, 1]
       const newValue = aileron + update / 100;
