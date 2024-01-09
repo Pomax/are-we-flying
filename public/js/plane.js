@@ -165,9 +165,9 @@ export class Plane {
     if (debounceState(this, state)) return;
 
     // Update plane visualisation
-    const { data: flightData } = state.flightInformation;
+    const { data: flightData, model: flightModel } = state.flightInformation;
     if (flightData) {
-      this.updateMap(flightData);
+      this.updateMap(flightData, flightModel);
       // Update the attitude indicator:
       Attitude.setPitchBank(flightData.pitch, flightData.bank);
     }
@@ -220,9 +220,10 @@ export class Plane {
    * @param {*} flightData
    * @returns
    */
-  async updateMap(flightData) {
-    const { paused, crashed, flightInformation } = this.state;
-    const { model: flightModel } = flightInformation;
+  async updateMap(flightData, flightModel) {
+    if (!flightData) return;
+
+    const { paused, crashed } = this.state;
     const { lat, long, speed } = flightData;
 
     // Do we have a GPS coordinate? (And not the 0/0 you get
@@ -252,12 +253,14 @@ export class Plane {
     marker.setLatLng(latLong);
 
     // update our plane "icon"
-    this.planeIcon?.classList.toggle(`paused`, paused);
+    planeIcon.classList.toggle(`paused`, paused);
+    planeIcon.classList.toggle(`crashed`, crashed);
+
     const pic = getAirplaneSrc(flightModel.title);
     [...planeIcon.querySelectorAll(`img`)].forEach(
       (img) => (img.src = `planes/${pic}`)
     );
-    this.planeIcon.classList.toggle(`crashed`, crashed);
+
     this.updateMarker(planeIcon, flightData);
   }
 

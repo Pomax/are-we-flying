@@ -8,16 +8,8 @@ const CHART_HEIGHT = 100;
  * @param {*} container
  * @returns
  */
-export function initCharts(container) {
-  const colors = {
-    background: `#444`,
-    plot: `#0F0F`,
-    minor: `#9994`,
-    major: `#EEE4`,
-    axis: `#FF0F`,
-  };
-
-  const chartables = {
+export function initCharts() {
+  const config = {
     // basics
     ground: { unit: `feet`, positive: true, fixed: 1, max: 1500, filled: true },
     altitude: { unit: `feet`, positive: true, fixed: 1 },
@@ -47,17 +39,17 @@ export function initCharts(container) {
     rudderTrim: { label: `rudder trim`, unit: `%`, fixed: 3 },
   };
 
-  return new Chart(chartables, colors, container);
+  return new Chart(config);
 }
 
 /**
  * ...docs go here...
  */
 class Chart {
-  constructor(chartables, container = document.body) {
+  constructor(config) {
     const elements = (this.elements = {});
     const charts = (this.charts = {});
-    Object.entries(chartables).map(([label, props]) => {
+    Object.entries(config).map(([label, props]) => {
       const { positive, ...rest } = props;
       const GraphType = positive ? PositiveGraph : BalancedGraph;
       const chart = new GraphType(`science`, CHART_WIDTH, CHART_HEIGHT, {

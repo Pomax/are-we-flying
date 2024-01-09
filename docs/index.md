@@ -1801,7 +1801,9 @@ export function waitFor(fn, timeout = 5000, retries = 100) {
 }
 ```
 
-We use this because we don't want to do any map work until Leaflet's been loaded in, and as an external third party library, we have no idea when that might be. With that, we can update our `plane.js`:
+We use this because we don't want to do any map work until Leaflet's been loaded in, and as an external third party library, we have no idea when that might be, and the HTML stack does not have anything simple built in to check whether non-import scripts have finished loading. So this will have to do.
+
+With that, though, we can update our `plane.js` to load our map code:
 
 ```javascript
 import { map: defaultMap } from "./maps.js"
@@ -1821,9 +1823,11 @@ And presto! Now our browser page actually has more than just text:
 
 ![A basic page overview with questions and map](./images/page/page-overview.png)
 
-Which is pretty good, but it's lacking something... oh right: our plane. Let's make a quick little plane icon and put that on the map, at the correct latitude and longitude, pointing in the right direction.
+Which is pretty good, but it's lacking something... our plane!
 
-Let's start by making a `public/map-marker.html` file and putting some code in there:
+
+
+Let's make a quick little plane icon and put that on the map, at the correct latitude and longitude, pointing in the right direction. We'll start by making a `public/map-marker.html` file and putting some code in there:
 
 ```html
 <div id="plane-icon">
@@ -1844,13 +1848,15 @@ With that `plane.png` being a simple little non-existent plane silhouette:
 
 <img src="../public/planes/plane.png" style="width: 72px; height: 50px" />
 
-Although we do want a bit of CSS here, because while we _could_ rotate this image using JS so that it points in the right direction, that's a bit silly when CSS lets you use `tranform: rotate(...)` and get the same thing done. All we need to do is make sure that the CSS variable `--heading` is some plain number in degrees, and then CSS will do the rest. So...
+And then we add a bit of CSS here, because while we _could_ rotate our plane and shadow using JavaScript, that's a bit silly when CSS comes with `tranform: rotate(...)` built in. All we need to do is make sure that the CSS variable `--heading` is some plain number in degrees (which we can, because that's one of our flight data values), and then CSS can do the rest. So:
 
 ```css
 #plane-icon {
-  /* in terms of CSS, our id element is the keeper of CSS-variables: */
+  /* --heading will be unitless, with a corresponding --degrees that's a "real" value */
   --heading: 0;
   --degrees: calc(1deg * var(--heading));
+
+  /* --altitude will be unitless, with a corresponding --alt-em that's a "real" value */
   --altitude: 0;
   --alt-em: calc(sqrt(var(--altitude)) / 20);
 }
@@ -1864,25 +1870,28 @@ Although we do want a bit of CSS here, because while we _could_ rotate this imag
   position: relative;
 }
 
-#plane-icon .basics .shadow {
+#plane-icon .basics img {
+  position: absolute;
+  transform-origin: center center;
+}
+
+#plane-icon .basics img.shadow {
   /* the higher we're flying, the more blurred our shadow should be: */
   --shadow-blur-size: calc(1px * var(--alt-em) / 2);
-  position: absolute;
   filter: blur(var(--shadow-blur-size)) opacity(0.3);
-  transform-origin: center center;
   /* we only need to rotate the shadow, so it's pointing in the right direction: */
   transform: rotate(var(--degrees));
 }
 
-#plane-icon .basics .plane {
+#plane-icon .basics img.plane {
   /* but we rotate *and* move the real plane icon up, based on how high it's flying: */
   --elevation-offset: calc(-1em * var(--alt-em)) position: absolute;
-  transform-origin: center center;
+  /* and transforms are applied right-to-left, so this rotates first, then translates: */
   transform: translate(0, var(--elevation-offset)) rotate(var(--degrees));
 }
 ```
 
-Which just leaves the fun part: let's add this icon to our map. First, a little map helper file in `public/js/map-marker.js`:
+Which just leaves adding this icon to our map. First, a little map helper file in `public/js/map-marker.js`:
 
 ```javascript
 // Load our .html "partial"
@@ -1891,9 +1900,10 @@ const div = document.createElement(`div`);
 div.innerHTML = content;
 const MapMarker = div.children[0];
 
-// Then create a little helper function that gets the HTML we need for
-// leaflet to put our icon on the map, with some initial heading:
-MapMarker.getHTML = (initialHeading) => {
+// Then create a little helper function that gets the HTML we need to
+// feed to Leaflet in order for it to put our icon on the map "as an
+// icon that it can move", with some initial heading:
+MapMarker.getHTML = (initialHeading = 0) => {
   MapMarker.style.setProperty(`--heading`, initialHeading);
   return MapMarker.outerHTML;
 };
@@ -1927,13 +1937,13 @@ class Plane {
         iconSize: [36, 25],
         iconAnchor: [36/2, 25/2],
         className: `map-pin`,
-        // Get our little plane icon, with a prespecified initial heading:
+        // We our little plane icon's HTML, with the initial heading baked in:
         html: MapMarker.getHTML(heading)
       }),
     };
-    // Turn our plane icon into a Leaflet map marker:
+    // Then we turn that into a Leaflet map marker:
     this.marker = L.marker(location, props).addTo(map);
-    // And then cache the resulting HTML element so we can use it later in our code:
+    // And then we cache the resulting page element so we can use it later, too:
     this.planeIcon = document.querySelector(`#plane-icon`);
   }
 
@@ -1945,11 +1955,9 @@ class Plane {
     const now = Date.now();
     Questions.update(state);
 
-    // So let's start live-updating our map!
+    // We can now live-update our position on the map!
     const { data: flightData } = state.flightInformation;
-    if (flightData) {
-      this.updateMap(flightData);
-    }
+    this.updateMap(flightData);
 
     this.lastUpdate = { time: now, ...state };
   }
@@ -1958,6 +1966,8 @@ class Plane {
    * A dedicated function for updating the map!
    */
   async updateMap(flightData) {
+    if (!flightData) return;
+
     const { map, marker, planeIcon } = this;
     const { lat, long } = flightData;
 
@@ -1969,10 +1979,11 @@ class Plane {
     // Update our plane's position on the Leaflet map:
     marker.setLatLng([lat, long]);
 
-    // And make sure the map follows our plane, so we don't fly off the screen:
+    // And make sure the map stays cented on our plane,
+    // so we don't "fly off the screen":
     map.setView([lat, long]);
 
-    // Then set our CSS variables so that the browser "does the rest":
+    // And then set our CSS variables so that the browser "does the rest":
     this.updateMarker(planeIcon.style, flightData);
   }
 
@@ -1981,11 +1992,11 @@ class Plane {
    * updating the CSS variables we're using to show our plane and shadow.
    */
   updateMarker(css, { heading, lift }) {
-    // Point the plane in the right direction:
+    // Point the plane and shadow in the right direction:
     css.setProperty(`--heading`, heading);
 
     // And then also place the plane itself higher than
-    // its shadown on the ground, if we're in the air:
+    // the shadown on the ground (if we're in the air):
     css.setProperty(`--altitude`, max(lift, 0));
   }
 }
@@ -1997,7 +2008,7 @@ And through the magic of "the original web stack" we suddenly have a visualizati
 
 Nice!
 
-That is to say, it's nicer than not having a plane on the map, but this doesn't really tell us much, does it? How high are we flying? What's our airspeed? Which heading are we flying, exactly? I think we're going to need some more HTML. And some SVG. And probably some CSS variables. And a smattering of JS.
+That is to say, it's nicer than not having a plane on the map, but this doesn't really tell us much, does it? How high are we flying? What's our airspeed? Which actual heading in degrees are we flying? I think we're going to need some more HTML. And some SVG. And probably some CSS variables. And a smattering of JS.
 
 ### Improving our visualization
 
@@ -2052,12 +2063,12 @@ How do we build that? With HTML and SVG:
 
         <g transform="translate(0,0) scale(0.92)">
           <g class="inner ring">
-            <!-- and then a whoooole bunch of SVG code -->
+            <!-- and then a whoooole bunch of SVG path and text elements -->
           </g>
           <g class="outer ring">
-            <!-- and then even more SVG code -->
+            <!-- and then even more SVG path and text elements -->
           </g>
-          <!-- and even more SVG code! -->
+          <!-- and even more SVG O_o! -->
         </g>
     </svg>
   </div>
@@ -2068,23 +2079,23 @@ Now, I'm skipping over the SVG code here mostly because it's just a _lot_ of SVG
 
 ```css
 #plane-icon {
-  --speed: 120; /* our airspeed in knots, without a unit */
-  --altitude: 1500; /* our altitude in feet, without a unit */
-  --heading: 150; /* our magnetic compass heading in degrees, without a unit */
+  --speed: 120;       /* our airspeed in knots, without a unit */
+  --altitude: 1500;   /* our altitude in feet, without a unit */
+  --heading: 150;     /* our magnetic compass heading in degrees, without a unit */
   --heading-bug: 220; /* our "heading bug" compass indicator angle in degrees, without a unit */
-  --north: 15.8; /* the compass deviation from true north in degrees, without a unit */
-  --alt-em: calc(sqrt(var(--sqrt-alt)) / 20);
+  --north: 15.8;      /* the compass deviation from true north in degrees, without a unit */
+
+  --degrees: calc(1deg * var(--heading));
+  --alt-em: calc(sqrt(var(--altitude)) / 20);
 
   /* and a bit of value magic that scales the text based on the size of the marker */
   --f: 250;
   --dim: calc(var(--f) * 1px);
   --font-size: calc(var(--dim) / 17);
 
+  /* And we definitely want a sans-serif font for immediate legibility */
   font-family: Arial;
   font-size: var(--font-size);
-  position: relative;
-  top: 11px;
-  left: 16px;
 }
 
 /*
@@ -2107,55 +2118,47 @@ export class Plane {
   /**
    * Our map update function is a little bigger now:
    */
-  async updateMap(flightData, now) {
-    const { map, marker, planeIcon } = this;
-    const { paused, crashed, flightModel } = this.state;
-    const { lat, long } = flightData;
-
-    if (lat === undefined || long === undefined) return;
-    if (abs(lat) < 0.1 && abs(long) < 0.1) return;
-
-    marker.setLatLng([lat, long]);
+  async updateMap(flightData) {
+    if (!flightData) return;
+    ...
     map.setView([lat, long]);
+    
+    // Update all our CSS variables
     this.setCSSVariables(planeIcon.style, flightData);
 
-    // Is the game paused? Or, have we crashed??
+    // And set some classes that let us show pause/crash states:
     planeIcon.classList.toggle(`paused`, paused);
     planeIcon.classList.toggle(`crashed`, crashed);
 
-    // Make sure we're using the right silhouette image:
-    const pic = getAirplaneSrc(flightModel.TITLE);
+    // Also, make sure we're using the right silhouette image:
+    const pic = getAirplaneSrc(flightModel.title);
     [...planeIcon.querySelectorAll(`img`)].forEach(
       (img) => (img.src = `planes/${pic}`)
     );
 
+    this.updateMarker(planeIcon, flightData);
+
     // Then update the marker's CSS variables and various text bits:
-    this.updateMarker(planeIcon.style, flightData);
+    this.updateMarker(planeIcon, flightData);
   }
 
   /**
    * Our marker update function is also little bigger now:
    */
-  updateMarker(css, flightData) {
-    const cg = flightData.STATIC_CG_TO_GROUND;
-    const paag = flightData.PLANE_ALT_ABOVE_GROUND;
-    const palt = paag - cg;
-    const speed = flightData.AIRSPEED_INDICATED;
-    const heading = flightData.PLANE_HEADING_DEGREES_MAGNETIC;
-    const trueHeading = flightData.PLANE_HEADING_DEGREES_TRUE;
-    const bug = flightData.AUTOPILOT_HEADING_LOCK_DIR;
+  updateMarker(planeIcon, flightData) {
+    const css = planeIcon.style;
 
-    this.autopilot.setCurrentAltitude(palt);
-    css.setProperty(`--altitude`, max(palt, 0));
-    css.setProperty(`--sqrt-alt`, sqrt(max(palt, 0)));
+    const { alt, headingBug, groundAlt, lift } = flightData;
+    const { heading, speed, trueHeading } = flightData;
+
+    css.setProperty(`--altitude`, lift | 0);
+    css.setProperty(`--sqrt-alt`, sqrt(lift) | 0);
     css.setProperty(`--speed`, speed | 0);
     css.setProperty(`--north`, trueHeading - heading);
     css.setProperty(`--heading`, heading);
-    css.setProperty(`--heading-bug`, bug);
+    css.setProperty(`--heading-bug`, headingBug);
 
-    const alt = flightData.INDICATED_ALTITUDE;
-    const galt = fligthData.GROUND_ALTITUDE;
-    const altitudeText = (galt | 0) === 0 ? `${alt | 0}'` : `${palt | 0}' (${alt | 0}')`;
+    const altitudeText = (groundAlt | 0) === 0 ? `${alt | 0}'` : `${lift | 0}' (${alt | 0}')`;
     planeIcon.querySelector(`.alt`).textContent = altitudeText;
     planeIcon.querySelector(`.speed`).textContent = `${speed | 0}kts`;
   }
@@ -2166,7 +2169,7 @@ And the final bit of the puzzle, `airplane-src.js`, for which we're going to wan
 
 ![so many planes!](./images/plane-icons.png)
 
-And then with some tactical JS we can swap the correct icon in based on the plane we're flying:
+And then we can swap the correct icon in, based on the plane we're flying:
 
 ```javascript
 export const defaultPlane = `plane.png`;
@@ -2204,10 +2207,11 @@ Yeah, so, here's a fun thing about our planet: you'd think magnetic lines run no
 
 <figure style="width: 80%; margin: auto;">
     <a href="https://en.wikipedia.org/wiki/File:World_Magnetic_Declination_2015.pdf">
-      <img src="./declination.png">
+      <img src="./images/page/declination.png">
     </a>
     <figcaption style="text-align:center">A map of the magnetic declination on planet Earth</figcaption>
 </figure>
+
 
 The green lines are where a compass will _actually_ point north, but everywhere else on the planet your compass will be off by various degrees. For example, it's only a tiny bit off if you're in Belgium, but at the south tip of the border between Alaska and Canada, your compass will be a pointing a whopping 20 degrees away from true north. When you're flying a plane, you'd better be aware of that, and you better know which of your instruments use compass heading, and which of them use true heading, or you might not get to where you thought you were going.
 
@@ -2270,13 +2274,13 @@ And now our map looks looks **_amazing_**:
 
 ### Adding scale to our map
 
-One last thing: we have no idea what the scale of this map is, so let's add something that gives us a sense of distance in both kilometers, and nautical miles. Both common values used in aviation. To do this we'll create a little Leaflet plugin called `public/js/leaflet/nautical.js`:
+One last thing: we have no idea what the scale of this map is, so normally that involves telling Leaflet to add the standard scale legend, but Leaflet only knows about standard miles, and kilometers, which is not super useful when you're flying and everything's measured in nautical miles. So I guess we're writing our own scale code by creating a little Leaflet plugin called `public/js/leaflet/nautical.js`:
 
 ```javascript
 // Based on https://github.com/PowerPan/leaflet.nauticscale/blob/master/dist/leaflet.nauticscale.js
 import { waitFor } from "../utils.js";
 
-// Of course, we first need to wait for Leaflet...
+// We first need to wait for Leaflet...
 const L = await waitFor(async () => window.L);
 
 // Then we can define a new Leaflet control that extends the base Leaflet scale visualization:
@@ -2355,7 +2359,7 @@ And we refresh our browser, we now have a handy-dandy scale marker in the lower 
 
 ![now with scale](./images/page/map-with-scale.png)
 
-And now we know how long it'll take us to get places, because 1 knot equals to 1NM per hour. If we're going at 120 knots, then we'll cover 1 nautical mile every thirty seconds.
+And now we know how long it'll take us to get places, because as dumb as knots and miles may seem, their relation is extremely simple: a speed of 1 knot means you're going 1 nautical mile per hour. If we're going at 120 knots, then we'll cover 120 nautical miles an hour, or 1 nautical mile every thirty seconds.
 
 ## Recording our flight path
 
@@ -2365,15 +2369,19 @@ First, we create a little `public/js/trail.js` class because you know how this w
 
 ```javascript
 export class Trail {
+  // The constructor isn't particularly interesting...
   constructor(map, pair, color, opts = {}) {
+    this.coords = [];
     this.map = map;
-    this.line = undefined;
+    if (pair) this.add(...pair);
     this.color = color ?? `blue`;
     this.opts = opts;
-    this.coords = [];
-    if (pair) this.add(...pair);
+    this.line = undefined;
   }
 
+  // but the "add" function is, because it's the code that actually
+  // draws our trail onto the map once we have 2 coordinates, and
+  // then updates it by adding points to the trail during flight.
   add(lat, long) {
     if (!lat && !long) return;
 
@@ -2386,6 +2394,7 @@ export class Trail {
     if (l < 2) return;
 
     // If we have exactly 2 points, we create the trail polyon
+    // and add it to the map:
     if (l === 2) {
       this.line = L.polyline([...coords], {
         className: `flight-trail`,
@@ -2395,7 +2404,8 @@ export class Trail {
       return this.line.addTo(this.map);
     }
 
-    // Otherwise, we simply append this position to the trail.
+    // And if we have more than 2 points, all we need to do is
+    // add the new point to the polygon that Leafet's working with.
     this.line.addLatLng(pair);
   }
 }
@@ -2414,8 +2424,8 @@ export class Plane {
   ...
 
   // A little helper function for tracking "the current trail", because we
-  // can restart flights as much as we want. Voluntarily, or because we
-  // crashed, and those new flights should get their own trail:
+  // can restart flights as much as we want (voluntarily, or because we
+  // crashed) and those new flights should all get their own trail:
   startNewTrail(location) {
     this.trail = new Trail(this.map, location);
   }
@@ -2427,32 +2437,37 @@ export class Plane {
     this.state = state;
     const now = Date.now();
     Questions.update(state);
+    
 
     // Check if we started a new flight because that requires
     // immediately building a new flight trail:
-    const startedFlying = !this.lastUpdate.flying && this.state.flying;
+    const { flying: wasFlying } = this.lastUpdate.flightInformation.general;
+    const { flying } = this.state.flightInformation.general;
+    const startedFlying = !wasFlying && flying;
     if (startedFlying) this.startNewTrail();
 
     // And then update our map.
-    if (state.flightData) this.updateMap(state);
+    const { data: flightData } = state.flightInformation;
+    if (flightData) this.updateMap(flightData);
 
     this.lastUpdate = { time: now, ...state };
   }
 
-  async updateMap(flightData, now) {
+  async updateMap(flightData) {
+    if (!flightData) return;
+    
     const { map, marker, planeIcon } = this;
     const { paused, crashed, flightModel } = this.state;
-    const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } = flightData;
-
+    const { lat, long } = flightData;
     if (lat === undefined || long === undefined) return;
     if (abs(lat) < 0.1 && abs(long) < 0.1) return;
 
     // First off: did we teleport? E.g. did the plane's position change
-    // impossibly fast, due to restarting a flight, using the "teleport"
-    // function in Parallel 42's "Flow" add-on, etc? Because if so, we
-    // need to start a new trail.
-    const { PLANE_LATITUDE: lat2, PLANE_LONGITUDE: long2 } = this.lastUpdate.flightData;
-    const d = getDistanceBetweenPoints(lat2, long2, lat, long);
+    // impossibly fast, due to restarting a flight, or by using the
+    // "teleport" function in Parallel 42's "Flow" add-on, etc? Because
+    // if so, we need to start a new trail.
+    const { lat: lat2, long: long2 } = this.lastUpdate.flightInformation.data;
+    const d = getDistanceBetweenPoints(lat, long, lat2, long2);
     const kmps = (speed ?? 0) / 1944;
 
     // We'll call ourselves "teleported" if we moved at a speed of over
@@ -2462,7 +2477,7 @@ export class Plane {
     const teleported = this.lastUpdate.flightData && d > 5 * kmps;
     if (teleported) this.startNewTrail([lat, long]);
 
-    // Then we can add the current position to our trail
+    // With all that done, we can add the current position to our current trail:
     this.trail.add(lat, long);
 
     ...
@@ -2472,15 +2487,15 @@ export class Plane {
 }
 ```
 
-Relatively little code, but a profound improvement. Our map now shows the flight path so far:
+Relatively little code, but a profound improvement:
 
 ![Now we know where we came from](./images/page/map-with-flightpath.png)
 
-Alright, now we've got things we can post to Instagram!
+Now we don't just know where we are, also also where we've been!
 
 ## Planes with attitude
 
-There's one thing our fancy marker isn't showing though, which is the current roll and pitch, which would be really nice to be able to see at a glance. So... let's build an [attitude indicator](https://en.wikipedia.org/wiki/Attitude_indicator), also sometimes called an "artificial horizon":
+There's one thing our fancy marker isn't showing though, which is the current roll and pitch, which would be really nice to be able to see. So... let's build an [attitude indicator](https://en.wikipedia.org/wiki/Attitude_indicator), also sometimes called an "artificial horizon":
 
 ![now with attitude](./images/page/attitude.png)
 
@@ -2546,11 +2561,7 @@ And then the attitude indicator itself. Thankfully, this will be considerably le
     </div>
 
     <div class="bird">
-      <hr />
-      <hr />
-      <hr />
-      <hr />
-      <hr />
+      <hr/><hr/><hr/><hr/><hr/>
     </div>
   </div>
 </div>
@@ -2627,15 +2638,12 @@ And done, that's our attitude indicator hooked up.
 Before we consider our page work done, though, let's add one more thing: science.
 
 <figure>
-
-  ![All the science](image.png)
-
+  <img src="./images/page/science/overview.png">
   <figcaption>Look at all that science!</figcaption>
 </figure>
 
-If we want to understand what our plane is doing, especially if we want to understand what our plane is doing in response to input changes (be those human or auto pilot in nature), we need some way to see what happens over time. Which means we want graphs. Lots of graphs.
 
-And if we need graphs, we need some code that'll do that graphing for us!
+If we want to understand what our plane is doing, especially if we want to understand what our plane is doing in response to input changes (whether those are by a human or auto pilot), we need some way to see what happens over time. Which means we want graphs. Lots of graphs. And if we need graphs, we need some code that'll do that graphing for us!
 
 There's quite a few ways to get some nice charts on a page, so instead of running you through the code that this project uses, let's just say that you are spoiled for choice and the choice of whether to use an off-the-shelf library or rolling your own code is entirely up to you. In this specific case, I rolled us some custom code that you can find on the repo under `public/js/dashboard/`, mostly because I wanted something that generates plain SVG that I can just copy-paste from dev tools into a new file, save that as `.svg` and then be able to load it into any SVG viewer/editor. Something that's particularly useful for autopilot debugging.
 
@@ -2643,15 +2651,7 @@ What matters most is that we can tell the code that we want to plot several grap
 
 ```javascript
 export function initCharts() {
-  const colors = {
-    background: `#444`,
-    plot: `#0F0F`,
-    minor: `#9994`,
-    major: `#EEE4`,
-    axis: `#FF0F`,
-  };
-
-  const chartables = {
+  const config = {
     // basics
     ground: { unit: `feet`, positive: true, fixed: 1, max: 1500, filled: true },
     altitude: { unit: `feet`, positive: true, fixed: 1 },
@@ -2681,7 +2681,7 @@ export function initCharts() {
     rudderTrim: { label: `rudder trim`, unit: `%`, fixed: 3 },
   };
 
-  return new Chart(chartables, colors);
+  return new Chart(config);
 }
 ```
 
@@ -2700,58 +2700,43 @@ export class Plane {
     this.charts = initCharts();
   }
 
-  /**
-   * Where else but updateState?
-   */
   async updateState(state) {
+    this.state = state;
+    const now = Date.now();
+
     ...
+    
+    // Update our science
+    if (flightData) this.updateChart(flightData, now);
 
-    // And update the graphs... but at this point, let's write a little
-    // function that makes "Getting things out of flightData" easier, because
-    // we sure are trying to get stuff from it all over the place, and all
-    // those ALL_CAPS_VARIABLE_NAMES are making for some unpleasant code...
-    this.updateChart(getVarData(state.flightData), now);
-
-    // And that last line in updateState:
+    // Cache and wait for the next state
     this.lastUpdate = { time: now, ...state };
   }
+
 
   /**
    * And then in the updateChart function we simply pick our
    * values, and tell the charting solution to plot them.
    */
-  updateChart(varData, now) {
-    // Get our variables...
+  updateChart(flightData) {
     const { alt, bank, groundAlt, pitch, speed, heading, rudder } = flightData;
     const { VS, pitchTrim, aileronTrim, turnRate, rudderTrim } = flightData;
     const nullDelta = { VS: 0, pitch: 0, bank: 0 };
-    const {
-      VS: dVS,
-      pitch: dPitch,
-      bank: dBank,
-      speed: dV,
-    } = flightData.d ?? nullDelta;
-
-    // and then update all our charts:
+    const { VS: dVS, pitch: dPitch, bank: dBank, speed: dV } = flightData.d ?? nullDelta;
     this.charts.update({
-      // basics
-      ground: groundAlt, altitude: alt, speed, dV,
-      // elevator
-      VS, dVS, pitch, dPitch,
-      // ailleron
-      heading, bank, dBank, turnRate, rudder,
-      //trim
-      pitchTrim, aileronTrim, rudderTrim,
+      ground: groundAlt, altitude: alt, speed, dV, // basics
+      VS, dVS, pitch, dPitch,                      // elevator
+      heading, bank, dBank, turnRate, rudder,      // ailleron
+      pitchTrim, aileronTrim, rudderTrim,          // trim
     });
+  }
 }
 ```
 
 Now we can see what our plane is doing over time, which means we're ready to get down to what you started reading this page for!
 
 <figure>
-
-  ![That's some big science](./images/page/big-science.png)
-
+  <img src="./images/page/big-science.png">
   <figcaption>That's some big science...</figcaption>
 </figure>
 
@@ -2761,7 +2746,7 @@ _So let's finally do this._
 
 # Part three: writing an autopilot
 
-It's time. Let's write that autopilot.
+It's time. Let's write that autopilot you came here for.
 
 And while we could do this in the browser, we're going to be adding the main code to our API server, rather than our web page. Don't get me wrong: we _totally could_ write our autopilot in client-side JS, but we'd much rather not have to deal with the delay of network requests from the webpage (even if web sockets are must faster than GET/POST requests), and we definitely don't want to accidentally turn off the autopilot just because we closed a tab... we might be flying a virtual plane, but it'd be nice to keep it in the air instead of just plummeting out of the sky when we accidentally close our browser!
 

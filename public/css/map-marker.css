@@ -6,7 +6,9 @@
   --heading: 130;
   --heading-bug: 130;
 
+  --degrees: calc(1deg * var(--heading));
   --alt-em: calc(var(--sqrt-alt) / 20);
+
   --f: 250;
   --dim: calc(var(--f) * 1px);
   --font-size: calc(var(--dim) / 17);
@@ -66,7 +68,7 @@
   top: calc(var(--dim) / 2 - var(--w) / 2 + var(--to));
   left: calc(var(--dim) / 2 - var(--w) / 2);
   transform-origin: calc(50%) calc(50% - var(--to));
-  --rot: rotate(calc(1deg * var(--heading) + 1deg * var(--north)));
+  --rot: rotate(calc(var(--degrees) + 1deg * var(--north)));
   transform: translate(0, calc(-1em * var(--alt-em))) var(--rot);
 }
 
@@ -95,7 +97,7 @@
 #plane-icon .basics .speedarrow {
   --w: calc(1em * var(--speed) / 50);
   width: var(--w);
-  --rot: calc(1deg * var(--heading) + 1deg * var(--north));
+  --rot: calc(var(--degrees) + 1deg * var(--north));
   transform: rotate(calc(-90deg + var(--rot)));
 }
 
@@ -169,7 +171,7 @@
 #plane-icon svg.compass g path.heading {
   stroke: black;
   fill: #3d3;
-  transform: rotate(calc((var(--heading) * 1deg) - 90deg));
+  transform: rotate(calc(var(--degrees) - 90deg));
 }
 
 #plane-icon svg.compass g path.heading-bug {
