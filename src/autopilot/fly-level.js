@@ -82,6 +82,7 @@ export async function flyLevel(
   update += constrainMap(dBank, -maxdBank, maxdBank, -step / 2, step / 2);
 
   if (!isNaN(update)) {
+    // enforce tighter runway alignment if we're auto-landing:
     if (modes[AUTO_LAND] === GET_TO_RUNWAY) {
       update *= 2;
     }

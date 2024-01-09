@@ -54,6 +54,8 @@ let MSFS = false;
  * and delegates the rest to its .api and .autopilot routers.
  */
 export class ServerClass {
+  #authenticatedClients = [];
+
   async init() {
     const { clients } = this;
     console.log(`clients:`, clients);
@@ -76,10 +78,18 @@ export class ServerClass {
     if (MOCKED) api.setAutopilot(autopilot);
 
     // Set up call routing so that clients can call this.server.api.[...]
-    this.api = new APIRouter(api);
+    // in order to talk directly to the API, but only allow this for
+    // authenticated clients, rather than everyone. Everyone else just gets
+    // the state updates through their setFlightInformation() function.
+    this.api = this.lock(new APIRouter(api), (client) =>
+      this.#authenticatedClients.includes(client)
+    );
 
-    // Set up call routing so that clients can call this.server.autopilot.[...]
-    this.autopilot = new AutopilotRouter(autopilot);
+    // And set up call routing for the autopilot in the same way. Only
+    // authenticated clients are allowed to mess with the AP settings.
+    this.autopilot = this.lock(new AutopilotRouter(autopilot), (client) =>
+      this.#authenticatedClients.includes(client)
+    );
 
     // Then wait for MSFS to come online
     connectServerToAPI(api, async () => {
@@ -116,10 +126,12 @@ export class ServerClass {
    * high security super advanced auth approach!
    */
   async authenticate(client, username, password) {
+    if (!username || !password) return false;
     // This should go without saying, but: don't do this.
     const hash = btoa(username + password);
     if (hash !== FLIGHT_OWNER_KEY) return false;
     console.log(`authenticated client`);
-    return (client.authenticated = true);
+    this.#authenticatedClients.push(client);
+    return true;
   }
 }

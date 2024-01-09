@@ -5,8 +5,11 @@ import dotenv from "dotenv";
 dotenv.config({ path: `${__dirname}/../../../.env` });
 
 // Do we have a flight owner key that we need to authenticate with?
-const username = process.env.FLIGHT_OWNER_USERNAME;
-const password = process.env.FLIGHT_OWNER_PASSWORD;
+let username, password;
+if (process.argv.includes(`--owner`)) {
+  username = process.env.FLIGHT_OWNER_USERNAME;
+  password = process.env.FLIGHT_OWNER_PASSWORD;
+}
 
 // (Re)connection values. The "run later" is essentially just
 // a setTimeout that won't crash just because an error got thrown.
@@ -67,7 +70,9 @@ export class ClientClass {
       authenticated: await this.server.authenticate(username, password),
       serverConnection: true,
     });
-    await this.server.api.register(`MSFS`);
+    if (this.state.authenticated) {
+      await this.server.api.register(`MSFS`);
+    }
   }
 
   async onDisconnect() {

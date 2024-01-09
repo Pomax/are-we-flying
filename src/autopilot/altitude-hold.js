@@ -118,7 +118,7 @@ export async function altitudeHold(
   const upperLimit = constrainMap(pitch, 0, 10, 10, 100);
   let trimStep = constrainMap(speed, 50, 200, 5, upperLimit) * small;
 
-  console.log(`upperLimit: ${upperLimit}, trimStep: ${trimStep}`);
+  // console.log(`upperLimit: ${upperLimit}, trimStep: ${trimStep}`);
 
   // Are we "trimming" on the stick?
   let elevator = 0;
@@ -157,13 +157,13 @@ export async function altitudeHold(
   const diff = targetVS - VS;
 
   // Do some console stats
-  console.log(
-    `pitch = ${nf(pitch)}, dPitch = ${nf(dPitch)}, maxVS: ${nf(
-      maxVS
-    )}, targetVS: ${nf(targetVS)}, VS: ${nf(VS)}, dVS: ${nf(dVS)}, diff: ${nf(
-      diff
-    )}, speed: ${nf(speed)}`
-  );
+  // console.log(
+  //   `pitch = ${nf(pitch)}, dPitch = ${nf(dPitch)}, maxVS: ${nf(
+  //     maxVS
+  //   )}, targetVS: ${nf(targetVS)}, VS: ${nf(VS)}, dVS: ${nf(dVS)}, diff: ${nf(
+  //     diff
+  //   )}, speed: ${nf(speed)}`
+  // );
 
   // Nudge us towards the correct vertical speed
   let update = 0;

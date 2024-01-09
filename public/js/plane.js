@@ -46,6 +46,7 @@ export class Plane {
   }
 
   async test() {
+    if (!this.state.authenticated) return;
     this.testRan = true;
     const { map } = this;
     const gridSize = 5;
@@ -238,10 +239,7 @@ export class Plane {
     const d = getDistanceBetweenPoints(lat2, long2, lat, long);
     const kmps = (speed ?? 0) / 1944;
     const teleported = d > 5 * kmps;
-    if (teleported) {
-      this.startNewTrail(latLong);
-      this.autopilot.update(await this.server.autopilot.getParameters());
-    }
+    if (teleported) this.startNewTrail(latLong);
 
     // for some reason this can fail? O_o
     // TODO: do we still need this try/catch?
