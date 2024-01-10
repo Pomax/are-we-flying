@@ -343,7 +343,6 @@ export class ServerClass {
     // Then wait for MSFS to come online
     connectServerToAPI(api, async () => {
       console.log(`Connected to MSFS.`);
-      MSFS = true;
 
       registerWithAPI(clients, api);
       clients.forEach((client) => client.onMSFS(true));
@@ -362,7 +361,7 @@ export class ServerClass {
    * and MSFS is already connected.
    */
   async onConnect(client) {
-    if (MSFS) client.onMSFS(true);
+    if (api?.connected) client.onMSFS(true);
   }
 }
 ```
@@ -930,7 +929,7 @@ And of course, we can also ask for information that's relevant to our flight _ri
   `PLANE_ALT_ABOVE_GROUND`,
   `PLANE_ALTITUDE`,
   `PLANE_BANK_DEGREES`,
-  `PLANE_HEADING_DEGREES_GYRO`,
+  `PLANE_HEADING_DEGREES_MAGNETIC`,
   `PLANE_LONGITUDE`,
   `PLANE_LATITUDE`,
   `VERTICAL_SPEED`,
@@ -946,7 +945,7 @@ And this might give us something like:
   "PLANE_ALT_ABOVE_GROUND": 573.1917558285606,
   "PLANE_ALTITUDE": 996.7162778193412,
   "PLANE_BANK_DEGREES": -0.001284847042605199,
-  "PLANE_HEADING_DEGREES_GYRO": 4.539803629684118,
+  "PLANE_HEADING_DEGREES_MAGNETIC": 4.539803629684118,
   "PLANE_LONGITUDE": -2.1609759665698802,
   "PLANE_LATITUDE": 0.8514234731618152,
   "VERTICAL_SPEED": 0.3496674597263333
@@ -999,43 +998,88 @@ We can, for instance, write a function that will selectively watch a single file
 // We'll be using Node's own file watch mechanism for this:
 import { watchFile } from "node:fs";
 
-export async function watch(filePath, onChange) {
+// With some helpers for making sure we know where our files and modules live:
+import { __root } from "./constants.js";
+import { rootRelative } from "./utils.js";
+
+export async function watch(basePath, modulePath, onChange) {
+  const filePath = basePath + modulePath;
+  const moduleURL = `file:///${filePath}`;
+
   // Step 1: don't run file-watching in production. Obviously.
-  if (process.env.NODE_ENV.toLowerCase() === `production`) {
-    return import(filePath);
+  if (process.env.NODE_ENV === `production`) {
+    return import(moduleURL);
   }
 
-  // Next, we get the current call stack (by "abusing" the Error object)
-  // so we can report on that when a file change warrants an update.
+  // Next, get the current callstack, so we can report on
+  // that when a file change warrants an update.
   const callStack = new Error().stack
     .split(`\n`)
     .slice(2)
-    .map((v) => v.trim().replace(`at `, `  `))
-    .join(`\n`);
+    .map((v) => {
+      return v
+        .trim()
+        .replace(`file:///${__root}`, `./`)
+        .replace(/^at /, `  in `)
+        .replace(/new (\S+)/, `$1.constructor`);
+    })
+    .join(`\n`)
+    .replace(/\.constructor \(([^)]+)\)(.|[\n\r])*/, `.constructor ($1)`);
 
-  // Next, start checking this file for changes every second:
+  // If we're not running in production, check this file for changes every second:
   watchFile(filePath, { interval: 1000 }, async () => {
-    // If there was a change, re-import this file as an ES module, with a
-    // "cache busting" URL that includes the current time stamp. Modules are
-    // cached based on their exact URL, so adding a query argument that we
-    // can vary means we we "reimport" the code:
-    console.log(`RELOADING ${filePath} AT ${DATE.now()}`);
-    const module = await import(`file:///${filePath}?ts=${Date.now()}`);
+    console.log(`Reloading module ${rootRelative(filePath)} at ${Date.now()}`);
 
-    // To confirm to ourselves that a module was fully loaded as a "new module" we
-    // check whether it has a `LOAD_TIME` constant that it set during load, and log
-    // what that value is. Because it should be very close to our reload time.
-    if (module.LOAD_TIME) console.log(`  module.LOAD_TIME:${module.LOAD_TIME}`);
+    try {
+      // If there was a change, re-import this file as an ES module, with a "cache busting" URL
+      // that includes the current time stamp. Modules are cached based on their exact URL,
+      // so adding a query argument that we can vary means we can "reimport" the code:
+      const module = await import(`${moduleURL}?ts=${Date.now()}`);
 
-    // Then we log the stack so we know where this reload was set up in our code:
-    console.log(callStack);
+      // Then we log the stack so we know where this reload was set up in our code:
+      console.log(callStack);
 
-    // And then we run whatever code needs to run now that the module's been reloaded.
-    onChange(module);
+      // To confirm to ourselves that a module was fully loaded as a "new module" we check
+      // whether it has a `LOAD_TIME` constant that it set during load, and log what that
+      // value is. Because it should be very close to our reload time.
+      if (module.LOAD_TIME)
+        console.log(`  Module-indicated load time is ${module.LOAD_TIME}`);
+
+      // And then we run whatever code needs to run now that the module's been reloaded.
+      onChange(module);
+    } catch (e) {
+      // Never crash the server just because someone saved a file with a typo.
+      console.error(`\nWatcher could not load module: ${filePath}`);
+      console.error(callStack);
+      console.error(e);
+    }
   });
-  
-  // Finally, load the module for its  
-  return import(filePath};
+
+  // then as part of the call, run an immediate load.
+  return import(moduleURL);
+}
+```
+
+With the extra imported bits, from `src/utils/constants.js`:
+
+```javascript
+// Get the directory that this file lives in:
+import url from "node:url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+
+// And then use that to figure out what the project root dir is:
+import { join, resolve, sep, win32, posix } from "node:path";
+export const __root = (resolve(join(__dirname, `..`, `..`)) + sep).split(win32.sep).join(posix.sep);
+```
+
+and `src/utils/utils.js`:
+
+```javascript
+import { win32, posix } from "node:path";
+
+// Get a file's path relative to the project root directory
+export function rootRelative(filepath) {
+  return filepath.split(win32.sep).join(posix.sep).replace(__root, `./`);
 }
 ```
 
@@ -1055,13 +1099,13 @@ const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 // Then import our watcher:
 import { watch } from "./reload-watcher.js";
 
-// Then, as above, we write our import with an "as":
+// Then, as mentioned above, we load our import as a mutable variable instead of "as an import":
 let { Something } = await watch(__dirname, `some-module.js`, (lib) => {
   Something = lib.Something;
 });
 ```
 
-And while that's a bit more code, now every time we edit `some-module.js` and save it, the watcher will reload that code for us and our `Something` variable will get updated. So that solved half of the reloading problem. The other half is making sure that if our module exports a class, that _instances_ of that class get updated, too, by taking advantage of how prototype inheritance works in JS.
+And while that's a bit more code, and requires an `await` (which is easy to forget!) now every time we edit `some-module.js` and save it, the watcher will reload that code for us and our `Something` variable will get updated. So that solved half of the reloading problem. The other half is making sure that if our module exports a class, that _instances_ of that class get updated, too, by taking advantage of how prototype inheritance works in JS.
 
 Since objects don't have their type "baked in", but simply follow a chain of prototype objects, we can change one of those prototype objects and basically change the identity of the object itself. Normally, this would be a bad idea(tm) but in this specific case, it's exactly what we need to make sure that instances of any hot-reloadable classes we use get updated as part of the reload process:
 
@@ -1077,8 +1121,8 @@ let { Something } = await watch(__dirname, `some-module.js`, (lib) => {
   if (instance) {
     Object.setPrototypeOf(instance, Something.prototype);
     // This swaps the old prototype for the new code, while leaving any
-    // of the instance's own properties unaffected. Something that will
-    // be particularly useful for autopilot updates *while* we're flying!
+    // of the instance's own properties unaffected. Something that will be
+    // particularly useful for changing autopilot code *while* we're flying!
   }
 });
 
@@ -1250,7 +1294,7 @@ export const KNOT_VALUES = [
 We can pair this with a function that runs through a bunch of rewrites for each of the categories, to give us values to work with that actually make sense:
 
 ```js
-import { FEET_PER_DEGREE, FEET_PER_METER, FPS_IN_KNOTS } from "./constants.js";
+import { FEET_PER_METER, FPS_IN_KNOTS } from "./constants.js";
 import { exists } from "./utils.js";
 
 const noop = () => {};
@@ -1293,6 +1337,8 @@ export const NAME_MAPPING = {
   DESIGN_SPEED_VS0: `vs0`,
   DESIGN_SPEED_VS1: `vs1`,
   DESIGN_TAKEOFF_SPEED: `takeoffSpeed`,
+  ELECTRICAL_AVIONICS_BUS_VOLTAGE: `busVoltage`,
+  ELECTRICAL_TOTAL_LOAD_AMPS: `ampLoad`,
   ELEVATOR_POSITION: `elevator`,
   ELEVATOR_TRIM_DOWN_LIMIT: `trimDownLimit`,
   ELEVATOR_TRIM_PCT: `pitchTrim`,
@@ -1330,7 +1376,7 @@ export const NAME_MAPPING = {
   WING_SPAN: `wingSpan`,
 };
 
-export function rebindData(data) {
+export function renameData(data) {
   Object.entries(data).forEach(([simName, value]) => {
     const jsName = NAME_MAPPING[simName];
 
@@ -1365,12 +1411,12 @@ export const DERIVATIVES = [
 export const SECOND_DERIVATIVES = [`VS`];
 
 // And then an update to the `rebind` function:
-export function rebindData(data, previousValues) {
+export function renameData(data, previousValues) {
   // Whether or not we have previous values for delta computation,
   // just preallocate the values we _might_ need for that.
   const d = {};
-  const before = this.flightData.__datetime;
   const now = Date.now();
+  const before = previousValues?.__date_time ?? now;
   const dt = (now - before) / 1000; // delta per second seconds
 
   // Then perform the name mapping, but with extra code for getting
@@ -1402,7 +1448,7 @@ export function rebindData(data, previousValues) {
 
   // If we did delta computation work, save the result:
   if (previousValues) {
-    data.__datetime = now;
+    data.__date_time = now;
     data.d = d;
   }
 }
@@ -1431,8 +1477,8 @@ export class FlightInformation {
   }
 
   reset() {
-    this.flightModel = false;
-    this.flightData = false;
+    this.model = false;
+    this.data = false;
     this.general = {
       flying: false,
       inGame: false,
@@ -1460,7 +1506,7 @@ export class FlightInformation {
     // Make sure to run our quality-of-life functions:
     convertValues(modelData);
     renameData(modelData);
-    return (this.flightModel = modelData);
+    return (this.model = modelData);
   }
 
   // And our "update the current flight information" code:
@@ -1473,7 +1519,10 @@ export class FlightInformation {
 
     // Create a convenience value for "are any engines running?",
     // which would otherwise require checking four separate variables:
-    flightData.enginesRunning = [1, 2, 3, 4].reduce((t, num) => t || flightData[`ENG_COMBUSTION:${num}`], false);
+    flightData.enginesRunning = [1, 2, 3, 4].reduce(
+      (t, num) => t || flightData[`ENG_COMBUSTION:${num}`],
+      false
+    );
 
     // Create a convenience value for "is the plane powered on?",
     // which would otherwise require checking two variables:
@@ -1485,7 +1534,7 @@ export class FlightInformation {
 
     // Then update our general flight values and return;
     this.setGeneralProperties(flightData);
-    return (this.flightData = flightData);
+    return (this.data = flightData);
   }
 
   // The general properties are mostly there so we don't have to
@@ -1506,15 +1555,21 @@ And then, as last step, we now need to make the server actually use this object,
 ```js
 ...
 
+// Import our hot-reloader
+import { watch } from "../../utils/reload-watcher.js";
+
 // Import our fancy new class, in a way that lets us hot-reload it:
-import { FlightInformation as fi } from "../../utils/flight-information.js";
-let FlightInformation = fi;
-let flightInformation = false;
-watch(__dirname, `../../utils/flight-information.js`, (module) => {
-  FlightInformation = module.FlightInformation;
-  if (flightInformation)
-    Object.setPrototypeOf(flightInformation, FlightInformation.prototype);
-});
+let flightInformation;
+let { FlightInformation } = await watch(
+  __dirname,
+  `../../utils/flight-information.js`,
+  (module) => {
+    FlightInformation = module.FlightInformation;
+    if (flightInformation) {
+      Object.setPrototypeOf(flightInformation, FlightInformation.prototype);
+    }
+  }
+);
 
 class Server {
   ...
@@ -1522,8 +1577,17 @@ class Server {
   async init() {
     ...
     connectServerToAPI(api, async () => {
-      ...
+      console.log(`Connected to MSFS.`);
+
+      // Set up a flight information object for pulling
+      // model and flight data from SimConnect:
+      flightInformation = new FlightInformation(api);
+
+      registerWithAPI(clients, api, autopilot);
+      clients.forEach((client) => client.onMSFS(true));
+
       (async function poll() {
+        // And make sure to pass this into our game check.
         checkGameState(clients, flightInformation);
         runLater(poll, POLLING_INTERVAL);
       })();
@@ -1535,11 +1599,10 @@ class Server {
 With the `flightInformation` added to the `checkGameState` function we created earlier in the helpers file:
 
 ```javascript
+// get the most up to date game state and send that over to our clients:
 export async function checkGameState(clients, flightInformation) {
   await flightInformation.update();
-  clients.forEach(async (client) => {
-    await client.setFlightInformation(flightInformation);
-  });
+  clients.forEach((client) => client.setFlightInformation(flightInformation));
 }
 ```
 
@@ -1581,50 +1644,78 @@ We know when we're connected to MSFS, so let's write a few functions that let us
 Nothing particularly fancy (although we can pretty much use any amount of CSS to turn it _into_ something fancy), but it lets us see where in the process of firing up MSFS, clicking through to the world map, and starting a flight we are. So let's update our HTML file to include these questions, and then we can update our JS to start answering them:
 
 ```html
-<h1>Are we flying?</h1>
-<p>
-  Let's see if we're currently flying around in Microsoft Flight Simulator 2020...
-</p>
-<ul>
-  <li>
-    Is our API server running?
-    <input type="checkbox" disabled class="server-online" />
-  </li>
-  <li>
-    Is MSFS running? <input type="checkbox" disabled class="msfs-running" />
-  </li>
-  <li>
-    Which plane did we pick?
-    <span class="specific-plane">... nothing yet?</span>
-  </li>
-  <li>
-    Are we actually "in a game"?
-    <input type="checkbox" disabled class="in-game" />
-  </li>
-  <li>
-    Do we have power? <input type="checkbox" disabled class="powered-up" />
-  </li>
-  <li>
-    Are the engines running?
-    <input type="checkbox" disabled class="engines-running" />
-  </li>
-  <li>Are we flying?? <input type="checkbox" disabled class="in-the-air" /></li>
-  <li>
-    <em>Where</em> are we flying? <span class="latitude">-</span>, <span class="longitude">-</span>
-  </li>
-  <li>
-    Are we on the in-game autopilot?
-    <input type="checkbox" disabled class="using-ap" />
-  </li>
-  <li>
-    (... did we crash? <input type="checkbox" disabled class="plane-crashed" />)
-  </li>
-</ul>
+<link rel="stylesheet" href="css/questions.css" />
+<li>
+  Is our API server running? <input type="checkbox" disabled class="server-online" />
+</li>
+<li>
+  Is MSFS running? <input type="checkbox" disabled class="msfs-running" />
+</li>
+<li>
+  Which plane did we pick? <span class="specific-plane">... nothing yet?</span>
+</li>
+<li>
+  Are we actually "in a game"? <input type="checkbox" disabled class="in-game" />
+</li>
+<li>
+  Do we have power? <input type="checkbox" disabled class="powered-up" />
+</li>
+<li>
+  Are the engines running? <input type="checkbox" disabled class="engines-running" />
+</li>
+<li>
+  Are we flying?? <input type="checkbox" disabled class="in-the-air" />
+</li>
+<li>
+  <em>Where</em> are we flying?
+  <a href="." class="gmaps-link">
+    <span class="latitude">-</span>,
+    <span class="longitude">-</span>
+  </a>
+</li>
+<li>
+  Are we on the in-game autopilot? <input type="checkbox" disabled class="using-ap" />
+</li>
+<li>
+  (... did we crash? <input type="checkbox" disabled class="plane-crashed" />)
+</li>
 ```
 
-Excellent: boring, but serviceable, so let's move on to the JS side!
+Excellent: boring, but serviceable, so let's add a parent for that in our `index.html`:
 
-First let's write a little convenience file called `questions.js` that we're going to use to (un)check these questions, based on the fact that we have access to the web client's state:
+```html
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <title>Let's test our connections!</title>
+    <script src="js/index.js" type="module" async></script>
+  </head>
+  <body>
+    <h1>Are we flying?</h1>
+    <p>
+      Let's see if we're currently flying around in Microsoft Flight Simulator 2020...
+    </p>
+    <ul>    
+    <ul id="questions" data-description="Templated from questions.html"></ul>
+  </body>
+</html>
+```
+
+And create a little CSS file in `public/css/questions/css`:
+
+```css
+#questions {
+  list-style: none;
+  margin: 1em;
+  padding: 0;
+  text-indent: 0;
+}
+#questions li { display: block; }
+#questions li:before { content: "-"; }
+```
+
+Then let's move on to the JS side! First let's write a little convenience file called `questions.js` that we're going to use to (un)check these questions, based on the fact that we have access to the web client's state:
 
 ```javascript
 const content = await fetch("questions.html").then((res) => res.text());
@@ -1642,6 +1733,7 @@ const qss = [
   `using-ap`,
   `plane-crashed`,
   `specific-plane`,
+  `gmaps-link`,
   `latitude`,
   `longitude`,
 ];
@@ -1649,13 +1741,15 @@ const qss = [
 // A bit of house-keeping
 const vowels = [`a`, `i`, `u`, `e`, `o`, `A`, `I`, `U`, `E`, `O`];
 
-function titleCase(s, p) {
-  if (p === 0) return s;
+function titleCase(s) {
   return s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase();
 }
 
 function reCase(e) {
-  return e.split(`-`).map(titleCase).join(``);
+  return e
+    .split(`-`)
+    .map((s, p) => (p === 0 ? s : titleCase(s)))
+    .join(``);
 }
 
 // Let's create an object that's { serverOnline: span, msfsRunning: span, ... }
@@ -1673,17 +1767,20 @@ const elements = Object.fromEntries(
 // depending on whether the title starts with a vowel or not:
 export const Questions = {
   update(state) {
-    const { general, model: flightModel, data: flightData } = state.flightInformation;
+    const {
+      general,
+      model: flightModel,
+      data: flightData,
+    } = state.flightInformation;
     elements.serverOnline.checked = !!state.serverConnection;
     elements.msfsRunning.checked = state.MSFS;
     elements.inGame.checked = general?.inGame;
-    elements.isAcrobatic.checked = flightModel?.isAcrobatic;
     elements.poweredUp.checked = flightData?.hasPower;
     elements.enginesRunning.checked = flightData?.enginesRunning;
     elements.inTheAir.checked = general?.flying;
     elements.usingAp.checked = flightData?.MASTER;
     elements.planeCrashed.checked = state.crashed;
-    // And we'll do thrsr two separately because they're a bit more than just a checkmark:
+    // And we'll do these two separately because they're a bit more than just a check mark:
     this.whereAreWeFlying(flightData);
     this.modelLoaded(flightModel?.title);
   },
@@ -1750,13 +1847,33 @@ And speaking of visualizations...
 
 Even with all that work done, we've still only implemented page code that lets us answer a bunch of questions, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually see something _cool_ on our webpage: let's set up a [Leaflet](https://leafletjs.com/) map that we can put our plane on, so we can see ourselves flying around on a map.
 
-Step one: some HTML to make that work:
+Step one: update our `index.html` to make that work:
 
 ```html
-<div id="visualization">
-  <!-- We'll hook Leaflet into the following div -->
-  <div id="map" style="width: 1200px; height: 800px"></div>
-</div>
+<!DOCTYPE html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <title>Let's test our connections!</title>
+    <!-- we'll load Leaflet from CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" async />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer async></script>
+    <!-- and then our own script -->
+    <script src="js/index.js" type="module" async></script>
+  </head>
+  <body>
+    <h1>Are we flying?</h1>
+    <p>
+      Let's see if we're currently flying around in Microsoft Flight Simulator
+      2020...
+    </p>
+    <ul id="questions" data-description="Templated from questions.html"></ul>
+    <div id="visualization">
+      <!-- Then we'll hook Leaflet into the following div: -->
+      <div id="map" style="width: 1200px; height: 800px"></div>
+    </div>
+  </body>
+</html>
 ```
 
 And then let's write a `public/js/map.js` that we can import to take care of the map for us:
@@ -1764,7 +1881,7 @@ And then let's write a `public/js/map.js` that we can import to take care of the
 ```javascript
 import { waitFor } from "./utils.js";
 
-const DUNCAN_AIRPORT = [48.7566, -123.71134];
+export const DUNCAN_AIRPORT = [48.7566, -123.71134];
 
 // Leaflet creates a global "L" object to work with, so use that to tie into the <div id="map"></div> we have sitting
 // in our index.html. However, because independent page scripts can't be imported, we need to wait for it to be available:
@@ -1780,7 +1897,7 @@ L.tileLayer(`https://tile.openstreetmap.org/{z}/{x}/{y}.png`, {
 }).addTo(map);
 ```
 
-With a quick look at that `waitFor` function:
+With a quick look at that `waitFor` function in `public/js/utils.js`:
 
 ```javascript
 // Return a promise that doesn't resolve until `fn()` returns a truthy value, or we run out of retries.
@@ -1805,7 +1922,7 @@ We use this because we don't want to do any map work until Leaflet's been loaded
 With that, though, we can update our `plane.js` to load our map code:
 
 ```javascript
-import { map: defaultMap } from "./maps.js"
+import { map as defaultMap } from "./map.js"
 
 ...
 
@@ -1914,16 +2031,15 @@ export { MapMarker };
 And then we can update our `plane.js`:
 
 ```js
+import { Questions } from "./questions.js";
+import { map as defaultMap, DUNCAN_AIRPORT } from "./map.js";
 import { MapMarker } from "./map-marker.js";
 
-...
+const { abs } = Math;
 
-const { abs, max } = Math;
-
-class Plane {
+export class Plane {
   constructor(server, map = defaultMap, location = DUNCAN_AIRPORT, heading = 135) {
-    this.server = server;
-    this.map = map;
+    ...
     this.addPlaneIconToMap(map, location, heading);
   }
 
@@ -1934,10 +2050,10 @@ class Plane {
     const props = {
       icon: L.divIcon({
         iconSize: [36, 25],
-        iconAnchor: [36/2, 25/2],
+        iconAnchor: [36 / 2, 25 / 2],
         className: `map-pin`,
         // We our little plane icon's HTML, with the initial heading baked in:
-        html: MapMarker.getHTML(heading)
+        html: MapMarker.getHTML(heading),
       }),
     };
     // Then we turn that into a Leaflet map marker:
@@ -1947,16 +2063,15 @@ class Plane {
   }
 
   /**
-   * We've seen this function before =)
+   * We've seen this function before!
    */
   async updateState(state) {
     this.state = state;
     const now = Date.now();
     Questions.update(state);
 
-    // We can now live-update our position on the map!
-    const { data: flightData } = state.flightInformation;
-    this.updateMap(flightData);
+    // Keep our map up to date:
+    this.updateMap(state.flightInformation);
 
     this.lastUpdate = { time: now, ...state };
   }
@@ -1964,7 +2079,7 @@ class Plane {
   /**
    * A dedicated function for updating the map!
    */
-  async updateMap(flightData) {
+  async updateMap({ data: flightData }) {
     if (!flightData) return;
 
     const { map, marker, planeIcon } = this;
@@ -1978,7 +2093,7 @@ class Plane {
     // Update our plane's position on the Leaflet map:
     marker.setLatLng([lat, long]);
 
-    // And make sure the map stays cented on our plane,
+    // And make sure the map stays centered on our plane,
     // so we don't "fly off the screen":
     map.setView([lat, long]);
 
@@ -1995,7 +2110,7 @@ class Plane {
     css.setProperty(`--heading`, heading);
 
     // And then also place the plane itself higher than
-    // the shadown on the ground (if we're in the air):
+    // the shadow on the ground (if we're in the air):
     css.setProperty(`--altitude`, max(lift, 0));
   }
 }
@@ -2105,10 +2220,10 @@ Now, I'm skipping over the SVG code here mostly because it's just a _lot_ of SVG
 Again, if you want to follow along grab the CSS [here](https://github.com/Pomax/are-we-flying/blob/main/public/css/map-marker.css), but the important part is those new CSS variables, which we can update on the JS side based on the values we get from MSFS:
 
 ```javascript
-import { getAirplaneSrc } from "./airplane-src.js";
-const { abs, max, sqrt } = Math;
-
 ...
+
+import { getAirplaneSrc } from "./airplane-src.js";
+const { abs, sqrt } = Math;
 
 export class Plane {
 
@@ -2117,25 +2232,21 @@ export class Plane {
   /**
    * Our map update function is a little bigger now:
    */
-  async updateMap(flightData) {
+  async updateMap({ model: flightModel, data: flightData, general }) {
     if (!flightData) return;
     ...
     map.setView([lat, long]);
-    
-    // Update all our CSS variables
-    this.setCSSVariables(planeIcon.style, flightData);
 
     // And set some classes that let us show pause/crash states:
-    planeIcon.classList.toggle(`paused`, paused);
-    planeIcon.classList.toggle(`crashed`, crashed);
+    const { paused, crashed } = general;
+    planeIcon.classList.toggle(`paused`, !!paused);
+    planeIcon.classList.toggle(`crashed`, !!crashed);
 
     // Also, make sure we're using the right silhouette image:
     const pic = getAirplaneSrc(flightModel.title);
     [...planeIcon.querySelectorAll(`img`)].forEach(
       (img) => (img.src = `planes/${pic}`)
     );
-
-    this.updateMarker(planeIcon, flightData);
 
     // Then update the marker's CSS variables and various text bits:
     this.updateMarker(planeIcon, flightData);
@@ -2219,7 +2330,16 @@ The green lines are where a compass will _actually_ point north, but everywhere 
 So... this looks good, but we're missing one thing: terrain. Maps might be flat, but the world isn't, and when we're flying we'd like to know where the hills and mountains are so we can either avoid them, or plan accordingly. So let's add a terrain layer to our map by updating our `maps.js`:
 
 ```javascript
-...
+import { waitFor } from "./utils.js";
+
+export const DUNCAN_AIRPORT = [48.7566, -123.71134];
+
+// Leaflet creates a global "L" object to work with, so use that to tie into the <div id="map"></div> we have sitting
+// in our index.html. However, because independent page scripts can't be imported, we need to wait for it to be available:
+const L = await waitFor(async () => window.L);
+
+// With our "L" object available, let's make a map, centered on Duncan airport:
+export const map = L.map("map").setView(DUNCAN_AIRPORT, 15);
 
 // Let's make our layers a little more "data driven" by first defining a list of sources:
 const sources = [
@@ -2263,8 +2383,6 @@ mapLayers.openStreetMap.addTo(map);
 // And then we'll add the terrain layer as 50% opacity overlay:
 mapLayers.googleTerrain.setOpacity(0.5);
 mapLayers.googleTerrain.addTo(map);
-
-...
 ```
 
 And now our map looks **_amazing_**:
@@ -2339,19 +2457,12 @@ How this code works isn't super important, but what it does when we use it, is: 
 
 ```javascript
 import { waitFor } from "./utils.js";
-import { Duncan } from "./locations.js";
 import { setMapScale } from "./leaflet/nautical.js";
 
-// Wait for leaflet to be available
-const L = await waitFor(async () => window.L);
-
-// set our default location to Duncan, BC.
-const map = L.map("map").setView(Duncan, 15);
-
-// Since we're flying, we want distances in kilometers, and nautical miles
-setMapScale(map);
-
 ...
+
+// add our scale
+setMapScale(map);
 ```
 
 And we refresh our browser, we now have a handy-dandy scale marker in the lower left corner:
@@ -2422,9 +2533,11 @@ import { Trail } from "./trail.js";
 export class Plane {
   ...
 
-  // A little helper function for tracking "the current trail", because we
-  // can restart flights as much as we want (voluntarily, or because we
-  // crashed) and those new flights should all get their own trail:
+  /**
+   * A little helper function for tracking "the current trail", because we
+   * can restart flights as much as we want (voluntarily, or because we
+   * crashed) and those new flights should all get their own trail:
+   */
   startNewTrail(location) {
     this.trail = new Trail(this.map, location);
   }
@@ -2437,46 +2550,52 @@ export class Plane {
     const now = Date.now();
     Questions.update(state);
     
-
     // Check if we started a new flight because that requires
     // immediately building a new flight trail:
-    const { flying: wasFlying } = this.lastUpdate.flightInformation.general;
-    const { flying } = this.state.flightInformation.general;
-    const startedFlying = !wasFlying && flying;
-    if (startedFlying) this.startNewTrail();
+    try {
+       const { flying: wasFlying } = this.lastUpdate.flightInformation.general;
+      const { flying } = this.state.flightInformation.general;
+      const startedFlying = !wasFlying && flying;
+      if (startedFlying) this.startNewTrail();
+    } catch (e) {
+      // this will fail if we don't have lastUpdate yet, and that's fine.
+    }
 
     // And then update our map.
-    const { data: flightData } = state.flightInformation;
-    if (flightData) this.updateMap(flightData);
+    this.updateMap(state.flightInformation);
 
     this.lastUpdate = { time: now, ...state };
   }
 
-  async updateMap(flightData) {
+  async updateMap({ model: flightModel, data: flightData, general }) {
     if (!flightData) return;
     
     const { map, marker, planeIcon } = this;
-    const { paused, crashed, flightModel } = this.state;
     const { lat, long } = flightData;
     if (lat === undefined || long === undefined) return;
     if (abs(lat) < 0.1 && abs(long) < 0.1) return;
 
-    // First off: did we teleport? E.g. did the plane's position change
-    // impossibly fast, due to restarting a flight, or by using the
-    // "teleport" function in Parallel 42's "Flow" add-on, etc? Because
-    // if so, we need to start a new trail.
-    const { lat: lat2, long: long2 } = this.lastUpdate.flightInformation.data;
-    const d = getDistanceBetweenPoints(lat, long, lat2, long2);
-    const kmps = (speed ?? 0) / 1944;
+    try {
+      // First off: did we teleport? E.g. did the plane's position change
+      // impossibly fast, due to restarting a flight, or by using the
+      // "teleport" function in Parallel 42's "Flow" add-on, etc? Because
+      // if so, we need to start a new trail.
+      const { lat: lat2, long: long2 } = this.lastUpdate.flightInformation.data;
+      const d = getDistanceBetweenPoints(lat, long, lat2, long2);
+      const kmps = (speed ?? 0) / 1944;
 
-    // We'll call ourselves "teleported" if we moved at a speed of over
-    // 5 kilometers per second (3.1 miles per second), which is roughly
-    // equivalent to mach 14.5, which is a little over half the orbital
-    // speed of the international space station.
-    const teleported = this.lastUpdate.flightData && d > 5 * kmps;
-    if (teleported) this.startNewTrail([lat, long]);
+      // We'll call ourselves "teleported" if we moved at a speed of over
+      // 5 kilometers per second (3.1 miles per second), which is roughly
+      // equivalent to mach 14.5, which is a little over half the orbital
+      // speed of the international space station.
+      const teleported = this.lastUpdate.flightData && d > 5 * kmps;
+      if (teleported) this.startNewTrail([lat, long]);
+    } catch (e) {
+      // this will als fail if we don't have lastUpdate yet, and that's still fine.
+    }
 
     // With all that done, we can add the current position to our current trail:
+    if (!this.trail) this.startNewTrail([lat, long]);
     this.trail.add(lat, long);
 
     ...
@@ -2486,7 +2605,7 @@ export class Plane {
 }
 ```
 
-Relatively little code, but a profound improvement:
+A reasonably small bit of extra code, for a profound improvement:
 
 ![Now we know where we came from](./images/page/map-with-flightpath.png)
 
@@ -2622,9 +2741,9 @@ export class Plane {
     ...
 
     // Update the attitude indicator:
-    if (flightData) {
-      const { pitch, bank } = flightData;
-	    Attitude.setPitchBank(pitch, bank);
+    if (state.flightInformation.data) {
+      const { pitch, bank } = state.flightInformation.data;
+      Attitude.setPitchBank(pitch, bank);
     }
 
     this.lastUpdate = { time: now, ...state };
@@ -2708,10 +2827,16 @@ export class Plane {
 
     ...
     
-    // Update our science
-    if (flightData) this.updateChart(flightData, now);
+    const flightData = state.flightInformation.data;
+    if (flightData) {
+      // Update the attitude indicator:
+      const { pitch, bank } = state.flightInformation.data;
+      Attitude.setPitchBank(pitch, bank);
+    
+      // Update our science
+      this.updateChart(flightData);
+    }
 
-    // Cache and wait for the next state
     this.lastUpdate = { time: now, ...state };
   }
 
@@ -2735,7 +2860,22 @@ export class Plane {
 }
 ```
 
-Now we can see what our plane is doing over time, which means we're ready to get down to what you started reading this page for!
+With an update to `index.html` so that there's a science div to put all our graphs into:
+
+```html
+    ...
+    <div id="visualization">
+      <div id="map" style="width: 1200px; height: 800px"></div>
+      <div id="attitude" data-description="Templated from attitude.html"></div>
+    </div>
+    <div id="science" class="pane">
+      <!-- all the data!  -->
+    </div>
+  </body>
+</html>
+```
+
+And now we can see what our plane is doing over time, which means we're ready to get down to what you started reading this page for!
 
 <figure>
   <img src="./images/page/big-science.png">

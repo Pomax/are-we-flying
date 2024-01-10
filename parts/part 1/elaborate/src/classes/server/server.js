@@ -47,7 +47,6 @@ export class ServerClass {
     // Then wait for MSFS to come online
     connectServerToAPI(api, async () => {
       console.log(`Connected to MSFS.`);
-      MSFS = true;
 
       registerWithAPI(clients, api);
       clients.forEach((client) => client.onMSFS(true));
@@ -66,7 +65,7 @@ export class ServerClass {
    * and MSFS is already connected.
    */
   async onConnect(client) {
-    if (MSFS) client.onMSFS(true);
+    if (api?.connected) client.onMSFS(true);
   }
 
   /*

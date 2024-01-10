@@ -51,7 +51,6 @@ const POLLING_INTERVAL = 2500;
 
 // globals
 let api = false;
-let MSFS = false;
 
 /**
  * Our server-side API, which exposes one function itself,
@@ -98,7 +97,6 @@ export class ServerClass {
     // Then wait for MSFS to come online
     connectServerToAPI(api, async () => {
       console.log(`Connected to MSFS.`);
-      MSFS = true;
 
       // Set up a flight information object for pulling
       // model and flight data from SimConnect:
@@ -122,7 +120,7 @@ export class ServerClass {
    */
   async onConnect(client) {
     console.log(`sending onMSFS`);
-    if (MSFS) client.onMSFS(true);
+    if (api?.connected) client.onMSFS(true);
   }
 
   /**

@@ -5,4 +5,5 @@ src/**/alos-index.json
 .DS_Store
 **/*.svg
 .env
+!parts/**/.env
 temp

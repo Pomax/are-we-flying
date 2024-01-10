@@ -1,0 +1,190 @@
+#plane-icon {
+  --speed: 120;
+  --altitude: 1500;
+  --sqrt-alt: 39;
+  --north: 15.8;
+  --heading: 130;
+  --heading-bug: 130;
+
+  --degrees: calc(1deg * var(--heading));
+  --alt-em: calc(var(--sqrt-alt) / 20);
+
+  --f: 250;
+  --dim: calc(var(--f) * 1px);
+  --font-size: calc(var(--dim) / 17);
+
+  font-family: Arial;
+  font-size: var(--font-size);
+
+  /* I'm not sure why Leaflet does not center-position this marker...*/
+  position: relative;
+  top: 11px;
+  left: 16px;
+}
+
+#plane-icon.crashed {
+  background-image: url(images/crashed.png);
+  width: 30px;
+  height: 30px;
+  background-size: 100% 100%;
+  position: absolute;
+  left: 2px;
+  top: -3px;
+}
+
+#plane-icon.crashed * {
+  display: none !important;
+}
+
+#plane-icon .bounds {
+  position: absolute;
+  width: var(--dim);
+  height: var(--dim);
+  top: calc(var(--dim) / -2);
+  left: calc(var(--dim) / -2);
+}
+
+@keyframes pulsing {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+#plane-icon.paused .basics {
+  animation: 2s linear infinite alternate pulsing;
+}
+
+#plane-icon .basics img {
+  position: absolute;
+  display: inline-block;
+  z-index: 10;
+  --w: calc(var(--dim) / 5);
+  width: var(--w);
+  height: var(--w);
+  --to: 10px;
+  top: calc(var(--dim) / 2 - var(--w) / 2 + var(--to));
+  left: calc(var(--dim) / 2 - var(--w) / 2);
+  transform-origin: calc(50%) calc(50% - var(--to));
+  --rot: rotate(calc(var(--degrees) + 1deg * var(--north)));
+  transform: translate(0, calc(-1em * var(--alt-em))) var(--rot);
+}
+
+#plane-icon .basics img.shadow {
+  position: absolute;
+  filter: blur(calc(0.5px * var(--alt-em))) opacity(0.3);
+  transform: var(--rot);
+}
+
+#plane-icon .basics hr {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  padding: 0;
+  transform-origin: 1px 1px;
+  transform: rotate(-90deg);
+  border: 1px solid red;
+}
+
+#plane-icon .basics .alt-line {
+  width: calc(1em * var(--alt-em));
+}
+
+#plane-icon .basics .speedo,
+#plane-icon .basics .speedarrow {
+  --w: calc(1em * var(--speed) / 50);
+  width: var(--w);
+  --rot: calc(var(--degrees) + 1deg * var(--north));
+  transform: rotate(calc(-90deg + var(--rot)));
+}
+
+#plane-icon .basics .speedarrow {
+  --b: 5px;
+  --r: calc(var(--b) * 1.5);
+  border: var(--b) solid red;
+  border-left-color: transparent;
+  border-top-color: transparent;
+  width: 0;
+  transform-origin: 0 0;
+  transform: rotate(calc(var(--rot) - 90deg))
+    translate(calc(var(--w) - var(--r)), 0) rotate(-45deg);
+}
+
+#plane-icon .basics .label {
+  position: absolute;
+  color: white;
+  width: 100%;
+  font-weight: bold;
+  text-align: center;
+  text-shadow:
+    0px 0px 5px black,
+    0px 0px 10px black,
+    0px 0px 15px black;
+}
+
+#plane-icon .basics .alt {
+  top: -4%;
+}
+
+#plane-icon .basics .speed {
+  top: 96%;
+}
+
+/* SVG rules */
+
+#plane-icon svg.compass {
+  font-family: Arial;
+  font-size: 12px;
+}
+
+#plane-icon svg.compass g.box {
+  display: none;
+}
+
+#plane-icon svg.compass path {
+  transform-origin: 50% 50%;
+}
+
+#plane-icon svg.compass g path {
+  stroke: black;
+}
+
+#plane-icon svg.compass g.ring path {
+  transform: rotate(calc(var(--d) * 1deg));
+}
+
+#plane-icon svg.compass g {
+  transform-origin: 50% 50%;
+}
+
+#plane-icon svg.compass g.inner {
+  font-size: 70%;
+}
+
+#plane-icon svg.compass g.outer {
+  transform: rotate(calc(var(--north) * 1deg));
+}
+
+#plane-icon svg.compass g path.heading {
+  stroke: black;
+  fill: #3d3;
+  transform: rotate(calc(var(--degrees) - 90deg));
+}
+
+#plane-icon svg.compass g path.heading-bug {
+  stroke: black;
+  fill: red;
+  transform: rotate(calc(var(--heading-bug) * 1deg - 90deg));
+}
+
+#plane-icon svg.compass text.small {
+  font-size: 80%;
+}
+
+/* Goddamnit, leaflet */
+.leaflet-marker-icon:has(#plane-icon) {
+  z-index: 50000 !important;
+}

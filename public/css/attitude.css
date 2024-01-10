@@ -8,11 +8,12 @@
   --dial-space: 3px;
 
   position: absolute;
+  top: 1em;
+  right: 1em;
   z-index: 1000;
   left: calc(1200px - 250px - 1.5em);
   width: 250px;
   height: 250px;
-  margin: 1em;
   background: #444;
   background-image: url(images/gray-textured-pattern-background-1488751952b8R.jpg);
   background-size: 120% 130%;

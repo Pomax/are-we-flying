@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <title>Let's test our connections!</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" async />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer async></script>
+    <script src="js/index.js" type="module" async></script>
+  </head>
+  <body>
+    <h1>Are we flying?</h1>
+    <p>
+      Let's see if we're currently flying around in Microsoft Flight Simulator
+      2020...
+    </p>
+    <ul id="questions" data-description="Templated from questions.html"></ul>
+    <div id="visualization">
+      <!-- We'll hook Leaflet into the following div -->
+      <div id="map" style="width: 1200px; height: 800px"></div>
+    </div>
+  </body>
+</html>

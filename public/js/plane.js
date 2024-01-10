@@ -11,7 +11,7 @@ import { Trail } from "./trail.js";
 import { WaypointOverlay } from "./waypoint-manager.js";
 
 const L = await waitFor(async () => window.L);
-const { abs, max, PI: π, sqrt } = Math;
+const { abs, sqrt } = Math;
 
 /**
  * ...docs go here...
