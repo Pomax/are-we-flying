@@ -83,6 +83,12 @@ export class ServerClass {
    */
   async onConnect(client) {
     if (api?.connected) client.onMSFS(true);
+    // When clients connect, immediately send them the most up to date
+    // flight information, if the flightInformation object has been
+    // initialized, of course.
+    if (flightInformation) {
+      client.setFlightInformation(flightInformation);
+    }
   }
 
   /*

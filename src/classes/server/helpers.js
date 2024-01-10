@@ -49,7 +49,7 @@ export async function checkGameState(autopilot, clients, flightInformation) {
   // so don't update it here if the AP code is running.
   if (!autopilot || !autopilot.autoPilotEnabled) {
     await flightInformation.update();
-    sendFlightInformation(clients, flightInformation);
+    clients.forEach((client) => client.setFlightInformation(flightInformation));
   }
 
   // Is there's a state change from "not in game" to "in game"?
@@ -59,25 +59,10 @@ export async function checkGameState(autopilot, clients, flightInformation) {
   if (wasInGame && !inGame) {
     console.log(`left the game, disabling autopilot`);
     autopilot.disable();
-  }
-
-  if (!wasInGame && inGame) {
+  } else if (!wasInGame && inGame) {
     console.log(`new game started, resetting autopilot`);
     autopilot.reset(flightInformation, (data) =>
-      sendFlightInformation(clients, data)
+      clients.forEach((client) => client.setFlightInformation(data))
     );
   }
-}
-
-/**
- * ...docs go here...
- */
-export function sendFlightInformation(clients, flightInformation) {
-  clients.forEach(async (client) => {
-    try {
-      await client.setFlightInformation(flightInformation);
-    } catch (e) {
-      console.log(`error calling client.setFlightInformation:`, e);
-    }
-  });
 }

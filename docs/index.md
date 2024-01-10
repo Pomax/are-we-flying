@@ -1593,6 +1593,17 @@ class Server {
       })();
     });
   }
+
+
+  async onConnect(client) {
+    if (api?.connected) client.onMSFS(true);
+    // When clients connect, immediately send them the most up to date
+    // flight information, if the flightInformation object has been
+    // initialized, of course.    
+    if (flightInformation) {
+      client.setFlightInformation(flightInformation);
+    }
+  }
 }
 ```
 
@@ -1847,7 +1858,14 @@ And speaking of visualizations...
 
 Even with all that work done, we've still only implemented page code that lets us answer a bunch of questions, but that's hardly the only thing we'll want to see on our page. Let's add something that let's us actually see something _cool_ on our webpage: let's set up a [Leaflet](https://leafletjs.com/) map that we can put our plane on, so we can see ourselves flying around on a map.
 
-Step one: update our `index.html` to make that work:
+Step one: update our `index.html` to make that work, including downloading Leaflet and putting it in `public/js/leaflet`. We _could_ run it from CDN, using something like this:
+
+```html
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" async />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer async></script>
+```
+
+And I encourage you to give that a try, but if we do, Leaflet takes "forever" to load, as opposed to loading near instantly if we save and use a local copy, so: download the .js and .css files from the above CDN links, and put them in our own leaflet dir, and then lets add them to our `index.html` as:
 
 ```html
 <!DOCTYPE html>
@@ -1856,8 +1874,8 @@ Step one: update our `index.html` to make that work:
     <meta charset="utf-8" />
     <title>Let's test our connections!</title>
     <!-- we'll load Leaflet from CDN -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" async />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer async></script>
+    <link rel="stylesheet" href="js/leaflet/leaflet.min.css" async />
+    <script src="js/leaflet/leaflet.min.js" defer async></script>
     <!-- and then our own script -->
     <script src="js/index.js" type="module" async></script>
   </head>
@@ -2924,9 +2942,9 @@ export class AutoPilot {
       // This is going to be our "switch panel", where
       // we say which modes are on or off, and for modes
       // with numerical values, what those values are.
-      //
+
       // For now, we're only adding a single switch:
-      // the master switch:
+      // the master switch.
       MASTER: false,
     };
     this.onChange(this.getParameters);
@@ -2950,32 +2968,38 @@ export class AutoPilot {
 
   async setParameters(params) {
     const { api, modes } = this;
-    const previous = Object.assign({}, modes);
+    const wasEnabled = modes.MASTER;
 		Object.entries(params).forEach(([key, value]) => {
-      if (modes[key] !== undefined) {
-        this.setTarget(key, value);
-      }
+      this.setTarget(key, value);
     });
-    // If we just turned our own autopilot on, then we'll want to make
-    // sure to turn off the in-game autopilot (if it's on), so it doesn't
-    // interfere, before we start to run our own code:
-    if (!previous.MASTER && modes.MASTER) {
+
+    // notify clients of all the changes that just occurred:
+    this.onChange();
+
+    // Then, MSFS might not actually be running...
+    if (!this.api.connected) return;
+    
+    // but if it is, and we just turned our own autopilot on, then we'll
+    // want to make sure to turn off the in-game autopilot (if it's on),
+    // before we start to run our own code, so that it doesn't interfere:
+    if (!wasEnabled && modes.MASTER) {
       const { AUTOPILOT_MASTER: gameAP } = await api.get(`AUTOPILOT_MASTER`);
       if (gameAP === 1) api.trigger(`AP_MASTER`);
-      // now we can run our own autopilot code.
+      // now we can safely run our own autopilot code.
       this.runAutopilot();
     }
   }
   
-  setTarget(key, value) {
-    const { modes, trim } = this;
-    modes[key] = value;
-    if (key === LEVEL_FLIGHT && value === true) {
-      // make sure we copy over the current in-game trim value, so 
-      // we don't suddenly change it to a completely different value.
-      const { AILERON_TRIM_PCT: roll } = await this.get("AILERON_TRIM_PCT");
-			trim.roll = roll;
-    }   
+  async setTarget(key, value) {
+    const { modes } = this;
+    // We'll be building this out as we implement more and
+    // more autopilot features, but for now we just "blindly"
+    // update values. But, only if they exist in our list of
+    // modes: we're not going to let clients just set arbitrary
+    // key/value pairs!
+    if (modes[key] !== undefined) {
+			modes[key] = value;
+    }
   }
 
   async runAutopilot() {
@@ -3008,8 +3032,16 @@ export class AutoPilot {
 
   async run() {
     // This is where things will actually happen, rather than
-    // putting that code inside `runAutopilot`, because you want
-    // as little code as possible inside a try block.
+    // putting that code inside `runAutopilot`, because this will
+    // eventually be a substantial amount of code.
+    
+    // For now, all we do is update the flight information. And
+    // you might be thinking "well why not just update only the
+    // flight data, the model isn't going to change mid-flight?"
+    // but if so: you never turned on the MSFS developer tools,
+    // which comes with an aircraft selector so you *can* change
+    // the model mid-flight =)
+    this.flightInfoUpdateHandler(await this.flightInformation.update());
   }
 }
 ```
@@ -3057,7 +3089,6 @@ export class ServerClass {
 
     connectServerToAPI(api, async () => {
       console.log(`Connected to MSFS.`);
-      MSFS = true;
       flightInformation = new FlightInformation(api);
 
       // Since we want to pause the autopilot when the game pauses,
@@ -3073,6 +3104,15 @@ export class ServerClass {
         runLater(poll, POLLING_INTERVAL);
       })();
     });
+  }
+  
+  // When clients connect, we immediately send them the current autopilot
+  // state. If the autopilot's been initialized, of course.
+  async onConnect(client) {
+    ...
+    if (autopilot) {
+      client.onAutoPilot(await autopilot.getParameters());
+    }
   }
 }
 ```
@@ -3097,13 +3137,41 @@ export class AutopilotRouter {
 }
 ```
 
-Of course, since our server code is calling `client.onAutoPilot(params)` in the broadcast function, we better make sure that exists in our `client.js`:
+With a change to `checkGameState` now that we have an autopilot:
+
+```js
+export async function checkGameState(autopilot, clients, flightInformation) {
+  // If the autopilot is running, it will be updating the flight
+  // information more frequently than the server would otherwise do,
+  // so don't update it here if the AP code is running.
+  if (!autopilot || !autopilot.autoPilotEnabled) {
+    await flightInformation.update();
+    clients.forEach((client) => client.setFlightInformation(flightInformation));
+  }
+
+  // Is there's a state change from "not in game" to "in game"?
+  const wasInGame = inGame;
+  inGame = flightInformation.general.inGame;
+
+  if (wasInGame && !inGame) {
+    console.log(`left the game, disabling autopilot`);
+    autopilot.disable();
+  } else if (!wasInGame && inGame) {
+    console.log(`new game started, resetting autopilot`);
+    autopilot.reset(flightInformation, (data) =>
+      clients.forEach((client) => client.setFlightInformation(data))
+    );
+  }
+}
+```
+
+And of course, since our server code is calling `client.onAutoPilot(params)` we better make sure that exists in our `client.js`:
 
 ```javascript
 ...
 export class ClientClass {
   ...
-  onAutoPilot(params) {
+  async onAutoPilot(params) {
     this.setState({ autopilot: params });
   }
   ...
@@ -3206,9 +3274,8 @@ import { Autopilot } from "./autopilot.js";
 
 export class Plane {
   constructor(server, map = defaultMap, location = Duncan, heading = 135) {
-    this.server = server;
-    this.autopilot = new Autopilot(this);
     ...
+    this.autopilot = new Autopilot(this);
   }
 
   // Another bit of code for our updateState: updating the autopilot UI.
@@ -3251,9 +3318,9 @@ The important thing to realize is that the button doesn't turn red "when we clic
 7. which automatically gets copied over to the browser,
 8. which forwards the state to our `Plane` code
 9. which passes it on to the `autopilot.update()` function,
-10. and _that_, finally, sets an `active` class on the button we pressed.
+10. and _that_, finally, sets an `active` class on the button we pressed because it sees a `MASTER` property with value `true`.
 
-And that all happened so fast (even on a laptop from 2015, this takes only a few milliseconds) that as far as you can tell, you just clicked a button and it instantly changed color to show that it's active: that's a good sign! It looks like we'll be able to control our autopilot through the browser without things feeling sluggish or laggy.
+And that all happened so fast that as far as you can tell, you just clicked a button and it changed color to show that it's active: that's a good sign! It looks like we'll be able to control our autopilot through the browser without things feeling sluggish or laggy.
 
 So let's start adding some buttons that actually control our airplane. Which of course requires also writing the server-side code that does the controlling. Which requires knowing a bit about how an autopilot makes a plane do the things it needs to do.
 
@@ -3289,7 +3356,7 @@ Before we do anything else, let's first look at what is probably _the_ single mo
 
 That last part is critically important: if we're going to write an autopilot, we want to be able to effect proportional changes, but we want to "cap" those changes to some minimum and maximum value because just yanking the plane in some direction so hard that it stalls is the opposite of useful.
 
-As such, let's implement `map` and `constrain` functions (unfortunately missing from the standard Math library), and then compose them as `constrainMap`:
+As such, let's implement `map` and `constrain` functions (unfortunately missing from the standard Math library), and then compose them as `constrainMap` in our `src/utils/utils.js` file:
 
 ```javascript
 // map a value relative to some range [a,b] to a new range [c,d]
@@ -3327,7 +3394,7 @@ Implementing level mode is probably the easiest of all autopilot functions: we'r
 Let's create an `api/autopilot/fly-level.js` file with some scaffolding:
 
 ```javascript
-import { radians, constrainMap } from "../../utils.js";
+import { radians, constrainMap } from "../utils/utils.js";
 
 // Some initial constants: we want to level the wings, so we
 // want a bank angle of zero degrees:
@@ -3412,6 +3479,18 @@ Those two are at odds with each other, and so we want to prioritize getting the 
 2. Then, we correct our bank acceleration in the next `update += ...`, by trimming in the opposite direction of our bank acceleration. This will undo some of our bank correction, but as long as we use a smaller step size for acceleration than for the main bank correction, the code will "prioritize" zeroing our bank angle over our bank acceleration.
 3. Finally, we update our trim (both in our code and in MSFS) and then we wait for the autopilot to retrigger this function during the next run, letting us run through the same procedure, but with (hopefully!) slightly less wrong values. Provided that this function runs enough times, we'll converge on level flight, and that's exactly what we want.
 
+Of course, this does require that `radians` exists, so let's quickly add that to our `utils.js`:
+
+```javascript
+export function radians(deg) {
+  return (deg / 180) * PI;
+}
+
+export function degrees(rad) {
+  return (rad / PI) * 180;
+}
+```
+
 #### Adding a LVL switch
 
 Of course, we do still need to update the autopilot code so that we can turn this feature on and off. First, we'll define a constants file for housing things like autopilot modes in `autopilot/utils/constants.js`:
@@ -3422,7 +3501,7 @@ export const LEVEL_FLIGHT = `LVL`;
 
 Big change, very exiting.
 
-Then, we update the autopilot code to make use of this new constant, and we'll add that `trim` vector for tracking how much we need to trim in each direction:
+Then, we update the `autopilot.js` code to make use of this new constant, and we'll add that `trim` vector for tracking how much we need to trim in each direction:
 
 ```javascript
 import url from "node:url";
@@ -3430,7 +3509,7 @@ const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import { watch } from "./reload-watcher.js";
 
 // Import our new constant...
-import { LEVEL_FLIGHT } from "./utils/constants.js";
+import { LEVEL_FLIGHT } from "../utils/constants.js";
 
 // and import the "fly level" code using our hot-reloading technique
 let { flyLevel } = await watch(__dirname, `fly-level.js`, (lib) => (flyLevel = lib.flyLevel));
@@ -3454,13 +3533,26 @@ export class Autopilot {
       yaw: 0,
     };      
   }
+    
+  async setTarget(key, value) {
+    ...
+
+    // Now that we can turn the wing leveler on and off,
+    // we'll want to make sure that when we turn it on,
+    // we copy over the in-game trim setting into our
+    // trim vector. Pretty important!
+    if (key === LEVEL_FLIGHT && value === true) {
+      trim.roll = this.flightInformation?.data.aileronTrim ?? 0;
+      console.log(`Engaging wing leveler. Initial trim:`, trim.roll);
+    }
+  }
 
   // Finally, actual autopilot functionality!
   async run() {
     const { modes, flightInformation } = this;
 
     // Get the most up to date flight information:
-		this.flightInfoUpdateHandler(await flightInformation.update());
+    this.flightInfoUpdateHandler(await flightInformation.update());
 
     // Then run a single iteration of the wing leveler:
     if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
@@ -3513,7 +3605,7 @@ import { LEVEL_FLIGHT, ALTITUDE_HOLD } from "./utils/constants.js";
 ...
 
 // We'll be doing some hot-reload-watching here too:
-let { altitudeHold } = watch(__dirname, `altitude-hold.js`, (lib) => (altitudeHold = lib.altitudeHold));
+let { altitudeHold } = await watch(__dirname, `altitude-hold.js`, (lib) => (altitudeHold = lib.altitudeHold));
 
 export class Autopilot {
   ...
@@ -3530,9 +3622,10 @@ export class Autopilot {
 
   setTarget(key, value) {
     ...
+    // Again, we copy over the existing trim.
     if (key === ALTITUDE_HOLD && value === true) {
-      const { ELEVATOR_TRIM_POSITION: pitch } = await this.get("ELEVATOR_TRIM_POSITION");
-      trim.pitch = pitch;
+      trim.pitch = this.flightInformation?.data.pitchTrim ?? 0;
+      console.log(`Engaging altitude hold. Initial trim:`, trim.pitch);
     }
   }
 
@@ -3541,6 +3634,7 @@ export class Autopilot {
   async run() {
     const { modes, flightInformation } = this;
 		this.flightInfoUpdateHandler(await flightInformation.update());
+    // Then run a single iteration of the wing leveler and altitude holder:
     if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
     if (modes[ALTITUDE_HOLD]) altitudeHold(this, flightInformation);
   }
@@ -3591,7 +3685,7 @@ export async function altitudeHold(autopilot, flightInformation) {
 
   // What are our vertical speed values?
   const { VS, speed, pitch, alt } = flightData;
-  const { VS: dVS, pitch: dPitch } = flightData.d ?? { VS: 0, pitch: 0 };
+  const { VS: dVS } = flightData.d ?? { VS: 0 };
   const { pitchTrimLimit } = flightModel;
   
   // How big should our trim steps be?
