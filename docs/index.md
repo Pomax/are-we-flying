@@ -772,9 +772,9 @@ export FLIGHT_OWNER_USERNAME=username
 export FLIGHT_OWNER_PASSWORD=passwerd
 ```
 
-Just a [bae64](https://en.wikipedia.org/wiki/Base64) conversion of the string `usernamepassword`... super secure! Of course, when we make our web page available, we'll want to make triple-sure that we change this key to something a little more secret-appropriate =)
+Just a [base64](https://en.wikipedia.org/wiki/Base64) conversion of the string concatenation `"username" + "password"`... super secure! Of course, when we make our web page available, we'll want to make triple-sure that we change this key to something a little more secret-appropriate =)
 
-Then, let's update our `server.js` class with a bit of code that lets clients authenticate
+Then, let's update our `server.js` class with a function that clients can call in order to authenticate:
 
 ```js
 ...
@@ -814,7 +814,7 @@ export class ServerClass {
     // code. Use a proper, secure login solution, instead =)
     const hash = btoa(username + password);
     if (hash !== FLIGHT_OWNER_KEY) return false;
-    console.log(`authenticated client`);
+    console.log(`authenticated client ${client.id}`);
     this.#authenticatedClients.push(client);
     return true;
   }
@@ -2268,7 +2268,7 @@ mapLayers.googleTerrain.addTo(map);
 ...
 ```
 
-And now our map looks looks **_amazing_**:
+And now our map looks **_amazing_**:
 
 ![Our map, now with terrain!](./images/page/map-with-terrain.png)
 
@@ -2623,8 +2623,10 @@ export class Plane {
     ...
 
     // Update the attitude indicator:
-    const { PLANE_PITCH_DEGREES: pitch, PLANE_BANK_DEGREES: bank } = state.flightData;
-    Attitude.setPitchBank(pitch, bank);
+    if (flightData) {
+      const { pitch, bank } = flightData;
+	    Attitude.setPitchBank(pitch, bank);
+    }
 
     this.lastUpdate = { time: now, ...state };
   }
@@ -2641,8 +2643,6 @@ Before we consider our page work done, though, let's add one more thing: science
   <img src="./images/page/science/overview.png">
   <figcaption>Look at all that science!</figcaption>
 </figure>
-
-
 If we want to understand what our plane is doing, especially if we want to understand what our plane is doing in response to input changes (whether those are by a human or auto pilot), we need some way to see what happens over time. Which means we want graphs. Lots of graphs. And if we need graphs, we need some code that'll do that graphing for us!
 
 There's quite a few ways to get some nice charts on a page, so instead of running you through the code that this project uses, let's just say that you are spoiled for choice and the choice of whether to use an off-the-shelf library or rolling your own code is entirely up to you. In this specific case, I rolled us some custom code that you can find on the repo under `public/js/dashboard/`, mostly because I wanted something that generates plain SVG that I can just copy-paste from dev tools into a new file, save that as `.svg` and then be able to load it into any SVG viewer/editor. Something that's particularly useful for autopilot debugging.
@@ -2652,17 +2652,19 @@ What matters most is that we can tell the code that we want to plot several grap
 ```javascript
 export function initCharts() {
   const config = {
-    // basics
+    // the basics
     ground: { unit: `feet`, positive: true, fixed: 1, max: 1500, filled: true },
     altitude: { unit: `feet`, positive: true, fixed: 1 },
     speed: { unit: `knots`, positive: true, fixed: 2 },
     dV: { unit: `knots/s`, fixed: 2 },
-    // elevator
-    VS: { unit: `fpm`, fixed: 1, /*autoscale: 60,*/ limits: [1000, -1000] },
-    dVS: { unit: `fpm/s`, fixed: 2 /*autoscale: 60*/ },
+
+    // elevator related values
+    VS: { unit: `fpm`, fixed: 1, limits: [1000, -1000] },
+    dVS: { unit: `fpm/s`, fixed: 2 },
     pitch: { unit: `degrees`, fixed: 1 },
     dPitch: { unit: `deg/s`, fixed: 2, limits: [1, -1] },
-    // aileron
+
+    // aileron related values
     heading: {
       unit: `degrees`,
       positive: true,
@@ -2675,6 +2677,7 @@ export function initCharts() {
     dBank: { unit: `deg/s`, fixed: 4 },
     turnRate: { label: `turn rate`, unit: `deg/s`, fixed: 2 },
     rudder: { label: `rudder`, unit: `%`, fixed: 2 },
+
     // trim settings
     pitchTrim: { label: `pitch trim`, unit: `%`, fixed: 3 },
     aileronTrim: { label: `aileron trim`, unit: `%`, fixed: 3 },
@@ -2756,189 +2759,206 @@ In order to run an auto pilot, we're going to need to set up some code that actu
 
 ### The server side of our autopilot
 
-Let's start with the autopilot code itself, but without any specific piloting logic implemented, since we'll be doing that as we run through this chapter. We'll put this file in `src/autopilot/autopilot.js`:
+Let's start with the autopilot code itself, but without any specific piloting logic implemented quite yet, since we'll be doing that in stages as we run through this chapter. We'll start by creating a  `src/autopilot/autopilot.js`, which will be something that we'll never expose to clients directly, so we can write "normal" code:
 
 ```javascript
-import { AP_VARIABLES } from "./utils/ap-variables.js";
-import { State } from "./utils/ap-state.js";
+import url from "node:url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
 const AUTOPILOT_INTERVAL = 500;
 
 export class AutoPilot {
   constructor(api, onChange = () => {}) {
     this.api = api;
-    this.onChange = onChange;
-    this.AP_INTERVAL = AUTOPILOT_INTERVAL;
+    this.onChange = async (update) => {
+      onChange(update ?? (await this.getParameters()));
+    };
     this.reset();
   }
 
-  reset() {
-    this.prevState = new State();
-    this.autoPilotEnabled = false;
+  reset(flightInformation, flightInfoUpdateHandler) {
+    console.log(`resetting autopilot`);
+    this.flightInformation = flightInformation;
+    this.flightInfoUpdateHandler = flightInfoUpdateHandler;
     this.paused = false;
-    this.modes = {} // more on this later
+    this.modes = {
+      // This is going to be our "switch panel", where
+      // we say which modes are on or off, and for modes
+      // with numerical values, what those values are.
+      //
+      // For now, we're only adding a single switch:
+      // the master switch:
+      MASTER: false,
+    };
     this.onChange(this.getParameters);
+  }
+
+  get autoPilotEnabled() {
+    return this.modes.MASTER;
+  }
+  
+  disable() {
+    this.setParameters({ MASTER: false });
   }
 
   setPaused(value) {
     this.paused = value;
   }
 
-  async get(...names) {
-    if (!this.api.connected) return {};
-    return this.api.get(...names);
-  }
-
-  async set(name, value) {
-    if (!this.api.connected) return;
-    this.api.set(name, value);
-  }
-
-  async trigger(name) {
-    if (!this.api.connected) return;
-    this.api.trigger(name);
-  }
-
   async getParameters() {
-    return { MASTER: this.autoPilotEnabled };
+    return { ...this.modes };
   }
 
   async setParameters(params) {
-    if (params.MASTER !== undefined) {
-      this.autoPilotEnabled = params.MASTER;
-      if (this.autoPilotEnabled) {
-        // make sure the in-game autopilot is not running.
-        const { AUTOPILOT_MASTER: on } = await this.get(`AUTOPILOT_MASTER`);
-        if (on === 1) this.trigger(`AP_MASTER`);
-        this.runAutopilot();
+    const { api, modes } = this;
+    const previous = Object.assign({}, modes);
+		Object.entries(params).forEach(([key, value]) => {
+      if (modes[key] !== undefined) {
+        this.setTarget(key, value);
       }
+    });
+    // If we just turned our own autopilot on, then we'll want to make
+    // sure to turn off the in-game autopilot (if it's on), so it doesn't
+    // interfere, before we start to run our own code:
+    if (!previous.MASTER && modes.MASTER) {
+      const { AUTOPILOT_MASTER: gameAP } = await api.get(`AUTOPILOT_MASTER`);
+      if (gameAP === 1) api.trigger(`AP_MASTER`);
+      // now we can run our own autopilot code.
+      this.runAutopilot();
     }
+  }
+  
+  setTarget(key, value) {
+    const { modes, trim } = this;
+    modes[key] = value;
+    if (key === LEVEL_FLIGHT && value === true) {
+      // make sure we copy over the current in-game trim value, so 
+      // we don't suddenly change it to a completely different value.
+      const { AILERON_TRIM_PCT: roll } = await this.get("AILERON_TRIM_PCT");
+			trim.roll = roll;
+    }   
+  }
 
   async runAutopilot() {
-    if (!this.api.connected) return;
-    if (!this.autoPilotEnabled) return;
-    setTimeout(() => this.runAutopilot(), this.AP_INTERVAL);
-    if (this.paused) return;
+    const { api, modes, paused } = this;
 
-    const data = await this.get(...AP_VARIABLES);
-    const state = new State(data, this.prevState);
+    // Sanity check: *should* this code run?
+    if (!api.connected) return;
+    if (!modes.MASTER) return;
 
-    // ...correct the flight as needed here...
+    // If the autopilot is enabled, even if there are errors due to
+    // MSFS glitching, or the DLL handling glitching, or values somehow
+    // having gone missing, or our own code throwing errors that we
+    // need to fix, etc. etc: schedule the next call, and hopefully
+    // things work by then.
+    runLater(() => this.runAutopilot(), this.AP_INTERVAL);
 
-    this.prevState = state;
+    // If the game is paused, then don't run the autopilot code, but 
+    // only for "this call". Maybe by the next call the game won't be
+    // paused anymore.
+    if (paused) return;
+
+    // And remember: *never* allow code to crash the server:
+    try {
+      await this.run();
+      this.onChange();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async run() {
+    // This is where things will actually happen, rather than
+    // putting that code inside `runAutopilot`, because you want
+    // as little code as possible inside a try block.
   }
 }
 ```
 
-This relies on [ap-variables.js]() and [ap-state.js]() files, which I won't be listing here mostly because there isn't really anything surprising in them. The variables file is a list of variables, and the state file is similar to the state concept we saw before, for the client, but with an extra bit of code that binds several "delta" functions so we don't just know "our speed" but also "how much our speed changed, per second", for a handful of variables.
-
-Now, in order for the client to trigger autopilot functionality, we'll need to update our `server.js` too:
+So this does nothing yet, except run the autopilot loop when the autopilot gets enabled, but it's enough code that want to at least test this to see if we can turn the AP on and off, which means we'll need to update a few more files before we can do our testing, starting with our `server.js`:
 
 ```javascript
 ...
 
-import { AutoPilot } from "../../autopilot/autopilot.js";
+// we'll make the autopilot hot-reloadable:
+let autopilot = false;
+let { AutoPilot } = await watch(
+  __dirname,
+  `../../autopilot/autopilot.js`,
+  (module) => {
+    AutoPilot = module.AutoPilot;
+    if (autopilot) Object.setPrototypeOf(autopilot, AutoPilot.prototype);
+  }
+);
+
+// And we're not going to expose the autopilot itself to clients,
+// instead we're wrapping it so we can control who gets to call it,
+// similar to what we did with the API:
 import { AutopilotRouter } from "./routers/autopilot-router.js";
 
 ...
 
-let MSFS = false;
-let flying = false;
-let autopilot = false;
-
 export class ServerClass {
   init() {
-    // Set up the autopilot instance, with a callback that lets the
-    // autopilot broadcast its settings whenever they change.
+    const { clients } = this;
+
+    // Set up the off-class autopilot instance, with a callback that
+    // lets the autopilot broadcast its settings whenever they change.
     autopilot = new AutoPilot(api, (params) =>
-      this.#autopilotBroadcast(params)
+      clients.forEach((client) => client.onAutoPilot(params));
     );
-    this.#setupRouting();
-    connectServerToAPI(() => this.#onMSFSConnect());
-  }
 
-  // This simply notifies all connected clients of the new autopilot parameters.
-  async #autopilotBroadcast(params) {
-    this.clients.forEach((client) => client.onAutoPilot(params));
-  }
-
-  // And in order for clients to be able to call autopilot functions,
-  // we add a function routing object as "this.autopilot":
-  #setupRouting() {
-    this.api = new APIRouter(api, () => MSFS);
-
-    // All clients will now be able to call server.autopilot.[...]
-    this.autopilot = new AutopilotRouter(autopilot, (params) =>
-      this.clients.forEach((client) => client.onAutoPilot(params))
+    // And set up call routing for the autopilot in the same way as we
+    // did for the API: only authenticated clients are allowed to mess
+    // with the AP settings =)
+    this.autopilot = this.lock(
+      new AutopilotRouter(autopilot),
+      (client) => this.#authenticatedClients.includes(client)
     );
-  }
 
-  // We also need to update our API registration, because when the game is
-  // paused, we don't want the autopilot to just "keep going". If it does,
-  // it might try to force increasingly severe corrections while the plane
-  // "does nothing" so that by the time we unpause, the plane crashes.
-  #registerWithAPI(api, autopilot) {
-    api.on(SystemEvents.PAUSED, () => {
-      autopilot.setPaused(true);
-      this.clients.forEach((client) => client.pause());
+    connectServerToAPI(api, async () => {
+      console.log(`Connected to MSFS.`);
+      MSFS = true;
+      flightInformation = new FlightInformation(api);
+
+      // Since we want to pause the autopilot when the game pauses,
+      // we add the autopilot to our event registration:
+      registerWithAPI(clients, api, autopilot);
+
+      clients.forEach((client) => client.onMSFS(true));
+      (async function poll() {
+        // And we add the autopilot to our game state check, because
+        // when the autopilot kicks in, it becomes responsible for polling
+        // the game for data (much) faster than the regular server poll.
+        checkGameState(autopilot, clients, flightInformation);
+        runLater(poll, POLLING_INTERVAL);
+      })();
     });
-
-    api.on(SystemEvents.UNPAUSED, () => {
-      autopilot.setPaused(false);
-      this.clients.forEach((client) => client.unpause());
-    });
-
-    ...
-
-    // the rest of the calls won't need autopilot updates
-  }
-
-  // And we need to update the checkFlying function so that
-  // every time we start a new flight, we reset the autopilot:
-  async #checkFlying(client) {
-    ...
-    if (flying !== wasFlying) {
-      if (flying) this.#autopilot.reset();
-      this.clients.forEach((client) => client.setFlying(flying));
-    } else if (client) {
-      client.setFlying(flying);
-    }
   }
 }
 ```
 
-With the associated (small) autopilot function router code:
+With the associated (tiny) autopilot router in `src/classes/server/routers/autopilot-router.js`:
 
 ```javascript
-/**
- * "route" handler for autopilot API calls from clients
- */
+// clients will be able to access functions in this router, so we
+// want to make sure the autopilot is not directly accessible:
+let autopilot;
+
 export class AutopilotRouter {
-  #autopilot;
-  #broadcastUpdate;
-
-  // ...
-  constructor(autopilot, broadcastUpdate) {
-    this.#autopilot = autopilot;
-    this.#broadcastUpdate = broadcastUpdate;
+  constructor(_autopilot) {
+    autopilot = _autopilot;
   }
 
-  // this will be exposed as this.server.autopilot.getParameters() on the client side.
-  async getParameters(client) {
-    return this.#autopilot.getParameters();
-  }
-
-  // this will be exposed as this.server.autopilot.update({ ... }) on the client side.
+  // This is the only thing we want to expose to clients:
+  // a way for them to change AP settings.
   async update(client, params) {
-    // This should only be callable by authenticated clients =)
-    if (!client.authenticated) return false;
-    const updatedParameters = await this.#autopilot.setParameters(params);
-    this.#broadcastUpdate(updatedParameters);
+    autopilot.setParameters(params);
   }
 }
 ```
 
-Now, our server code is calling `client.onAutoPilot(params)` in the broadcast function, so we better make sure that exists:
+Of course, since our server code is calling `client.onAutoPilot(params)` in the broadcast function, we better make sure that exists in our `client.js`:
 
 ```javascript
 ...
@@ -2951,37 +2971,11 @@ export class ClientClass {
 }
 ```
 
-Nothing to it.
-
-#### Swapping in new code as we update our autopilot
-
-Of course, with all that done, it's probably a good idea to apply the "hot reload" pattern we looked at in part two so that we can update our autopilot code without having to restart our server, so let's quickly update our `server.js`:
-
-```javascript
-import url from "node:url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-import dotenv from "dotenv";
-dotenv.config({ path: `${__dirname}/../../../.env` });
-
-import { SystemEvents, MSFS_API } from "msfs-simconnect-api-wrapper";
-
-// Set up our code to allow hot-reloading our autopilot code:
-import { watch } from "../../api/autopilot/reload-watcher.js";
-import { AutoPilot as ap } from "../../api/autopilot/autopilot.js";
-let AutoPilot = ap;
-watch(__dirname, `../../api/autopilot/`, `autopilot.js`, (lib) => {
-  AutoPilot = lib.AutoPilot;
-  if (autopilot) {
-    Object.setPrototypeOf(autopilot, AutoPilot.prototype);
-  }
-});
-
-...
-```
+And `socketless` will do the rest to make sure that the browser get that state update, too.
 
 ### The client-side of our autopilot
 
-Of course, we want to be able to control this autopilot from the browser, so we'll need an update to our browser code that allows use to actually turn the autopilot on and off (even if that, right now, does nothing other than toggle a boolean yet!).
+Of course, we want to be able to control this autopilot from the browser, so we'll need an update to our browser code so that we can actually turn the autopilot on and off (even if that, right now, does nothing other than toggle a boolean value).
 
 First, let's create a little `public/autopilot.html` file:
 
@@ -2989,7 +2983,7 @@ First, let's create a little `public/autopilot.html` file:
 <div class="controls">
   <link rel="stylesheet" href="/css/autopilot.css" />
   <button class="MASTER">AP</button>
-  <!-- we're going to add *so* many options here, later! -->
+  <!-- we're going to add *so* many options here, later on! -->
 </div>
 ```
 
@@ -3020,40 +3014,44 @@ Then we'll create a `public/css/autopilot.css` so we can see when our button has
 And then, we'll create a `public/js/autopilot.js` to load in this "partial" and hook up all the buttons... err... button. All the button.
 
 ```javascript
+// We've seen this pattern before:
 const content = await fetch("autopilot.html").then((res) => res.text());
 const autopilot = document.getElementById(`autopilot`);
 autopilot.innerHTML = content;
 
+// just in case we start a client before we start a server,
+// make sure that we have default value to work with:
 export const AP_OPTIONS = {
   MASTER: false,
 };
 
 export class Autopilot {
   constructor(owner) {
+    console.log(`Hooking up the autopilot controls`);
     this.owner = owner;
     const server = (this.server = owner.server);
-    // We're going to add more buttons later, so this code will
-    // simply let us add options to AP_OPTIONS without having to
-    // add any more code here.
+    // We're going to add more buttons later, so we'll write some code
+    // that "does that for us" sp we add options to AP_OPTIONS without
+    // having to write new code for every option we add.
     Object.keys(AP_OPTIONS).forEach((key) => {
       const e = document.querySelector(`#autopilot .${key}`);
       e.addEventListener(`click`, () => {
-        // We're going to use the fact whether or not there is an "active"
-        // class as indicator of whether the setting is active on the server.
-        let value = e.classList.contains(`active`);
+        // We check to see if "this button" is active. If it is, then we
+        // want to turn it off, and if it isn't, we want to turn it on.
+        const value = e.classList.contains(`active`);
         server.autopilot.update({ [key]: !value });
       });
     });
   }
 
+  // And we'll need a function that, when we're passed the server's
+  // current autopilot settings, makes sure all the buttons (all one of
+  // them right now) are shown correctly:
   update(params) {
     if (!params) return;
-    // Much like above, this code will simply activate buttons
-    // based on the parameter name/value pairs we get sent.
+		// Again, we do this with code that "does that for us":
     Object.entries(params).forEach(([key, value]) => {
       const e = document.querySelector(`#autopilot .${key}`);
-      // Set the element's "active" class based on whether or not
-      // the setting is true or false on the server side.
       e?.classList.toggle(`active`, !!value);
     });
   }
@@ -3064,76 +3062,80 @@ And then finally, of course, we load that in with the rest of our code in `plane
 
 ```javascript
 import { Autopilot } from "./autopilot.js";
+
 ...
+
 export class Plane {
   constructor(server, map = defaultMap, location = Duncan, heading = 135) {
-    console.log(`building plane`);
     this.server = server;
     this.autopilot = new Autopilot(this);
     ...
   }
 
-  // update our autopilot UI during the update cycle now, too:
+  // Another bit of code for our updateState: updating the autopilot UI.
   async updateState(state) {
     this.state = state;
     const now = Date.now();
 
     ...
 
-    // reasonably straight-forward:
-    if (state.autopilot) {
-      this.autopilot.update(state.autopilot);
-    }
+    // Super straight-forward:
+    const { autopilot: params } = state;
+    this.autopilot.update(params);
 
     this.lastUpdate = { time: now, ...state };
   }
 }
 ```
 
-The hot reloading section needs to come earlier, that should be part of our initial setup.
+Which means, we should now be able to test that we have a working "click button, enable/disable autopilot" setup.
 
 ### Testing our "autopilot" code
 
-Let's make sure to test this before we move on. Let's:
+Let's confirm everything works.
 
-- start our API server
-- start our client web server (with the `--browser` flag)
-- we won't need to start MSFS for this one, as nothing we're doing relies on having the game running
-- we should see our browser page with our autopilot button:<br>![image-20231105095108092](./images/page/ap-button-off.png)
+- start our API server with `node api-server`,
+- start our client web server with `node web-server --owner --browser`,
+- we won't need to start MSFS for this one, as nothing we're doing relies on having the game running (yet!)
+- our browser should open and we should see our page with the new autopilot button:<br>![image-20231105095108092](./images/page/ap-button-off.png)
 
 - and if we click it, we should see it turn red, because it now has an `active` class:<br>![image-20231105095214329](./images/page/ap-button-on.png)
 
 The important thing to realize is that the button doesn't turn red "when we clicked it" because we didn't write any code that adds an `active` class when we click a button. Instead _a lot more_ happens:
 
-1. we pressed the button,
-2. that doesn't add a class but instead calls `server.autopilot.update({ MASTER: true })`,
+1. we press the AP master button,
+2. _that does not update anything on the page_ and instead calls `server.autopilot.update({ MASTER: true })`,
 3. which makes the server-side autopilot code update its `MASTER` value,
-4. which then triggers an autopilot settings-change broadcast,
+4. which then triggers an autopilot "settings have changed" broadcast,
 5. which calls our client's `onAutoPilot` with the new settings,
 6. which we use to update our client's `state.autopilot` value,
 7. which automatically gets copied over to the browser,
 8. which forwards the state to our `Plane` code
-9. which passes it on to the `autopilot.update` function,
-10. and _that_, finally, sets an `active` class on the associated button.
+9. which passes it on to the `autopilot.update()` function,
+10. and _that_, finally, sets an `active` class on the button we pressed.
 
-And that all happened so fast (even on a laptop from 2015, this takes only a few milliseconds) that as far as you can tell, you just clicked a button and it instantly changed color to show that it's active: that's a good sign! It looks like we'll be able to control our autopilot through the browser without things feeling sluggish or laggy!
+And that all happened so fast (even on a laptop from 2015, this takes only a few milliseconds) that as far as you can tell, you just clicked a button and it instantly changed color to show that it's active: that's a good sign! It looks like we'll be able to control our autopilot through the browser without things feeling sluggish or laggy.
+
+So let's start adding some buttons that actually control our airplane. Which of course requires also writing the server-side code that does the controlling. Which requires knowing a bit about how an autopilot makes a plane do the things it needs to do.
 
 ## So how does an autopilot actually work?
 
-At its core, an autopilot is a system that lets a plane fly "in a straight line". However, there are two kinds of "straight line" we need to think about, because we're not driving on a road, or gliding through water, we're flying through the air:
+At its core, an autopilot is a system that lets a plane fly "where we want it to fly", with the most basic form of automated flight being making the plane fly in a straight line. However, there are two kinds of "straight line" we need to think about, because we're not driving a car on a road, or gliding a boat through water, we're flying through the air:
 
 1. we can fly in a straight line without turning left or right, and
 2. we can fly in a straight line without moving up or down.
 
-The first of these is achieved using, in autopilot parlance, a **wing leveler**, often found as the label `LVL` on autopilot controls, and the second of these is achieved using **altitude hold**, often found as `ALT` on autopilot controls. You can see where the names come from: the first keeps the plane's wings level, keeping us pointing in (roughly) the same compass direction, while the second keeps the plane (roughly) at some fixed altitude.
+The first of these is achieved using, in autopilot parlance, a **wing leveler**, often found as the label `LVL` on autopilot controls, and the second of these is achieved using **altitude hold**, often found as `ALT` on autopilot controls. You can see where the names come from: the first keeps the plane's wings level, keeping us pointing in (roughly) one compass direction, while the second keeps the plane (roughly) at some fixed altitude.
 
-More fully featured autopilots extend these two modes by adding **altitude set and hold**, which runs altitude hold "at a _*specific*_ altitude", with additional logic to get us from one altitude to another if we need to change, as well as by adding **heading mode**, which effectively runs level mode "for a _*specific*_ compass direction", with additional logic to get us from pointing in one direction to pointing in another.
+More fully featured autopilots extend these two modes by adding **heading mode**, which effectively runs the wing leveler such that we fly "a _*specific*_ compass direction", with additional logic to get us from pointing in one direction to pointing in another, and by adding **altitude set and hold**, which runs altitude hold "at a _*specific*_ altitude", with additional logic to get us from one altitude to another.
 
-We start by observing that we _*could*_ try to take all our aeroplane's flight data, then run a bunch of maths on the numbers we get in order to predict when we need to perform which operations in order to make sure that our plane does the right thing in the future, but this will be a losing proposition: the weather, air density changes, random updrafts, terrain-induced wind, the ground effect etc. are all going to interfere with any predictions we'd make.
+We start by observing that we _*could*_ try to take all our aeroplane's flight data, then run a bunch of maths on the numbers we get in order to predict when we need to perform which operations in order to make sure that our plane does the right thing in the future, but this will be a losing proposition: the weather, air density changes, random updrafts, terrain-induced wind, the tendency to "pull" in some direction, etc. are all going to interfere with any predictions we'd make.
 
-Instead, we're going to implement our autopilot as a _*reactionary*_ system: it looks at what the current flight data is, and then puts in small corrections that'll push us away from the wrong direction, and we repeat that process over and over and over, every time looking at the new flight data, and then saying which new corrections to make. The trick to getting an autopilot working based on this approach is that if we can do this in a way that makes the corrections smaller and smaller every time we run, we will converge on the desired flight path, barely having to correct anything after a while. The plane will just be flying the way we want it to.
+So instead, we're going to implement our autopilot as a _*reactionary*_ system: it looks at what the current flight data is, what the flight data _should_ be if we were already flying the way the AP is set, and then puts in single, small corrections that'll push us away from the wrong direction. We repeat that process over and over and over, every time looking at the new flight data, and then saying which corrections to make. The trick to getting an autopilot working based on this approach is that if we can do this in a way that makes the corrections smaller and smaller every time we run, we will converge on the desired flight path, barely having to correct anything after a while. The plane will just be flying the way we want it to.
 
-Of course, a real autopilot does this kind of monitoring and correcting on a continuous basis. Something we don't really have the luxury of doing by using JavaScript: in order not to overload both Node.js and MSFS, and in order for us to be able to look at any log data flying by when we need to do console log debugging, let's pick go with running our autopilot twice per second. And despite how coarse that sounds, we'll be able to make our autopilot work at this interval length. And the main reason we'll be able to do that is because the following function:
+Of course, a real autopilot does this kind of monitoring and correcting on a near-continuous basis. Something we don't really have the luxury of doing by using JavaScript: in order not to overload both Node.js and MSFS, and in order for us to be able to look at the flight log when we need to do console log debugging, we're going to run our autopilot only twice per second. And that may sound dangerously low, but it's actually plenty fast.
+
+So how do we determine the size of corrections we need to put in? Enter the constrained mapping function:
 
 ### The backbone of our autopilot code: constrain-mapping
 
@@ -3148,7 +3150,7 @@ Before we do anything else, let's first look at what is probably _the_ single mo
 
 That last part is critically important: if we're going to write an autopilot, we want to be able to effect proportional changes, but we want to "cap" those changes to some minimum and maximum value because just yanking the plane in some direction so hard that it stalls is the opposite of useful.
 
-As such, let's implement `map` and `constrain` functions, and then compose them as `constrainMap`:
+As such, let's implement `map` and `constrain` functions (unfortunately missing from the standard Math library), and then compose them as `constrainMap`:
 
 ```javascript
 // map a value relative to some range [a,b] to a new range [c,d]
@@ -3175,32 +3177,37 @@ We're going to rely on this function _a lot_, so now that we know what it does, 
 
 ## Implementing cruise control
 
-Through the years different kinds of autopilots have been used, ranging from simple "cruise control" style systems that just keep the plane flying level, to full on auto-takeoff and auto-landing systems for modern commercial jet liners with fully automated navigation, with the pilot basically there to program the plane and taxi it to and from the runway, only still needed during flight in case they need to take over when things go wrong.
-
-So let's start with the simplest of those systems: the autopilot equivalent of cruise control, which requires we implement some wing leveling code, and altitude hold.
+Let's start with the simplest bit of the autopilot: "cruise control", which consists of just a wing leveler so we don't turn left or right, and an altitude hold so we don't fly up or down.
 
 ### LVL: level mode
 
 <img src="./images/fly-level/left-bank.png" alt="left bank" style="height:10em" /><img src="./images/fly-level/level-flight.png" alt="flying straight" style="height:10em;" /><img src="./images/fly-level/right-bank.png" alt="right bank" style="height:10em;" />
 
-Implementing level mode is probably the easiest of all autopilot functions, where we're going to simply check "is the plane tilting left or right?" and if so, we move the **aileron trim**—a value that "biases" the plane to tilt left or right by adjusting the wing surfaces that tilt the plane—in the opposite direction. As long we do that a little bit at a time, and we do that for long enough, we'll eventually have the plane flying level.
+Implementing level mode is probably the easiest of all autopilot functions: we're going to simply check "is the plane tilting left or right?" and if so, we move the **aileron trim**—a value that "biases" the plane to tilt left or right by adjusting the wing surfaces that tilt the plane—in the opposite direction. As long we do that a little bit at a time, and we do that for long enough, we'll eventually have the plane flying level.
 
-So let's implement that. Let's create an `api/autopilot/fly-level.js` file with some scaffolding:
+Let's create an `api/autopilot/fly-level.js` file with some scaffolding:
 
 ```javascript
-import { radians, constrainMap } from "../utils.js";
+import { radians, constrainMap } from "../../utils.js";
 
-// Some initial constants: we want to level the wings, so we want a bank of zero degrees:
+// Some initial constants: we want to level the wings, so we
+// want a bank angle of zero degrees:
 const DEFAULT_TARGET_BANK = 0;
-// And if we do need to turn, we don't want to turn more than 30
-// degrees; the universally "safe" bank angle.
+
+// And we want to make sure not to turn more than 30 degrees (the
+// universal "safe bank angle") when we're correcting the plane.
 const DEFAULT_MAX_BANK = 30;
 
-// And we also don't want our bank to change more than 3 degrees per second.
+// And, importantly, we also don't want our bank to change by
+// more than 3 degrees per second, or we might accellerate past
+// zero or our max bank angle too fast.
 const DEFAULT_MAX_TURN_RATE = 3;
 
-// Now, we have no features yet, but we'll be adding those as we go, so we can
-// quickly and easily compare how our code behaves when we turn a feature on or off!
+// Now, we have no "additional features" yet, since this is going
+// to be our first pass at writing the wing leveler, but we'll be
+// adding a bunch of refinements later on, as we revisit this code,
+// so we're going to tie those to "feature flags" that we can easily
+// turn on or off to see the difference in-flight.
 const FEATURES = {};
 
 // Then, our actual "fly level" function, which  we're going to keep very "dumb":
@@ -3210,56 +3217,65 @@ const FEATURES = {};
 export async function flyLevel(autopilot, state) {
   // in order to make this work, we'll extend the autopilot with a "trim vector"
   // that lets us update pitch, roll, and yaw trim values on an ongoing basis.
-  const { trim } = autopilot;
+  const { trim, api } = autopilot;
 
   // Get our current bank/roll information:
-  const { bankAngle: bank, dBank, speed } = state;
+  const { data: flightData, model: flightModel } = state;
+  const { bank, speed } = flightData;
+  const { bank: dBank } = flightData.d ?? { bank: 0 };
 
-  // While not strictly necessary yet, we'll restrict how much we're allowed
-  // to (counter) bank based on how fast we're going. A hard bank at low
-  // speed is a good way to crash a plane.
-  const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
-
-  // How big should our corrections be, at most?
+  // Then, since we're running this over and over, how big should
+  // our corrections be at most this iteration? The faster we're going,
+  // the bigger a correction we're going to allow:
   const step = constrainMap(speed, 50, 150, radians(1), radians(5));
 
-  // And "how much are we off by?"
+  // Then, let's figure out "how much are we off by". Right now our
+  // target bank angle is zero, but eventually that value is going to
+  // be a number that may change every iteration.
   const targetBank = DEFAULT_TARGET_BANK;
   const diff = targetBank - bank;
 
-  // Then, we determine a trim update, based on how much we're off by:
+  // Then, we determine a trim update, based on how much we're off by.
+  // Negative updates will correct us to the left, positive updates
+  // will correct us to the right.
   let update = 0;
 
-  // As our main correction, we're basing it directly off our bank difference:
+  // As our main correction, we're looking directly at our bank difference:
   // the more we're banking, the more we correct, although if we're banking
   // more than "max bank", correct based off the max bank value instead.
+  // Also, we'll restrict how much that max bank is based on how fast we're
+  // going. Because a hard bank at low speeds is a good way to crash a plane.
+  const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);  
   update -= constrainMap(diff, -maxBank, maxBank, -step, step);
 
-  // Also, counter-correct based on the current change in bank angle,
-  // so that we don't en up jerking the plane around.
+  // With our main correction determined, we may want to "undo" some of that
+  // correction in order not to jerk the plane around. We are, after all,
+  // technically still in that plane and we'd like to not get sick =)
   const maxDBank = DEFAULT_MAX_TURN_RATE;
   update += constrainMap(dBank, -maxDBank, maxDBank, -step / 2, step / 2);
 
-  // Update the trim vector, and then tell MSFS what the new value should be:
+  // Then add our update to our trim value, and set the trim in MSFS:
   trim.roll += update;
-  autopilot.set("AILERON_TRIM_PCT", trim.roll);
+  api.set({ AILERON_TRIM_PCT: trim.roll });
 }
 ```
 
-If we remove all the comments, we just implemented a flight leveler in less than 20 lines of code. That's pretty good! ...but let's run through it in text rather than just code anyway, so we understand what's happening here:
+If we remove all the comments, we just implemented a wing leveler in about 20 lines of code. That's pretty good! ...but let's run through it in text rather than just code anyway, so we understand what's happening here:
 
-We then implement our wing leveling code by solving two problems at the same time:
+We implement our wing leveling code by solving two problems at the same time:
 
 1. we want to get to a situation where our **bank angle** (the angle of the wings with respect to level flight) is zero, and
 2. we want to get to a situation where our **bank acceleration** (how fast the bank angle changes per second) is also zero.
 
-So we start by getting our current bank and bank acceleration values, and defining our maximum allowed values for those, then:
+Those two are at odds with each other, and so we want to prioritize getting the bank angle to zero over getting the bank acceleration to zero, so we start by getting our current bank and bank acceleration values, and defining our maximum allowed values for those. Then:
 
-1. We correct our bank in our first `update += ...`: if we're banking a lot, we want to correct a lot, and if we're banking a little, we want to correct just a little, and if we're perfectly level, we don't want to correct at all. Which is exactly what we wrote `constrainMap` to do for us.
-2. Then, we correct our bank acceleration in the next `update -= ...`, by trimming opposite to the direction that our bank is accelerating in. This will undo some of our bank correction, but as long as we use a smaller step size than for our bank correction, the code will "prioritize" zeroing our bank angle over our bank acceleration.
-3. Finally, we update our trim, and then we wait for the autopilot to trigger this function again during the next run, letting us run through the same procedure, but with (hopefully!) slightly less wrong values. Provided that this function runs enough times, we'll converge on level flight, and that's exactly what we want.
+1. We correct our bank in our first `update -= ...`: if we're banking a lot, we want to correct a lot, and if we're banking a little, we want to correct just a little, and if we're perfectly level, we don't want to correct at all. Which is exactly what we wrote `constrainMap` to do for us.
+2. Then, we correct our bank acceleration in the next `update += ...`, by trimming in the opposite direction of our bank acceleration. This will undo some of our bank correction, but as long as we use a smaller step size for acceleration than for the main bank correction, the code will "prioritize" zeroing our bank angle over our bank acceleration.
+3. Finally, we update our trim (both in our code and in MSFS) and then we wait for the autopilot to retrigger this function during the next run, letting us run through the same procedure, but with (hopefully!) slightly less wrong values. Provided that this function runs enough times, we'll converge on level flight, and that's exactly what we want.
 
-Although we do still need to update the autopilot code so that we can turn this feature on and off. First, we'll define a constants file for housing things like autopilot modes in `autopilot/utils/constants.js`:
+#### Adding a LVL switch
+
+Of course, we do still need to update the autopilot code so that we can turn this feature on and off. First, we'll define a constants file for housing things like autopilot modes in `autopilot/utils/constants.js`:
 
 ```javascript
 export const LEVEL_FLIGHT = `LVL`;
@@ -3272,106 +3288,76 @@ Then, we update the autopilot code to make use of this new constant, and we'll a
 ```javascript
 import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+import { watch } from "./reload-watcher.js";
 
 // Import our new constant...
 import { LEVEL_FLIGHT } from "./utils/constants.js";
 
-// ...and import the "fly level" code using our hot-reloading technique
-import { watch } from "./reload-watcher.js";
-import { flyLevel as fl } from "./fly-level.js";
-let flyLevel = fl;
-watch(__dirname, `fly-level.js`, (lib) => (flyLevel = lib.flyLevel));
+// and import the "fly level" code using our hot-reloading technique
+let { flyLevel } = await watch(__dirname, `fly-level.js`, (lib) => (flyLevel = lib.flyLevel));
 
 export class Autopilot {
-  constructor(...) {
+  ...
+  async reset(flightInformation, flightInfoUpdateHandler) {
     ...
-    // Next up, we explicitly add a "fly level" autopilot mode:
     this.modes = {
+      MASTER: false,
       [LEVEL_FLIGHT]: false,
-    }
-    // And we set up that trim vector:
-    this.resetTrim();
+    };
+    this.resetTrim();    
+    ...
   }
-
+    
   resetTrim() {
     this.trim = {
-      pitch: 0, // we'll use this for our "altitude hold" code, coming up.
-      roll: 0, // and we'll use this for our "fly level" code.
-      yaw: 0, // whether we'll use this... we'll see. If we do, it'll be for rudder work.
-    };
+      pitch: 0,
+      roll: 0,
+      yaw: 0,
+    };      
   }
 
-  async setParameters(params) {
-    if (params.MASTER !== undefined) {
-      this.autoPilotEnabled = !!params.MASTER;
-      if (this.autoPilotEnabled) {
-        // Now that we're actually going to do things that the in-game auto
-        // pilot might *also* be doing, it's super important that we check
-        // the in-game auto pilot setting, and turn it off if it's on:
-        const { AUTOPILOT_MASTER: on } = await this.get(`AUTOPILOT_MASTER`);
-        if (on === 1) this.trigger(`AP_MASTER`);
-        // Only then we can start running our own autopilot.
-        this.runAutopilot();
-      }
-    }
-    // Update everything that we're being told to update:
-    Object.entries(params).forEach(([key, value]) =>
-      this.setTarget(key, value)
-    );
-    // And then trigger the broadcast function that sends
-    // the new auto pilot state to all connected clients:
-    this.onChange(this.getAutoPilotParameters());
-  }
+  // Finally, actual autopilot functionality!
+  async run() {
+    const { modes, flightInformation } = this;
 
-  // Set a specific mode to some specific value:
-  setTarget(type, value) {
-    const { modes } = this;
-    // If we don't know the mode we're being told to change, we ignore it.
-    if (modes[type] === undefined) return;
-    // Otherwise, we update the value and then trigger a "what to do after" call:
-    const prev = modes[type];
-    modes[type] = value;
-    this.onParameterChange(type, prev, value);
-  }
+    // Get the most up to date flight information:
+		this.flightInfoUpdateHandler(await flightInformation.update());
 
-  // And then our "what to do after" code:
-  async onParameterChange(type, oldValue, newValue) {
-    // We currently only have one mode, so...
-    if (type === LEVEL_FLIGHT) {
-      // Let's make sure we can see this mode getting turned on and off:
-      console.log(`${newValue ? `E`: `Dise`}ngaging level mode`);
-      if (newValue === true) {
-        // when we turn on flight levelling, we want to make sure that the
-        // trim vector has the right value in it before we start updating it,
-        // or things might get really dangerous, really fast. Most planes
-        // need a non-zero trim value to fly level "manually", so if we
-        // leave the trim set to zero, we *could* even damage a plane!
-        this.trim.roll = (await this.get("AILERON_TRIM_PCT")).AILERON_TRIM_PCT;
-      }
-    }
-  }
-
-  // And then the part we've all been waiting for: actually doing something!
-  async runAutopilot() {
-    ...
-    const data = await this.get(...AP_VARIABLES);
-    const state = new State(data, this.prevState);
-
-    // If "level flight" mode is active, run our code!
-    if (this.modes[LEVEL_FLIGHT]) flyLevel(this, state);
-
-    this.prevState = state;
-  }
+    // Then run a single iteration of the wing leveler:
+    if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
+  }  
 }
 ```
 
-Now, we could test this immediately, but we've only implemented half of an auto pilot solution, no matter how simple we're keeping things right now. So let's implement the other half so we can do some in-game testing!
+Then, let's make sure the browser can flip that switch, too, in our `public/js/autopilot.js`:
+
+```javascript
+// This is the only thing we need to change:
+export const AP_OPTIONS = {
+  MASTER: false,
+  LVL: false,
+};
+```
+
+And in our HTML "partial":
+
+```html
+<div class="controls">
+  <link rel="stylesheet" href="/css/autopilot.css" />
+  <button class="MASTER">AP</button>
+  <button class="LVL">LVL</button>
+</div>
+```
+
+And that's it, we have a switch for turning our wing leveler on and off!
+
+Now, we could test this immediately, but we've only implemented half of a minimal autopilot solution, and it's going to be hard to test a wing leveler if the plane is flying to the moon, or dropping into the ocean, so let's first implement the other half before we do some actual, honest to goodness, in-game testing.
 
 ### ALT: altitude hold
 
 <img src="./images/alt-hold/holding-altitude.png" alt="image-20231105212055349" style="zoom:67%;" />
 
-Next up: making the plane hold its vertical position. This requires updating the "elevator trim" (also known as pitch trim) rather than our aileron trim, by looking at the plane's vertical speed. That is, we're going to look at how fast the plane is moving up or down through the air, and then we're going to try to get that value to zero by pitching the plane a little in the direction that counteracts the vertical movement.
+Next up: making the plane hold its vertical position. This requires updating the "pitch trim" (also known as elevator trim) rather than our aileron trim, by looking at the plane's vertical speed and trying to keep it at zero. That is, we're going to look at how fast the plane is moving up or down through the air, and then we're going to try to get that value down to zero by pitching the plane a little in whichever direction counteracts the vertical movement.
 
 Let's add a new constant to our `constants.js` file:
 
@@ -3388,49 +3374,41 @@ import { LEVEL_FLIGHT, ALTITUDE_HOLD } from "./utils/constants.js";
 ...
 
 // We'll be doing some hot-reload-watching here too:
-import { altitudeHold as ah } from "./altitude-hold.js";
-let altitudeHold = ah;
-watch(__dirname, `altitude-hold.js` (lib) => (altitudeHold = lib.altitudeHold));
+let { altitudeHold } = watch(__dirname, `altitude-hold.js`, (lib) => (altitudeHold = lib.altitudeHold));
 
 export class Autopilot {
-  constructor(...) {
+  ...
+
+  async reset(flightInformation, flightInfoUpdateHandler) {
     ...
-    // Naturally, add our new autopilot mode:
     this.modes = {
+      MASTER: false,
       [LEVEL_FLIGHT]: false,
       [ALTITUDE_HOLD]: false,
-    }
+    };
     ...
   }
 
-  async processChange(type, oldValue, newValue) {
-    if (type === LEVEL_FLIGHT) {
-      ...
-    }
-
-    // We now have two modes!
-    if (type === ALTITUDE_HOLD) {
-      console.log(`${newValue ? `E`: `Dise`}ngaging altitude hold`);
-      // Just like before, we want to start our automated trim relative
-      // to whatever trim the user already set, not relative to zero.
+  setTarget(key, value) {
+    ...
+    if (key === ALTITUDE_HOLD && value === true) {
       const { ELEVATOR_TRIM_POSITION: pitch } = await this.get("ELEVATOR_TRIM_POSITION");
-      this.trim.pitch = pitch;
+      trim.pitch = pitch;
     }
   }
 
-  async runAutopilot() {
-    ...
-
-    // And now we can run two autopilot functions!
-    if (this.modes[LEVEL_FLIGHT]) flyLevel(this, state);
-    if (this.modes[ALTITUDE_HOLD]) altitudeHold(this, state);
-
-    this.prevState = state;
+    
+  // Now with two functions!
+  async run() {
+    const { modes, flightInformation } = this;
+		this.flightInfoUpdateHandler(await flightInformation.update());
+    if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
+    if (modes[ALTITUDE_HOLD]) altitudeHold(this, flightInformation);
   }
 }
 ```
 
-Well okay, we do still need to actually write our `altitudeHold` function, so let's create an `autopilot/altitude-hold.js`:
+And then of course the `altitudeHold` function itself, which we'll put in  `autopilot/altitude-hold.js`:
 
 ```javascript
 import { radians, constrainMap } from "./utils/utils.js";
@@ -3466,23 +3444,29 @@ const FEATURES = {};
 // gets to make a recommendation, without any kind of history tracking
 // or future predictions. This keeps the code simple, and allows us
 // to hot-reload the code.
-export async function altitudeHold(autopilot, state) {
+export async function altitudeHold(autopilot, flightInformation) {
   // Each plane has different min/max pitch trim values, so
   // let's find out what our current plane's values are:
   const { trim } = autopilot;
-  let trimLimit = state.pitchTrimLimit[0];
+  const { data: flightData, model: flightModel } = flightInformation;
+
+  // What are our vertical speed values?
+  const { VS, speed, pitch, alt } = flightData;
+  const { VS: dVS, pitch: dPitch } = flightData.d ?? { VS: 0, pitch: 0 };
+  const { pitchTrimLimit } = flightModel;
+  
+  // How big should our trim steps be?
+  let trimLimit = pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
 
-  // And then determine a "lower end" and "upper end" trim step:
+  // The more we pitch down, the bigger the trim step needs to be so we can level out faster
+  const upperLimit = constrainMap(pitch, 0, 10, 10, 100);
   const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
-  const trimStep = 10 * small;
-
-  // Next: what are our current vertical speed parameters?
-  const { verticalSpeed: VS, dVS } = state;
-  const maxVS = DEFAULT_MAX_VS;
+  let trimStep = constrainMap(speed, 50, 200, 5, upperLimit) * small;
 
   // And what should those parameters be instead, if want to maintain our altitude?
-  let { targetVS } = await getTargetVS(autopilot, state, maxVS);
+  const maxVS = DEFAULT_MAX_VS;
+  const targetVS = getTargetVS(autopilot, flightInformation, maxVS);
   const diff = targetVS - VS;
 
   // Just like in the flyLevel code, we first determine an update
@@ -3499,7 +3483,7 @@ export async function altitudeHold(autopilot, state) {
 
   // Finally, apply the new trim value:
   trim.pitch += update;
-  autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
+  api.set({ ELEVATOR_TRIM_POSITION: trim.pitch });
 }
 
 // This function determines what our target vertical speed should
@@ -3508,10 +3492,9 @@ export async function altitudeHold(autopilot, state) {
 // change almost immediate after we test this code, because we'll
 // discover that you can't really "hold an altitude" if you don't
 // actually write down what altitude you should be holding =)
-async function getTargetVS(autopilot, state, maxVS) {
-  let targetVS = DEFAULT_TARGET_VS;
+async function getTargetVS(autopilot, flightInformation, maxVS) {
   // So: we'll be putting some more code here *very* soon.
-  return { targetVS };
+  return { targetVS: DEFAULT_TARGET_VS };
 }
 ```
 
@@ -3525,13 +3508,35 @@ So that's a little more code than `flyLevel`, but not much more, still being les
 
 Just like before we prioritize the former by giving the latter a smaller step, and we're good to go.
 
-We do need to pause at those `SMALL_TRIM` and `LARGE_TRIM` values, because those aren't really based on the flight model: there just isn't really anything in the flight model values that MSFS gives us access to that we can use to determine how big our trim step should be, so these values came about by me just flying around MSFS for several days using different aeroplanes to find values that seemed reasonable in relation to the trim limits that we _do_ have access to. That's not ideal, but it's good enough.
+We do need to pause at those `SMALL_TRIM` and `LARGE_TRIM` values, because those aren't really based on the flight model: there just isn't really anything in the flight model values that MSFS gives us access to that we can use to determine how big our trim step should be, so these values are basically just "guesses" based on flying around in MSFS for several days using different aeroplanes to find numbers that seemed reasonable in relation to the trim limits that we _do_ have access to. That's not ideal, but it's good enough.
 
 ### Testing our code
 
 Now that we have a working "fly level" and "hold altitude" implementation, let's see how we're doing! And spoilers: we're going to discover we forgot something pretty important that'll impact both how level we're flying, and how well we're holding our altitude. We're going to write some more code, but first let's do some science and actually see what happens with the code we wrote above in place.
 
-In order to see how well our code works, we'll be flying around a bit in The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), a fun little piston engine bush plane:
+We'll update our `public/js/autopilot.js` to include the new mode
+
+```javascript
+// This is the only thing we need to change:
+export const AP_OPTIONS = {
+  MASTER: false,
+  LVL: false,
+  ALT: false,
+};
+```
+
+As well as our HTML partial
+
+```html
+<div class="controls">
+  <link rel="stylesheet" href="/css/autopilot.css" />
+  <button class="MASTER">AP</button>
+  <button class="LVL">LVL</button>
+  <button class="ALT">ALT</button>  
+</div>
+```
+
+Then, in order to see how well our code works, we'll be flying around a bit in The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), a fun little piston engine bush plane:
 
 ![image-20231105214745162](./images/planes/beaver-shot.png)
 

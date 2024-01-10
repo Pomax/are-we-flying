@@ -70,6 +70,7 @@ export class AutoPilot {
     this.flightInfoUpdateHandler = flightInfoUpdateHandler;
     this.bootstrap(flightInformation);
     this.modes = {
+      MASTER: false,
       [ALTITUDE_HOLD]: false,
       [AUTO_LAND]: false,
       [AUTO_TAKEOFF]: false,
@@ -94,8 +95,10 @@ export class AutoPilot {
 
     this.flightInformation = flightInformation;
     this.paused = false;
-    this.autoPilotEnabled = false;
-    this.glide = false;
+  }
+
+  get autoPilotEnabled() {
+    return this.modes.MASTER;
   }
 
   resetTrim() {
@@ -219,19 +222,18 @@ export class AutoPilot {
   }
 
   async getParameters() {
+    const { modes } = this;
     const state = {
-      MASTER: this.autoPilotEnabled,
       waypoints: await this.getWaypoints(),
-      elevation: this.modes[TERRAIN_FOLLOW] ? this.elevation : false,
+      elevation: modes[TERRAIN_FOLLOW] ? this.elevation : false,
       landingTarget: this.landingTarget,
     };
-    Object.entries(this.modes).forEach(([key, value]) => {
-      state[key] = value;
-    });
+    Object.entries(modes).forEach(([key, value]) => (state[key] = value));
     return state;
   }
 
   async setParameters(params) {
+    const { modes } = this;
     try {
       if (params[AUTO_TAKEOFF] === true) {
         params.MASTER = true;
@@ -239,9 +241,9 @@ export class AutoPilot {
       if (params[AUTO_LAND] && !this.modes[AUTO_LAND]) {
         await this.engageAutoLand(params[AUTO_LAND]);
       }
-      if (params.MASTER !== undefined) {
-        this.autoPilotEnabled = params.MASTER;
-        if (this.autoPilotEnabled) {
+      if (params.MASTER !== true) {
+        modes.MASTER = params.MASTER;
+        if (modes.MASTER) {
           // make sure the in-game autopilot is not running.
           const { AUTOPILOT_MASTER: on } = await this.get(`AUTOPILOT_MASTER`);
           if (on === 1) this.trigger(`AP_MASTER`);
@@ -332,11 +334,12 @@ export class AutoPilot {
   }
 
   async runAutopilot() {
+    const { api, modes, paused } = this;
     // This is our master autopilot entry point,
     // grabbing the current state from MSFS, and
     // forwarding it to the relevant AP handlers.
-    if (!this.api.connected) return;
-    if (!this.autoPilotEnabled) return;
+    if (!api.connected) return;
+    if (!modes.MASTER) return;
 
     // If the autopilot is enabled, even if there
     // are errors due to MSFS glitching, or the DLL
@@ -345,7 +348,7 @@ export class AutoPilot {
     runLater(() => this.runAutopilot(), this.AP_INTERVAL);
 
     //  Are we flying, or paused/in menu/etc?
-    if (this.paused) return;
+    if (paused) return;
 
     // Do *not* crash the server.
     try {
@@ -358,12 +361,13 @@ export class AutoPilot {
 
   async run() {
     // get the up to date flight information
-    this.flightInfoUpdateHandler(await this.flightInformation.update());
-    const { data: flightData, model: flightModel } = this.flightInformation;
+    const { modes, flightInfoUpdateHandler, flightInformation } = this;
+    flightInfoUpdateHandler(await flightInformation.update());
+    const { data: flightData, model: flightModel } = flightInformation;
 
     if (
-      !this.modes[AUTO_TAKEOFF] &&
-      !this.modes[AUTO_LAND] &&
+      !modes[AUTO_TAKEOFF] &&
+      !modes[AUTO_LAND] &&
       flightData.speed < 15
     ) {
       // disengage autopilot, but preserve all settings
@@ -372,7 +376,7 @@ export class AutoPilot {
     }
 
     // Are we in auto-takeoff?
-    if (this.modes[AUTO_TAKEOFF]) {
+    if (modes[AUTO_TAKEOFF]) {
       this.autoTakeoff.run(this.flightInformation);
     }
 
@@ -384,14 +388,14 @@ export class AutoPilot {
     }
 
     // Do we need to level the wings / fly a specific heading?
-    if (this.modes[LEVEL_FLIGHT]) {
+    if (modes[LEVEL_FLIGHT]) {
       const { noAileronTrim } = flightModel;
       this.flyLevel(this, this.flightInformation, noAileronTrim);
     }
 
     // Do we need to hold our altitude / fly a specific altitude?
-    if (this.modes[ALTITUDE_HOLD]) {
-      if (this.modes[TERRAIN_FOLLOW] !== false && this.alos.loaded) {
+    if (modes[ALTITUDE_HOLD]) {
+      if (modes[TERRAIN_FOLLOW] !== false && this.alos.loaded) {
         // If we are in terrain-follow mode, make sure the correct
         // altitude is set before running the ALT pass.
         this.followTerrain(this, this.flightInformation);
@@ -402,7 +406,7 @@ export class AutoPilot {
     }
 
     // Do we need to throttle to a specific speed?
-    if (this.modes[AUTO_THROTTLE]) {
+    if (modes[AUTO_THROTTLE]) {
       this.autoThrottle(this, this.flightInformation);
     }
   }
