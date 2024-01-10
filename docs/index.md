@@ -161,7 +161,7 @@ dotenv.config({ path: `${__dirname}/.env` });
 const { API_PORT, WEB_PORT } = process.env;
 
 // Then we set up a socketless client with "browser connection" functionality:
-import { ClientClass } from "./src/classes/client/client.js";
+import { ClientClass } from "./src/classes/index.js";
 import { createWebClient } from "socketless";
 
 // Clients need to know which URL to find the server at:
@@ -244,7 +244,7 @@ And then a bare minimum amount of browser JS in `public/js/index.js`:
 // We don't need to put a "socketless.js" in our public dir,
 // this is a "magic import" that works when we're connected
 // to a socketless web server:
-import { createBrowserClient } from "./socketless.js";
+import { createBrowserClient } from "../socketless.js";
 
 // Then we set up our browser client to announce its connections:
 class BrowserClient {
@@ -310,7 +310,7 @@ dotenv.config({ path: `${__dirname}/../../../.env` });
 const POLLING_INTERVAL = process.env.POLLING_INTERVAL ?? 2500;
 
 // Then, an import for a setTimeout that ignores throws:
-import { runLater } "../utils.js";
+import { runLater } from "../../utils/utils.js";
 
 // And two helper functions for setting up the API connection:
 import { connectServerToAPI, registerWithAPI } from "./helpers.js";
@@ -367,7 +367,7 @@ export class ServerClass {
 }
 ```
 
-So let's look at those secondary imports: first, the simplest one, in `src/utils.js`:
+So let's look at those secondary imports: first, the simplest one, in `src/utils/utils.js`:
 
 ```js
 export function runLater(fn, timeoutInMillis) {
@@ -603,14 +603,13 @@ export class ClientClass {
    */
   init() {
     this.#resetState();
-    setTimeout(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
+    runLater(() => this.#tryReconnect(), RECONNECT_TIMEOUT_IN_MS);
   }
 
   /**
-   * A private function that lets us reconnect to the server
-   * in case it disappears and comes back online.
+   * A private function that sets our state to a "starting default" state.
    */
-  async #resetReconnect() {
+  async #resetState() {
     // "setState" is a magic function that comes with socketless, and will
     // automatically lead to a browser sync, if there's a browser connected.
     this.setState({
@@ -703,10 +702,10 @@ With that, let's move on to the browser.
 In order for the browser to be able to "do something", we'll use the `index.html` we made earlier without any modifications, but we'll update `index.js`:
 
 ```js
-import { createBrowserClient } from "./socketless.js";
+import { createBrowserClient } from "../socketless.js";
 
 // Let's import a class that's *actually* going to do all the work...
-import { Plane } from "./plane.js";
+import { Plane } from "./js/plane.js";
 
 // And then we update our browser client, whose sole responsibility
 // is to hand off state updates to our new "Plane" object:
