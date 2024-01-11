@@ -11,9 +11,9 @@ Part 2:
 - [Flying with science](./part%202/science)
 
 Part 3:
-- The code basics
-- Cruise control (LVL + ALT)
-- Improved control
+- [The code basics](./part%203/basics)
+- [Cruise control: LVL + ALT](./part%203/cruise%20control)
+- [Improved control](./part%203/dynamic)
 
 Part 4:
 - waypoint navigation

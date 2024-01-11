@@ -50,7 +50,7 @@ export async function altitudeHold(autopilot, flightInformation) {
 
   // And what should those parameters be instead, if want to maintain our altitude?
   const maxVS = DEFAULT_MAX_VS;
-  const { targetVS } = await getTargetVS(autopilot, maxVS, alt, VS);
+  const { targetVS } = getTargetVS(autopilot, maxVS, alt, VS);
   const diff = targetVS - VS;
 
   // Just like in the flyLevel code, we first determine an update
@@ -114,7 +114,7 @@ export async function altitudeHold(autopilot, flightInformation) {
 // change almost immediate after we test this code, because we'll
 // discover that you can't really "hold an altitude" if you don't
 // actually write down what altitude you should be holding =)
-async function getTargetVS(autopilot, maxVS, alt, VS) {
+function getTargetVS(autopilot, maxVS, alt, VS) {
   const { modes } = autopilot;
   let targetVS = DEFAULT_TARGET_VS;
   let targetAlt = undefined;

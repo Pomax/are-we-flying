@@ -47,7 +47,7 @@ export async function flyLevel(autopilot, state) {
   // Then, let's figure out "how much are we off by". Right now our
   // target bank angle is zero, but eventually that value is going to
   // be a number that may change every iteration.
-  const { targetBank, maxTurnRate } = getTargetBankAndTurnRate(autopilot, heading);
+  const { targetBank } = getTargetBankAndTurnRate(autopilot, heading);
   const diff = targetBank - bank;
 
   // Then, we determine a trim update, based on how much we're off by.

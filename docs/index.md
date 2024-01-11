@@ -3690,7 +3690,7 @@ export async function altitudeHold(autopilot, flightInformation) {
   let trimStep = trimLimit / 10_000;
 
   // And what should those parameters be instead, if want to maintain our altitude?
-  const { targetVS } = await getTargetVS();
+  const { targetVS } = getTargetVS();
   const diff = targetVS - VS;
 
   // Just like in the flyLevel code, we first determine an update
@@ -3717,7 +3717,7 @@ export async function altitudeHold(autopilot, flightInformation) {
 // change almost immediate after we test this code, because we'll
 // discover that you can't really "hold an altitude" if you don't
 // actually write down what altitude you should be holding =)
-async function getTargetVS() {
+function getTargetVS() {
   // So: we'll be putting some more code here *very* soon.
   return { targetVS: DEFAULT_TARGET_VS };
 }
@@ -3737,7 +3737,7 @@ Just like before we prioritize the former by giving the latter a smaller step, a
 
 Now that we have a working "fly level" and "hold altitude" implementation, let's see how we're doing! And spoilers: we're going to discover we forgot something pretty important that'll impact both how level we're flying, and how well we're holding our altitude. We're going to write some more code, but first let's do some science and actually see what happens with the code we wrote above in place.
 
-We'll update our `public/js/autopilot.js` to include the new mode
+We'll update our `public/js/autopilot.js` to include the new mode:
 
 ```javascript
 // This is the only thing we need to change:
@@ -3748,7 +3748,7 @@ export const AP_OPTIONS = {
 };
 ```
 
-As well as our HTML partial
+And we'll update our HTML partial to include the ALT switch:
 
 ```html
 <div class="controls">
@@ -3833,7 +3833,7 @@ async function getTargetVS(maxVS, alt) {
 }
 ```
 
-This will require we massage our browser code a little so we can actually set that altitude in our `autopilot.html`:
+This will require us to massage our browser code a little, so that we can actually set an altitude in our `autopilot.html` rather than only having an on/off button:
 
 ```html
 <div class="controls">
@@ -3851,7 +3851,7 @@ This will require we massage our browser code a little so we can actually set th
 </div>
 ```
 
-And then we can update our browser's `autopilot.js` to work with that number input field:
+And then we can update our browser's `autopilot.js` to work with that input field:
 
 ```javascript
 ...
@@ -3876,7 +3876,7 @@ export class Autopilot {
       });
     });
 
-    // And then we also add a change handler to our number field
+    // We'll also add a change handler to our number field
     // so that if that changes, we can let the server know:
     document
       .querySelector(`#autopilot .altitude`)
@@ -3895,11 +3895,11 @@ export class Autopilot {
         ?.classList.toggle(`active`, !!value);
 
       // Because if the autopilot's altitude changes, we want to make
-      // sure that the page in the browser reflects that new value:
+      // sure that the browser reflects that new value:
       if (value && key === `ALT`) {
         const altitude = document.querySelector(`#autopilot .altitude`);
         // With one caveat: if our cursor is in the number field, then it's
-        // safe to say we're trying to set a (new) number and they autopilot
+        // safe to say we're trying to set a (new) number, and the autopilot
         // update should not suddenly change the input field value.
         if (!altitude || altitude === document.activeElement) return;
         altitude.value = parseFloat(value).toFixed(1);
@@ -3919,11 +3919,9 @@ Look at the pitch of the plane! Instead of bobbing up and down, suddenly we're p
 
 And of course, now that we have code that tells the altitude hold to hold a specific altitude, we get transitioning between altitudes for free: no extra code changes required, we just type in the new altitude we want in our number field on the web page, and then... the plane change altitude for us.
 
-Turns out, we can, but that's a pretty small difference: we've done well! So what about if we change altitudes? Let's have the plane fly at 1500 feet, then change it to 2000 until it's stable, and then make it fly back down to 1500:
+=== DO WE EVEN WANT/NEED SMOOTH RAMP? ===
 
-![image-20231113200205061](./images/alt-hold/alt-hold-with-oscillation.png)
-
-As you can see, that's a bit... jagged. We're changing altitude correctly, but we're also bobbing up and down a lot, so let's smooth that out by, instead of just immediately setting our `targetVS` to the maximum value setting it to "something higher (or lower) than our current VS" until we reach maximum vertical speed:
+Let's smooth that out by, instead of just immediately setting our `targetVS` to the maximum value setting it to "something higher (or lower) than our current VS" until we reach maximum vertical speed:
 
 ```javascript
 import { constrain, constrainMap } from "../utils/utils.js";
@@ -3936,7 +3934,7 @@ const FEATURES = {
 
 ...
 
-async function getTargetVS(autopilot, maxVS, alt) {
+function getTargetVS(autopilot, maxVS, alt) {
   ...
 
   const targetAltitude = autopilot.modes[ALTITUDE_HOLD];
@@ -3976,16 +3974,14 @@ async function getTargetVS(autopilot, maxVS, alt) {
 }
 ```
 
-By giving the plane a smaller difference to overcome, we get much smoother transition curves:
-
-![image-20231113200835501](./images/alt-hold/alt-hold-without-oscillation.png)
+=== COMPARATIVE RESULT HERE === 
 
 ### Tidying up our ALT
 
 So let's just put in three more "fixes" before we move on, mostly because we're here now anyway, and they're very easy to add:
 
 1. outright ignoring truly tiny updates if we're already tending in the right direction,
-2. boosting tiny updates if we need to go up, but we're going down (or vice versa) and
+2. boosting small updates if we need to go up, but we're going down (or vice versa),
 3. making sure we don't tell the plane to trim past +/- 100% (because _oh boy_ will MSFS let you do that!)
 
 All of these should make intuitive sense, and they're very little work to put in:
@@ -4017,7 +4013,7 @@ export async function altitudeHold(autopilot, state) {
 }
 ```
 
-And that's it. Three constants, four lines of code. And the effect of these are pretty subtle: the first two reduce oscillations around the target altitude while also reducing over/undershoot when we change altitudes, and the last one prevents us from telling MSFS to trim past what would be realistic values. If you want to see an airplane spin like a top, see what happens when you run ``api.set(`ELEVATOR_TRIM_POSITION`, 10);``. It's honestly kind of amazing to watch.
+And that's it. Three constants, four lines of code. And the effect of these are pretty subtle: the first two reduce oscillations around the target altitude while also reducing over/undershoot when we change altitudes, and the last one prevents us from telling MSFS to trim past what would be realistic values. If you want to see an airplane spin like a top, see what happens when you run ``api.set(`ELEVATOR_TRIM_POSITION`, 10)``. It's honestly kind of amazing to watch.
 
 === UPDATE FLY LEVEL ===
 
@@ -4026,6 +4022,8 @@ And that's it. Three constants, four lines of code. And the effect of these are 
 Similar to our altitude hold fix, let's add a way to indicate that we want to fly a specific _heading_, not just "with the wings seemingly level", because... well, the graph kind of speaks for itself:
 
 ![image-20231115190818581](./images/fly-level/level-drift.png)
+
+=== UPDATE GRAPHIC ===
 
 We're turning, just _very_ slowly. So let's fix that by adding some UI and code that lets us hold a specific heading. We'll start with the browser, adding a heading field and button in `autopilot.html`
 
@@ -4093,7 +4091,7 @@ export class Autopilot {
 }
 ```
 
-Then a minor update to the server's `autopilot.js` because we want to be able to see where we're going, in-game, even if our autopilot is running outside the game:
+Then a minor update to the server's `autopilot.js`:
 
 ```javascript
 import { ALTITUDE_HOLD, HEADING_MODE, LEVEL_FLIGHT } from "./utils/constants.js";
@@ -4123,9 +4121,20 @@ export class AutoPilot {
   }
 ```
 
+With the `HEADING_MODE` constant added to our `constants.js`:
+
+```javascript
+...
+export const HEADING_MODE = `HDG`;
+```
+
 Then, we can update `flyLevel` to take heading into account:
 
 ```javascript
+import { HEADING_MODE } from "../utils/constants.js";
+import { radians, constrainMap, getCompassDiff } from "../utils/utils.js";
+const { abs } = Math;
+
 ...
 
 const FEATURES = {
@@ -4138,16 +4147,17 @@ export async function flyLevel(autopilot, state) {
   ...
   // Our "how much are we off" information... which we're going to rewrite
   // a little by instead calling a function to do the work for us:
-  const turnRate = state.turnRate;
-  const { targetBank, maxTurnRate } = getTargetBankAndTurnRate(autopilot, state, maxBank);
+  const { targetBank } = getTargetBankAndTurnRate(autopilot, heading);
   const diff = targetBank - bank;
   ..
 }
 
 // And our new function:
-function getTargetBankAndTurnRate(autopilot, state, maxBank) {
-  const heading = state.heading;
+function getTargetBankAndTurnRate(autopilot, heading) {
+  const { modes } = autopilot;
+
   let targetBank = DEFAULT_TARGET_BANK;
+  let maxBank = DEFAULT_MAX_BANK;
   let maxTurnRate = DEFAULT_MAX_TURN_RATE;
 
   // If there is an autopilot flight heading set (either because the
@@ -4155,7 +4165,7 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
   // set a new target bank, somewhere between zero and the maximum
   // bank angle we want to allow, with the target bank closer to zero
   // the closer we already are to our target heading.
-  let flightHeading = FEATURES.FLY_SPECIFIC_HEADING && autopilot.modes[HEADING_MODE];
+  let flightHeading = FEATURES.FLY_SPECIFIC_HEADING && modes[HEADING_MODE];
   if (flightHeading) {
     const hDiff = getCompassDiff(heading, flightHeading);
     targetBank = constrainMap(hDiff, -30, 30, maxBank, -maxBank);
@@ -4166,9 +4176,23 @@ function getTargetBankAndTurnRate(autopilot, state, maxBank) {
 }
 ```
 
+With a new helper function in our `utils.js` for getting the signed difference between two compass directions:
+
+```javascript
+export function getCompassDiff(current, target, direction = 1) {
+  const diff = current > 180 ? current - 360 : current;
+  target = target - diff;
+  const result = target < 180 ? target : target - 360;
+  if (direction > 0) return result;
+  return target < 180 ? 360 - target : target - 360;
+}
+```
+
+
+
 Now, really all we need to do is just save this and then look at what this does to our heading:
 
-![image-20231115192026739](./images/fly-level/fixed-level-drift.png)
+=== SHOW NEW GRAPHIC ===
 
 That looks pretty straight to me!
 
@@ -4181,6 +4205,8 @@ In order to test our improvements, we're going to repeat the kind of flight we h
 What are we seeing here? On the left we see our altitude behaviour and our aileron trim, and on the right we see our heading and bank behaviour. As you can see, we are flying dead straight until we switch from 345 to 270, at which point the plane banks up to its allowed maximum bank, then gradually banks less and less as we approach our new target heading. At the same time, on the left we can see th1at when we do that, we lose a bit of altitude. Not much, and not enough to put another fix in the code for, but it's an important little detail to be aware of.
 
 ### Emergency intervention
+
+=== DO WE STILL NEED THIS ===
 
 Of course, accidents happen, so as one last "test": what happens if we bump the yoke while on autopilot? Let's yank the yoke until the plane beeps, indicating a _serious_ problem, and then letting go again. As it turns out, our AP can't currently deal with that, unable to get the plane back under control.
 
