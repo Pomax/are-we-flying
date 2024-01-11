@@ -5,7 +5,11 @@ import { watch } from "../utils/reload-watcher.js";
 import { runLater } from "../utils/utils.js";
 
 // Import our new constants
-import { LEVEL_FLIGHT, ALTITUDE_HOLD } from "../utils/constants.js";
+import {
+  ALTITUDE_HOLD,
+  HEADING_MODE,
+  LEVEL_FLIGHT,
+} from "../utils/constants.js";
 
 // and import the "fly level" code using our hot-reloading technique
 let { flyLevel } = await watch(
@@ -41,6 +45,7 @@ export class AutoPilot {
       // Our first real autopilot mode!
       [LEVEL_FLIGHT]: false,
       [ALTITUDE_HOLD]: false,
+      [HEADING_MODE]: false,
     };
     this.resetTrim();
     this.onChange();
@@ -115,12 +120,18 @@ export class AutoPilot {
     }
 
     // And we do the same if altitude hold got turned on.
-    if (key === ALTITUDE_HOLD && value === true) {
+    if (key === ALTITUDE_HOLD && value !== false) {
       const { ELEVATOR_TRIM_POSITION: pitch } = await api.get(
         "ELEVATOR_TRIM_POSITION"
       );
       trim.pitch = pitch;
-      console.log(`Engaging altitude hold. Initial trim:`, trim.pitch);
+      console.log(`Engaging altitude hold at ${value} feet. Initial trim:`, trim.pitch);
+    }
+
+    if (key === HEADING_MODE && value !== false) {
+      console.log(`Engaging heading hold at ${value} degrees`);
+      // When we set a heading, update the "heading bug" in-game:
+      api.set(`AUTOPILOT_HEADING_LOCK_DIR`, value);
     }
   }
 

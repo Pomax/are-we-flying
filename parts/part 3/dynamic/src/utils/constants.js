@@ -13,3 +13,4 @@ export const FPS_IN_KNOTS = 1 / KNOT_IN_FPS;
 // flight modes
 export const LEVEL_FLIGHT = `LVL`;
 export const ALTITUDE_HOLD = `ALT`;
+export const HEADING_MODE = `HDG`;

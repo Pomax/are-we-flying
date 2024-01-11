@@ -3913,7 +3913,7 @@ So let's save all that and then first set both our new `DAMPEN_CLOSE_TO_ZERO` an
 
 ![image-20240110183842772](./image-20240110183842772.png)
 
-Look at the pitch of the plane! Suddenly, we're pretty much rock solid. And if we look at MSFS, sure, it might now take much longer to get from "a few feet away from our target" to the target itself, but we're not doing formation flying, and being off by a foot or two is _entirely_ acceptable for how little code we've written!
+Look at the pitch of the plane! Instead of bobbing up and down, suddenly we're pretty much rock solid. And if we look at MSFS, sure, it might now take longer to get from "a few feet away from our target" to the target itself, but we're not doing formation flying, and being off by a few feet is _entirely_ acceptable for how little code we've written!
 
 ### Changing altitudes
 

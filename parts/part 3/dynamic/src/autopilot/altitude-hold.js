@@ -19,6 +19,7 @@ const DEFAULT_MAX_dVS = 100;
 // be adding those as we go, so we can quickly and easily compare
 // how our code behaves when we turn a feature on or off.
 const FEATURES = {
+  BOOST_SMALL_CORRECTIONS: true,
   DAMPEN_CLOSE_TO_ZERO: true,
   SKIP_TINY_UPDATES: true,
   LIMIT_TRIM_TO_100: true,
@@ -80,6 +81,16 @@ export async function altitudeHold(autopilot, flightInformation) {
 
   const updateMagnitude = update / trimStep;
 
+  // "undampen" updates when we're moving in the wrong direction
+  if (
+    FEATURES.BOOST_SMALL_CORRECTIONS &&
+    sign(targetVS) !== sign(VS) &&
+    sign(targetVS) !== sign(dVS) &&
+    abs(updateMagnitude) < 0.05
+  ) {
+    update *= 2;
+  }
+
   // Skip tiny updates if we're already moving in the right direction
   if (
     FEATURES.SKIP_TINY_UPDATES &&
@@ -106,18 +117,19 @@ export async function altitudeHold(autopilot, flightInformation) {
 async function getTargetVS(autopilot, maxVS, alt, VS) {
   const { modes } = autopilot;
   let targetVS = DEFAULT_TARGET_VS;
+  let targetAlt = undefined;
   let altDiff = undefined;
 
   // Next feature!
   if (FEATURES.TARGET_TO_HOLD) {
     // Get our hold-altitude from our autopilot mode:
-    const targetAltitude = modes[ALTITUDE_HOLD];
+    targetAlt = modes[ALTITUDE_HOLD];
     const plateau = 200;
 
-    if (targetAltitude) {
+    if (targetAlt) {
       // And then if we're above that altitude, set a target VS that's negative,
       // and if we're below that altitude, set a target VS that's positive:
-      altDiff = targetAltitude - alt;
+      altDiff = targetAlt - alt;
       targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
     }
 

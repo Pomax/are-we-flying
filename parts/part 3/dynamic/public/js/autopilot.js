@@ -9,6 +9,7 @@ export const AP_OPTIONS = {
   MASTER: false,
   LVL: false,
   ALT: false,
+  HDG: false,
 };
 
 export class Autopilot {
@@ -27,6 +28,10 @@ export class Autopilot {
             value =
               document.querySelector(`#autopilot .altitude`).value ?? 1500;
           }
+          // Just like we did for ALT, we turn HDG from a boolean into a number:
+          if (key === `HDG`) {
+            value = document.querySelector(`#autopilot .heading`).value ?? 360;
+          }
         }
         server.autopilot.update({ [key]: value });
       });
@@ -38,6 +43,15 @@ export class Autopilot {
       .querySelector(`#autopilot .altitude`)
       ?.addEventListener(`change`, (evt) => {
         server.autopilot.update({ ALT: evt.target.value });
+        evt.target.blur();
+      });
+
+    // And then again just like for altitude, we add an onchange handler for heading.
+    document
+      .querySelector(`#autopilot .heading`)
+      ?.addEventListener(`change`, (evt) => {
+        const { value } = evt.target;
+        server.autopilot.update({ HDG: value });
         evt.target.blur();
       });
   }
@@ -58,6 +72,13 @@ export class Autopilot {
         // update should not suddenly change the input field value.
         if (!altitude || altitude === document.activeElement) return;
         altitude.value = parseFloat(value).toFixed(1);
+      }
+
+      // and then we also add the same input field update logic
+      if (value && key === `HDG`) {
+        const heading = document.querySelector(`#autopilot .heading`);
+        if (!heading || heading === document.activeElement) return;
+        heading.value = parseFloat(value).toFixed(1);
       }
     });
   }

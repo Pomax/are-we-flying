@@ -1,3 +1,4 @@
+import { HEADING_MODE } from "../utils/constants.js";
 import { radians, constrainMap, getCompassDiff } from "../utils/utils.js";
 
 const { abs } = Math;
@@ -21,7 +22,7 @@ const DEFAULT_MAX_TURN_RATE = 3;
 // so we're going to tie those to "feature flags" that we can easily
 // turn on or off to see the difference in-flight.
 const FEATURES = {
-  FLY_SPECIFIC_HEADING: false,
+  FLY_SPECIFIC_HEADING: true,
 };
 
 // Then, our actual "fly level" function, which  we're going to keep very "dumb":
@@ -46,7 +47,7 @@ export async function flyLevel(autopilot, state) {
   // Then, let's figure out "how much are we off by". Right now our
   // target bank angle is zero, but eventually that value is going to
   // be a number that may change every iteration.
-  const { targetBank, maxTurnRate } = getTargetBankAndTurnRate(heading);
+  const { targetBank, maxTurnRate } = getTargetBankAndTurnRate(autopilot, heading);
   const diff = targetBank - bank;
 
   // Then, we determine a trim update, based on how much we're off by.
@@ -80,7 +81,9 @@ export async function flyLevel(autopilot, state) {
 }
 
 // And our new function:
-function getTargetBankAndTurnRate(heading) {
+function getTargetBankAndTurnRate(autopilot, heading) {
+  const { modes } = autopilot;
+
   let targetBank = DEFAULT_TARGET_BANK;
   let maxBank = DEFAULT_MAX_BANK;
   let maxTurnRate = DEFAULT_MAX_TURN_RATE;
@@ -90,7 +93,7 @@ function getTargetBankAndTurnRate(heading) {
   // set a new target bank, somewhere between zero and the maximum
   // bank angle we want to allow, with the target bank closer to zero
   // the closer we already are to our target heading.
-  let flightHeading = FEATURES.FLY_SPECIFIC_HEADING && 90;
+  let flightHeading = FEATURES.FLY_SPECIFIC_HEADING && modes[HEADING_MODE];
   if (flightHeading) {
     const hDiff = getCompassDiff(heading, flightHeading);
     targetBank = constrainMap(hDiff, -30, 30, maxBank, -maxBank);
