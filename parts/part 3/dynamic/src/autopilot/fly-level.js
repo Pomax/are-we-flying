@@ -1,4 +1,6 @@
-import { radians, constrainMap } from "../utils/utils.js";
+import { radians, constrainMap, getCompassDiff } from "../utils/utils.js";
+
+const { abs } = Math;
 
 // Some initial constants: we want to level the wings, so we
 // want a bank angle of zero degrees:
@@ -18,7 +20,9 @@ const DEFAULT_MAX_TURN_RATE = 3;
 // adding a bunch of refinements later on, as we revisit this code,
 // so we're going to tie those to "feature flags" that we can easily
 // turn on or off to see the difference in-flight.
-const FEATURES = {};
+const FEATURES = {
+  FLY_SPECIFIC_HEADING: false,
+};
 
 // Then, our actual "fly level" function, which  we're going to keep very "dumb":
 // each time we call it, it gets to make a recommendation, without any kind of
@@ -30,8 +34,8 @@ export async function flyLevel(autopilot, state) {
   const { trim, api } = autopilot;
 
   // Get our current bank/roll information:
-  const { data: flightData, model: flightModel } = state;
-  const { bank, speed } = flightData;
+  const { data: flightData } = state;
+  const { bank, speed, heading } = flightData;
   const { bank: dBank } = flightData.d ?? { bank: 0 };
 
   // Then, since we're running this over and over, how big should
@@ -42,7 +46,7 @@ export async function flyLevel(autopilot, state) {
   // Then, let's figure out "how much are we off by". Right now our
   // target bank angle is zero, but eventually that value is going to
   // be a number that may change every iteration.
-  const targetBank = DEFAULT_TARGET_BANK;
+  const { targetBank, maxTurnRate } = getTargetBankAndTurnRate(heading);
   const diff = targetBank - bank;
 
   // Then, we determine a trim update, based on how much we're off by.
@@ -62,9 +66,36 @@ export async function flyLevel(autopilot, state) {
   // correction in order not to jerk the plane around. We are, after all,
   // technically still in that plane and we'd like to not get sick =)
   const maxDBank = DEFAULT_MAX_TURN_RATE;
-  update += constrainMap(dBank, -maxDBank, maxDBank, -step / 2, step / 2);
+  update += constrainMap(
+    dBank,
+    -4 * maxDBank,
+    4 * maxDBank,
+    -2 * step,
+    2 * step
+  );
 
   // Then add our update to our trim value, and set the trim in MSFS:
   trim.roll += update;
   api.set(`AILERON_TRIM_PCT`, trim.roll);
+}
+
+// And our new function:
+function getTargetBankAndTurnRate(heading) {
+  let targetBank = DEFAULT_TARGET_BANK;
+  let maxBank = DEFAULT_MAX_BANK;
+  let maxTurnRate = DEFAULT_MAX_TURN_RATE;
+
+  // If there is an autopilot flight heading set (either because the
+  // user set one, or because of the previous waypoint logic) then we
+  // set a new target bank, somewhere between zero and the maximum
+  // bank angle we want to allow, with the target bank closer to zero
+  // the closer we already are to our target heading.
+  let flightHeading = FEATURES.FLY_SPECIFIC_HEADING && 90;
+  if (flightHeading) {
+    const hDiff = getCompassDiff(heading, flightHeading);
+    targetBank = constrainMap(hDiff, -30, 30, maxBank, -maxBank);
+    maxTurnRate = constrainMap(abs(hDiff), 0, 10, 0.02, maxTurnRate);
+  }
+
+  return { targetBank, maxTurnRate };
 }

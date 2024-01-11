@@ -1501,46 +1501,49 @@ export class FlightInformation {
 
   // Then our "update the model" code:
   async updateModel() {
-    const modelData = await api.get(...FLIGHT_MODEL);
-    if (!modelData) return (this.flightModel = false);
+    const data = await api.get(...FLIGHT_MODEL);
+    if (!data) return (this.flightModel = false);
+
     // Make sure to run our quality-of-life functions:
-    convertValues(modelData);
-    renameData(modelData);
-    return (this.model = modelData);
+    convertValues(data);
+    renameData(data);
+
+    // Create a convenience value for trimming
+    data.pitchTrimLimit = [data.trimUpLimit ?? 10, data.trimDownLimit ?? -10];
+    return (this.model = data);
   }
 
   // And our "update the current flight information" code:
   async updateFlight() {
-    const flightData = await api.get(...FLIGHT_DATA);
-    if (!flightData) return (this.flightData = false);
+    const data = await api.get(...FLIGHT_DATA);
+    if (!data) return (this.data = false);
     // Make sure to run our quality-of-life functions here, too:
-    convertValues(flightData);
-    renameData(flightData, this.flightData);
+    convertValues(data);
+    renameData(data, this.data);
 
     // Create a convenience value for "are any engines running?",
     // which would otherwise require checking four separate variables:
-    flightData.enginesRunning = [1, 2, 3, 4].reduce(
-      (t, num) => t || flightData[`ENG_COMBUSTION:${num}`],
+    data.enginesRunning = [1, 2, 3, 4].reduce(
+      (t, num) => t || data[`ENG_COMBUSTION:${num}`],
       false
     );
 
     // Create a convenience value for "is the plane powered on?",
     // which would otherwise require checking two variables:
-    flightData.hasPower =
-      flightData.ampLoad !== 0 || flightData.busVoltage !== 0;
+    data.hasPower = data.ampLoad !== 0 || data.busVoltage !== 0;
 
     // And create a convenience value for compass correction:
-    flightData.declination = flightData.trueHeading - flightData.heading;
+    data.declination = data.trueHeading - data.heading;
 
     // Then update our general flight values and return;
-    this.setGeneralProperties(flightData);
-    return (this.data = flightData);
+    this.setGeneralProperties(data);
+    return (this.data = data);
   }
 
   // The general properties are mostly there so we don't have to
   // constantly derive them on the client side:
-  setGeneralProperties(flightData) {
-    const { onGround, hasPower, enginesRunning, speed, camera } = flightData;
+  setGeneralProperties(data) {
+    const { onGround, hasPower, enginesRunning, speed, camera } = data;
     const inGame = 2 <= camera && camera < 9;
     const flying = inGame ? !onGround : false;
     const moving = inGame ? speed > 0 : false;
@@ -3458,11 +3461,11 @@ export async function flyLevel(autopilot, state) {
   // correction in order not to jerk the plane around. We are, after all,
   // technically still in that plane and we'd like to not get sick =)
   const maxDBank = DEFAULT_MAX_TURN_RATE;
-  update += constrainMap(dBank, -maxDBank, maxDBank, -step / 2, step / 2);
+  update += constrainMap(dBank, -4 * maxDBank, 4 * maxDBank, -2 * step, 2 * step);
 
   // Then add our update to our trim value, and set the trim in MSFS:
   trim.roll += update;
-  api.set({ AILERON_TRIM_PCT: trim.roll });
+  api.set(`AILERON_TRIM_PCT`, trim.roll);
 }
 ```
 
@@ -3476,7 +3479,7 @@ We implement our wing leveling code by solving two problems at the same time:
 Those two are at odds with each other, and so we want to prioritize getting the bank angle to zero over getting the bank acceleration to zero, so we start by getting our current bank and bank acceleration values, and defining our maximum allowed values for those. Then:
 
 1. We correct our bank in our first `update -= ...`: if we're banking a lot, we want to correct a lot, and if we're banking a little, we want to correct just a little, and if we're perfectly level, we don't want to correct at all. Which is exactly what we wrote `constrainMap` to do for us.
-2. Then, we correct our bank acceleration in the next `update += ...`, by trimming in the opposite direction of our bank acceleration. This will undo some of our bank correction, but as long as we use a smaller step size for acceleration than for the main bank correction, the code will "prioritize" zeroing our bank angle over our bank acceleration.
+2. Then, we correct our bank acceleration in the next `update += ...`, by trimming in the opposite direction of our bank acceleration. This will undo some of our bank correction, but as long as we use a smaller step size for acceleration than for the main bank correction, the code will "prioritize" zeroing our bank angle over our bank acceleration. We do, however, allow for a much larger correction that would normally be necessary, in order to deal with momentary "way too much" values caused by wind, bumping the yoke/stick, etc.
 3. Finally, we update our trim (both in our code and in MSFS) and then we wait for the autopilot to retrigger this function during the next run, letting us run through the same procedure, but with (hopefully!) slightly less wrong values. Provided that this function runs enough times, we'll converge on level flight, and that's exactly what we want.
 
 Of course, this does require that `radians` exists, so let's quickly add that to our `utils.js`:
@@ -3644,7 +3647,7 @@ export class Autopilot {
 And then of course the `altitudeHold` function itself, which we'll put in  `autopilot/altitude-hold.js`:
 
 ```javascript
-import { radians, constrainMap } from "./utils/utils.js";
+import { constrainMap } from "../utils/utils.js";
 const { abs } = Math;
 
 // Our default vertical speed target, if we want to hold our current
@@ -3660,13 +3663,6 @@ const DEFAULT_MAX_VS = 1000;
 // how much the vertical speed's allowed to change per iteration.
 const DEFAULT_MAX_dVS = 100;
 
-// The elevator trim uses a super weird unit, where +/- 100% maps
-// to "pi divided by 10", i.e. +/- 0.31415[...], so we need to
-// have steps that make sense in radians: our small step roughly
-// maps to a 0.002% step, and our large step maps to roughly 0.2%
-const SMALL_TRIM = radians(0.001);
-const LARGE_TRIM = radians(0.035);
-
 // Similar to the flyLevel code, we have no features yet, but we'll
 // be adding those as we go, so we can quickly and easily compare
 // how our code behaves when we turn a feature on or off.
@@ -3680,26 +3676,21 @@ const FEATURES = {};
 export async function altitudeHold(autopilot, flightInformation) {
   // Each plane has different min/max pitch trim values, so
   // let's find out what our current plane's values are:
-  const { trim } = autopilot;
+  const { api, trim } = autopilot;
   const { data: flightData, model: flightModel } = flightInformation;
 
   // What are our vertical speed values?
-  const { VS, speed, pitch, alt } = flightData;
+  const { VS } = flightData;
   const { VS: dVS } = flightData.d ?? { VS: 0 };
   const { pitchTrimLimit } = flightModel;
-  
+
   // How big should our trim steps be?
   let trimLimit = pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
-
-  // The more we pitch down, the bigger the trim step needs to be so we can level out faster
-  const upperLimit = constrainMap(pitch, 0, 10, 10, 100);
-  const small = constrainMap(trimLimit, 5, 20, SMALL_TRIM, LARGE_TRIM);
-  let trimStep = constrainMap(speed, 50, 200, 5, upperLimit) * small;
+  let trimStep = trimLimit / 10_000;
 
   // And what should those parameters be instead, if want to maintain our altitude?
-  const maxVS = DEFAULT_MAX_VS;
-  const targetVS = getTargetVS(autopilot, flightInformation, maxVS);
+  const { targetVS } = await getTargetVS();
   const diff = targetVS - VS;
 
   // Just like in the flyLevel code, we first determine an update
@@ -3708,15 +3699,16 @@ export async function altitudeHold(autopilot, flightInformation) {
   let update = 0;
 
   // Set our update to trim towards the correct vertical speed:
+  const maxVS = DEFAULT_MAX_VS;
   update += constrainMap(diff, -maxVS, maxVS, -trimStep, trimStep);
 
   // And if we're accelerating too much, counter-act that a little:
   const maxdVS = constrainMap(abs(diff), 0, 100, 0, DEFAULT_MAX_dVS);
-  update -= constrainMap(dVS, -maxdVS, maxdVS, -trimStep / 2, trimStep / 2);
+  update -= constrainMap(dVS, -4 * maxdVS, 4 * maxdVS, -2 * trimStep, 2 * trimStep);
 
   // Finally, apply the new trim value:
   trim.pitch += update;
-  api.set({ ELEVATOR_TRIM_POSITION: trim.pitch });
+  api.set(`ELEVATOR_TRIM_POSITION`, trim.pitch);
 }
 
 // This function determines what our target vertical speed should
@@ -3725,7 +3717,7 @@ export async function altitudeHold(autopilot, flightInformation) {
 // change almost immediate after we test this code, because we'll
 // discover that you can't really "hold an altitude" if you don't
 // actually write down what altitude you should be holding =)
-async function getTargetVS(autopilot, flightInformation, maxVS) {
+async function getTargetVS() {
   // So: we'll be putting some more code here *very* soon.
   return { targetVS: DEFAULT_TARGET_VS };
 }
@@ -3739,9 +3731,7 @@ So that's a little more code than `flyLevel`, but not much more, still being les
   1. We want to get to a situation where our **vertical speed** (how much we're flying up or down) is zero, and
   2. we want to get to a situation where our **vertical acceleration** is also zero.
 
-Just like before we prioritize the former by giving the latter a smaller step, and we're good to go.
-
-We do need to pause at those `SMALL_TRIM` and `LARGE_TRIM` values, because those aren't really based on the flight model: there just isn't really anything in the flight model values that MSFS gives us access to that we can use to determine how big our trim step should be, so these values are basically just "guesses" based on flying around in MSFS for several days using different aeroplanes to find numbers that seemed reasonable in relation to the trim limits that we _do_ have access to. That's not ideal, but it's good enough.
+Just like before we prioritize the former by giving the latter a smaller step, and we're good to go, and just like before we'll allow for a much larger correction based on vertical acceleration than we'd normally need, because even during regular flight a pocket of low density air will do a number on our altitude hold.
 
 ### Testing our code
 
@@ -3773,65 +3763,61 @@ Then, in order to see how well our code works, we'll be flying around a bit in T
 
 ![image-20231105214745162](./images/planes/beaver-shot.png)
 
-And our order of operations will be to spawn the plane at cruise altitude in above the middle of the pacific ocean in fair weather, have it stabilize itself on the in-game autopilot as a substitute for manually trimming the plane, and then switch to our own autopilot (which will turn off the in-game one) to see how well that holds up. And then we're going to compare our "before" and "after" graphs to see what we can learn:
+And our order of operations will be to spawn the plane at cruise altitude in above the middle of the pacific ocean in fair weather, have it stabilize itself on the in-game autopilot as a substitute for manually trimming the plane, and then switch to our own autopilot (which will turn off the in-game one) to see how well that holds up. And then we're going to compare our "before" and "after" graphs to see what we can learn.
 
-![image-20231113160900193](./images/page/science/initial-VS-png.png)
+See if you can tell when we switched from the in-game autopilot to our own autopilot in the following science:
 
-After the initial spawn-in behaviour, with the in-game autopilot pulling the plane into a stable path, we reload the browser to clear our graphs, and then we turn on our autopilot with both "fly level" and "hold altitude" turned on. And then... uh... well, as you can see, while our vertical speed oscillates around zero, which is what we want, it also oscillates by **a lot** around zero, which is _not_ what we want. That would be a really uncomfortable flight. To counteract that, let's do some fixing.
+![image-20240110165555815](./image-20240110165555815.png)
 
-## Fixing our code
+So yeah, this should be relatively obvious: our autopilot seems to be a little more aggressive than the in-game one, but for now that's fine. The more important thing to notice is that we might not be quite leveling, or holding altitude...
 
-### A better altitude hold
+## Improving our code
 
-In order to reduce our oscillations, we're going to reduce the effect of our update, the closer we are to our target vertical speed, and we could get fancy with all kinds of maths functions, but instead we're going to keep things rather dumb but easily serviceable, by implementing a step-wise reduction: if we're within 100fpm of our target vertical speed (which should be most of the time!), take the update and halve it. And if we're within 20 fpm of our target speed (which should _hopefully_ be most of the time?) we halve it again. Let's add the following code while both the sim and our code are running:
+If you look at the graph, our vertical speed is now perpetually "not actually zero"... it's not off by a lot, but we're definitely drifting, which isn't _quite_ the same as holding altitude. And the same is true for our wing leveler: we're flying very nearly straight, but not _quite_ straight. The obvious reason for this is that we can't actually guarantee "straight" without some reference points: we don't know what heading to fly, or which specific altitude to hold, so if there's persistent wind, we're going to get blown off course and we won't even know.
 
-```javascript
-...
-const FEATURES = {
-  DAMPEN_CLOSE_TO_ZERO: true,
-};
+This also has an extremely obvious solution: let's make our autopilot capable of flying in a specific direction, at a specific altitude. And that's going to be surprisingly easy!
 
-...
-
-export async function altitudeHold(autopilot, state) {
-  ...
-
-  const maxdVS = constrainMap(abs(diff), 0, 100, 0, DEFAULT_MAX_dVS);
-  update -= constrainMap(dVS, -maxdVS, maxdVS, -trimStep / 2, trimStep / 2);
-
-  // By making this a "feature" we can toggle it on and off as we please to play around with tweaks:
-  if (DAMPEN_CLOSE_TO_ZERO) {
-    const aDiff = abs(diff);
-    if (aDiff < 100) update /= 2;
-    if (aDiff < 20) update /= 2;
-  }
-
-  trim.pitch += update
-  ...
-}
-```
-
-If we save, this will hot-reload our code so that it immediately kicks in without us having to interrupt the flight, and we can immediately see the difference that makes, with a brief spike because the behaviour has changed, and then some **drastically** better behaviour (ignoring the second spike, because it's hard to perfectly control the wind in MSFS):
-
-![image-20231113161509477](./images/page/science/VS-after-dampening.png)
-
-Clearly, we've significantly cut down by how much we're oscillating, which is good! But if you look at the graph our vertical speed is now perpetually "more than zero"... not a lot, but we're definitely drifting, which isn't _quite_ the same as holding altitude... So we probably need to tell our autopilot _which altitude we want to hold_. Something that's surprisingly easy to add:
+Let's start with our altitude hold: if we could just tell it _which_ altitude to hold, that'd solve half the problem. And as it turns out, we can do this pretty easily with some pretty simple math: check the difference between the altitude we're at, and the one we're supposed to _be_ at, and then pick a target VS that will help us cross that vertical distance. And while we're at it, let's also fix that aggressive trimming by reducing the amount we update by when we get close to our target:
 
 ```javascript
 ...
 
+// Two feature flags!
 const FEATURES = {
   DAMPEN_CLOSE_TO_ZERO: true,
   TARGET_TO_HOLD: true,
 };
 
-// Instead of trying to aim for a target VS of zero, let's base our target VS
-// on how close we are to a *specific* target altitude to hold:
-async function getTargetVS(autopilot, state, maxVS) {
+const { abs } = Math;
+
+export async function altitudeHold(autopilot, flightInformation) {
+  ...
+  const { VS, alt } = flightData;
+  ... 
+  // we'll move this value up
+  const maxVS = DEFAULT_MAX_VS;  
+  const { targetVS } = await getTargetVS(maxVS, alt);
+
+  ...
+  
+  // And our first new feature! If we're close to our target, dampen
+  // the corrections, so we don't over/undershoot the target too much.
+  if (FEATURES.DAMPEN_CLOSE_TO_ZERO) {
+    const aDiff = abs(diff);
+    if (aDiff < 100) update /= 2;
+    if (aDiff < 20) update /= 2;
+  }
+
+  // And then we apply the new trim value:
+  trim.pitch += update;
+  api.set(`ELEVATOR_TRIM_POSITION`, trim.pitch);
+}
+
+// Then for our second feature...
+async function getTargetVS(maxVS, alt) {
   let targetVS = DEFAULT_TARGET_VS;
   let altDiff = undefined;
 
-  // next feature!
   if (TARGET_TO_HOLD) {
     // Get our hold-altitude from our autopilot mode:
     const targetAltitude = autopilot.modes[ALTITUDE_HOLD];
@@ -3878,7 +3864,7 @@ export class Autopilot {
       const e = document.querySelector(`#autopilot .${key}`);
       e?.addEventListener(`click`, () => {
         e.classList.toggle(`active`);
-        let value = e.classList.contains(`active`);
+        let value = !e.classList.contains(`active`);
         // Special handling for our altitude mode: instead of a
         // boolean, let's make this our desired altitude in feet:
         if (value) {
@@ -3890,8 +3876,8 @@ export class Autopilot {
       });
     });
 
-    // And then we also add an onchange handler to our number
-    // field so that if that changes, we let the server know:
+    // And then we also add a change handler to our number field
+    // so that if that changes, we can let the server know:
     document
       .querySelector(`#autopilot .altitude`)
       ?.addEventListener(`change`, (evt) => {
@@ -3923,15 +3909,15 @@ export class Autopilot {
 }
 ```
 
-With that, we can save our file, make sure to tell the AP that we want to hold "whatever altitude we're now on", and then watch the result play out in our graphs:
+So let's save all that and then first set both our new `DAMPEN_CLOSE_TO_ZERO` and `TARGET_TO_HOLD` features to `false`,  so that we're still flying "the same way we did before". Then, after we've established that we're autopiloting just as aggressively (because nothing changed in terms of the code running yet), we change them to `true`, and save, to see the immediately result... 
 
-![image-20231113162155940](./images/page/science/VS-with-centering.png)
+![image-20240110183842772](./image-20240110183842772.png)
 
-And now we're centered around zero instead of being biased towards a slight drift. But as much as that looks great, how are we doing compared to the in-game AP? Simple enough to find out: let's set the in-game AP to hold altitude and turn off our own autopilot. Will we be able to tell the difference?
-
-![image-20231113162703846](./images/page/science/VS-compared-to-AP.png)
+Look at the pitch of the plane! Suddenly, we're pretty much rock solid. And if we look at MSFS, sure, it might now take much longer to get from "a few feet away from our target" to the target itself, but we're not doing formation flying, and being off by a foot or two is _entirely_ acceptable for how little code we've written!
 
 ### Changing altitudes
+
+And of course, now that we have code that tells the altitude hold to hold a specific altitude, we get transitioning between altitudes for free: no extra code changes required, we just type in the new altitude we want in our number field on the web page, and then... the plane change altitude for us.
 
 Turns out, we can, but that's a pretty small difference: we've done well! So what about if we change altitudes? Let's have the plane fly at 1500 feet, then change it to 2000 until it's stable, and then make it fly back down to 1500:
 
@@ -3940,6 +3926,9 @@ Turns out, we can, but that's a pretty small difference: we've done well! So wha
 As you can see, that's a bit... jagged. We're changing altitude correctly, but we're also bobbing up and down a lot, so let's smooth that out by, instead of just immediately setting our `targetVS` to the maximum value setting it to "something higher (or lower) than our current VS" until we reach maximum vertical speed:
 
 ```javascript
+import { constrain, constrainMap } from "../utils/utils.js";
+const { abs, sign } = Math;
+
 const FEATURES = {
   ...
   SMOOTH_RAMP_UP: true,
@@ -3947,7 +3936,7 @@ const FEATURES = {
 
 ...
 
-async function getTargetVS(autopilot, state, maxVS) {
+async function getTargetVS(autopilot, maxVS, alt) {
   ...
 
   const targetAltitude = autopilot.modes[ALTITUDE_HOLD];
@@ -3995,22 +3984,19 @@ By giving the plane a smaller difference to overcome, we get much smoother trans
 
 So let's just put in three more "fixes" before we move on, mostly because we're here now anyway, and they're very easy to add:
 
-1. skipping truly tiny updates
-2. boosting tiny updates if we need to go up, but we're going down, if if we need to go down but we're going up, and
-3. making sure we don't trim past +/- 100%
+1. outright ignoring truly tiny updates if we're already tending in the right direction,
+2. boosting tiny updates if we need to go up, but we're going down (or vice versa) and
+3. making sure we don't tell the plane to trim past +/- 100% (because _oh boy_ will MSFS let you do that!)
 
 All of these should make intuitive sense, and they're very little work to put in:
 
 ```javascript
 const FEATURES = {
   ...
-  STALL_PROTECTION: true,
   SKIP_TINY_UPDATES: true,
   BOOST_SMALL_CORRECTIONS: true,
   LIMIT_TRIM_TO_100: true,
 };
-
-...
 
 export async function altitudeHold(autopilot, state) {
   ...
@@ -4027,15 +4013,13 @@ export async function altitudeHold(autopilot, state) {
 
   if (FEATURES.LIMIT_TRIM_TO_100) trim.pitch = constrain(trim.pitch, -Math.PI / 20, Math.PI / 20);
 
-  autopilot.set("ELEVATOR_TRIM_POSITION", trim.pitch);
+  api.set(`ELEVATOR_TRIM_POSITION`, trim.pitch);
 }
-
-
 ```
 
-And that's it. Three constants, three lines of code. The effect of these are pretty subtle: the first two make our behaviour around out hold altitude oscillate just a _tiny_ bit less, and the last one prevents us from telling MSFS to trim past what would be realistic values. Which it will happily do if we tell it to, so let's not tell it to!
+And that's it. Three constants, four lines of code. And the effect of these are pretty subtle: the first two reduce oscillations around the target altitude while also reducing over/undershoot when we change altitudes, and the last one prevents us from telling MSFS to trim past what would be realistic values. If you want to see an airplane spin like a top, see what happens when you run ``api.set(`ELEVATOR_TRIM_POSITION`, 10);``. It's honestly kind of amazing to watch.
 
-...buuuuuut there's another problem, and if you guessed "well if our `altitudeHold` has this problem, then `flyLevel` probably has the same problem?", then you're spot on: even though the plane isn't noticeably banking, that doesn't mean we're _actually_ flying straight, it just means we're not noticeably banking. We could still be drifting ever so gently left or right, and any kind of wind can easily blow us in whichever way it likes without our autopilot noticing we're in a turn. Just with a _very_ large turn radius. So let's address that problem, too, by turning our "fly level" code into "fly a specific heading" mode.
+=== UPDATE FLY LEVEL ===
 
 ### Flying straight, not just level
 

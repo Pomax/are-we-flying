@@ -1,5 +1,6 @@
-import { constrainMap } from "../utils/utils.js";
-const { abs } = Math;
+import { ALTITUDE_HOLD } from "../utils/constants.js";
+import { constrain, constrainMap } from "../utils/utils.js";
+const { abs, sign } = Math;
 
 // Our default vertical speed target, if we want to hold our current
 // altitude, is obviously zero.
@@ -17,7 +18,13 @@ const DEFAULT_MAX_dVS = 100;
 // Similar to the flyLevel code, we have no features yet, but we'll
 // be adding those as we go, so we can quickly and easily compare
 // how our code behaves when we turn a feature on or off.
-const FEATURES = {};
+const FEATURES = {
+  DAMPEN_CLOSE_TO_ZERO: true,
+  SKIP_TINY_UPDATES: true,
+  LIMIT_TRIM_TO_100: true,
+  SMOOTH_RAMP_UP: true,
+  TARGET_TO_HOLD: true,
+};
 
 // Then, our actual "hold altitude" function, which we're going to
 // keep as dumb" as the "fly level" code: each time we call it, it
@@ -31,7 +38,7 @@ export async function altitudeHold(autopilot, flightInformation) {
   const { data: flightData, model: flightModel } = flightInformation;
 
   // What are our vertical speed values?
-  const { VS } = flightData;
+  const { VS, alt } = flightData;
   const { VS: dVS } = flightData.d ?? { VS: 0 };
   const { pitchTrimLimit } = flightModel;
 
@@ -41,7 +48,8 @@ export async function altitudeHold(autopilot, flightInformation) {
   let trimStep = trimLimit / 10_000;
 
   // And what should those parameters be instead, if want to maintain our altitude?
-  const { targetVS } = await getTargetVS();
+  const maxVS = DEFAULT_MAX_VS;
+  const { targetVS } = await getTargetVS(autopilot, maxVS, alt, VS);
   const diff = targetVS - VS;
 
   // Just like in the flyLevel code, we first determine an update
@@ -50,15 +58,42 @@ export async function altitudeHold(autopilot, flightInformation) {
   let update = 0;
 
   // Set our update to trim towards the correct vertical speed:
-  const maxVS = DEFAULT_MAX_VS;
   update += constrainMap(diff, -maxVS, maxVS, -trimStep, trimStep);
 
   // And if we're accelerating too much, counter-act that a little:
   const maxdVS = constrainMap(abs(diff), 0, 100, 0, DEFAULT_MAX_dVS);
-  update -= constrainMap(dVS, -maxdVS, maxdVS, -trimStep / 2, trimStep / 2);
+  update -= constrainMap(
+    dVS,
+    -4 * maxdVS,
+    4 * maxdVS,
+    -2 * trimStep,
+    2 * trimStep
+  );
+
+  // New feature! If we're close to our target, dampen the
+  // corrections, so we don't over/undershoot the target too much.
+  if (FEATURES.DAMPEN_CLOSE_TO_ZERO) {
+    const aDiff = abs(diff);
+    if (aDiff < 100) update /= 2;
+    if (aDiff < 20) update /= 2;
+  }
+
+  const updateMagnitude = update / trimStep;
+
+  // Skip tiny updates if we're already moving in the right direction
+  if (
+    FEATURES.SKIP_TINY_UPDATES &&
+    sign(targetVS) === sign(VS) &&
+    abs(updateMagnitude) < 0.001
+  ) {
+    return;
+  }
 
   // Finally, apply the new trim value:
   trim.pitch += update;
+  if (FEATURES.LIMIT_TRIM_TO_100) {
+    trim.pitch = constrain(trim.pitch, -Math.PI / 20, Math.PI / 20);
+  }
   api.set(`ELEVATOR_TRIM_POSITION`, trim.pitch);
 }
 
@@ -68,7 +103,47 @@ export async function altitudeHold(autopilot, flightInformation) {
 // change almost immediate after we test this code, because we'll
 // discover that you can't really "hold an altitude" if you don't
 // actually write down what altitude you should be holding =)
-async function getTargetVS() {
-  // So: we'll be putting some more code here *very* soon.
-  return { targetVS: DEFAULT_TARGET_VS };
+async function getTargetVS(autopilot, maxVS, alt, VS) {
+  const { modes } = autopilot;
+  let targetVS = DEFAULT_TARGET_VS;
+  let altDiff = undefined;
+
+  // Next feature!
+  if (FEATURES.TARGET_TO_HOLD) {
+    // Get our hold-altitude from our autopilot mode:
+    const targetAltitude = modes[ALTITUDE_HOLD];
+    const plateau = 200;
+
+    if (targetAltitude) {
+      // And then if we're above that altitude, set a target VS that's negative,
+      // and if we're below that altitude, set a target VS that's positive:
+      altDiff = targetAltitude - alt;
+      targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
+    }
+
+    // And third feature!
+    if (FEATURES.SMOOTH_RAMP_UP) {
+      const direction = sign(altDiff);
+
+      // If we're more than <plateau> feet away from our target, ramp
+      // our target up to maxVS, and keep it there.
+      if (abs(altDiff) > plateau) {
+        // start ramping up our vertical speed until we're at maxVS
+        if (abs(VS) < maxVS) {
+          const step = direction * plateau;
+          targetVS = constrain(VS + step, -maxVS, maxVS);
+        } else {
+          targetVS = direction * maxVS;
+        }
+      }
+
+      // And if we're close to the target, start reducing our target
+      // speed such that our target VS is zero at our target altitude.
+      else {
+        targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
+      }
+    }
+  }
+
+  return { targetVS };
 }

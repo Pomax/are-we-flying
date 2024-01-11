@@ -38,46 +38,49 @@ export class FlightInformation {
 
   // Then our "update the model" code:
   async updateModel() {
-    const modelData = await api.get(...FLIGHT_MODEL);
-    if (!modelData) return (this.flightModel = false);
+    const data = await api.get(...FLIGHT_MODEL);
+    if (!data) return (this.flightModel = false);
+
     // Make sure to run our quality-of-life functions:
-    convertValues(modelData);
-    renameData(modelData);
-    return (this.model = modelData);
+    convertValues(data);
+    renameData(data);
+
+    // Create a convenience value for trimming
+    data.pitchTrimLimit = [data.trimUpLimit ?? 10, data.trimDownLimit ?? -10];
+    return (this.model = data);
   }
 
   // And our "update the current flight information" code:
   async updateFlight() {
-    const flightData = await api.get(...FLIGHT_DATA);
-    if (!flightData) return (this.flightData = false);
+    const data = await api.get(...FLIGHT_DATA);
+    if (!data) return (this.data = false);
     // Make sure to run our quality-of-life functions here, too:
-    convertValues(flightData);
-    renameData(flightData, this.flightData);
+    convertValues(data);
+    renameData(data, this.data);
 
     // Create a convenience value for "are any engines running?",
     // which would otherwise require checking four separate variables:
-    flightData.enginesRunning = [1, 2, 3, 4].reduce(
-      (t, num) => t || flightData[`ENG_COMBUSTION:${num}`],
+    data.enginesRunning = [1, 2, 3, 4].reduce(
+      (t, num) => t || data[`ENG_COMBUSTION:${num}`],
       false
     );
 
     // Create a convenience value for "is the plane powered on?",
     // which would otherwise require checking two variables:
-    flightData.hasPower =
-      flightData.ampLoad !== 0 || flightData.busVoltage !== 0;
+    data.hasPower = data.ampLoad !== 0 || data.busVoltage !== 0;
 
     // And create a convenience value for compass correction:
-    flightData.declination = flightData.trueHeading - flightData.heading;
+    data.declination = data.trueHeading - data.heading;
 
     // Then update our general flight values and return;
-    this.setGeneralProperties(flightData);
-    return (this.data = flightData);
+    this.setGeneralProperties(data);
+    return (this.data = data);
   }
 
   // The general properties are mostly there so we don't have to
   // constantly derive them on the client side:
-  setGeneralProperties(flightData) {
-    const { onGround, hasPower, enginesRunning, speed, camera } = flightData;
+  setGeneralProperties(data) {
+    const { onGround, hasPower, enginesRunning, speed, camera } = data;
     const inGame = 2 <= camera && camera < 9;
     const flying = inGame ? !onGround : false;
     const moving = inGame ? speed > 0 : false;
