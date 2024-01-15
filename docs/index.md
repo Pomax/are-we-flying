@@ -59,21 +59,21 @@ And along the way we're going to learn a few developer tricks like hot reloading
 
 By the time we're done, we'll have a web page that looks a little bit like this:
 
-![sim view on the map](./image-20231228145747579.png)
+![sim view on the map](./image-20240115124122803.png)
 
 While the in game view looking like this:
 
-![in-game sim view](./image-20231228150117688.png)
+![in-game sim view](./image-20240115124017069.png)
 
 or this:
 
-![image-20231228150302348](./image-20231228150302348.png)
+![image-20240115123949721](./image-20240115123949721.png)
 
 If that sounds (and looks) good to you, then read on!
 
 # Table of Contents
 
-- REGENERATE LATER
+{{ ToC }}
 
 # Part one: The prep work
 
