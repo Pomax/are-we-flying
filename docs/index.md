@@ -4262,7 +4262,7 @@ export async function flyLevel(autopilot, state) {
 
 ![image-20240114094850203](./image-20240114094850203.png)
 
-Much better. The first two turns take "forever" to actually stabilize, overshooting, then again, and then _again_, whereas with snapping turned on we get to our target heading and then as the name implies we "snap to that heading" and now that's the direction we're going.
+Much better. The first two turns with our original code take "forever" to actually stabilize, overshooting, then again, and then _again_, whereas with snapping turned on we get to our target heading and then as the name implies we "snap to that heading" and now that's the direction we're going.
 
 ## Flying some test flights in different planes
 
@@ -4304,7 +4304,7 @@ I say least likely, because while flying straight isn't too taxing, and flying a
 
 ![image-20240112182416946](./image-20240112182416946.png)
 
-...We... uh... we may need to do something about that. See that "speed" graph? That's showing us that we're losing speed due to how much we're trying to climb. And we're losing _a lot_ of speed. So much, in fact, that we end up dropping below the safe climbing speed, all the way down to below stall speed. And then the fun starts. So before we move on to other planes, let's add "making sure we have enough speed to stay in the air" to our emergency handling in `altitude-hold.js`:
+...We... uh... yeah, we may need to do something about that. See that "speed" graph? That's showing us that we're losing speed due to how much we're trying to climb. And we're losing _a lot_ of speed. So much, in fact, that we end up dropping below the safe climbing speed, all the way down to below stall speed. And then the fun starts. So before we move on to other planes, let's add "making sure we have enough speed to stay in the air" to our emergency handling in `altitude-hold.js`:
 
 ```javascript
 ...
@@ -4384,7 +4384,7 @@ SCIENCE IMAGES GO HERE
 
 ## Planes without aileron trim
 
-Not all planes have aileron trim, instead relying on setting a rudder trim to keep the plane straight, and the stick to do all the maneuvering, which means that our autopilot isn't much use. We'd be able to maintain an altitude, since virtually all planes have pitch trim, but that alone won't keep us in the air. You'd think that was something you could ask SimConnect about, but while there is an `AILERON_TRIM_DISABLED` variable, that doesn't tell you whether the plane has aileron trim. Instead, we're left having to just "compile a list of planes", so... find, let's do that, even though it's quite dumb:
+Not all planes have aileron trim, instead relying on setting a rudder trim to keep the plane straight, and the stick to do all the maneuvering, which means that our autopilot isn't much use. We'd be able to maintain an altitude, since virtually all planes have pitch trim, but that alone won't keep us in the air. You'd think that was something you could ask SimConnect about, but while there is an `AILERON_TRIM_DISABLED` variable, that only tells you whether it's _disabled_, and does not tell you whether there _is_ one or not. Instead, we're left having to just "compile a list of planes, as we find them", so... find, let's do that, even though it's quite dumb:
 
 ```javascript
 export class FlightInformation {
@@ -4414,7 +4414,7 @@ export class FlightInformation {
 }
 ```
 
-We can now tap into the flight model's `hasAileronTrim` value to see whether or not we can just trim, or whether we need to level by "attaching some strings to the steering wheel" in `fly-level.js`:
+We can now tap into the flight model's `hasAileronTrim` value to see whether we can just trim, or whether we need to level the plane by "attaching some strings to the steering wheel" in our `fly-level.js`:
 
 ```javascript
 ...
@@ -4430,10 +4430,11 @@ export async function flyLevel(autopilot, state) {
   const { hasAileronTrim, weight } = flightModel;
   const useStickInstead = hasAileronTrim === false;
 
-  // Our original step based on the assumption that we're working with trim:
+  // Our original step, based on the assumption that we're working
+  // with trim, is now a "let" rather than a "const":
   let step = constrainMap(speed, 20, 150, radians(0.1), radians(5));
 
-  // Which we'll need to change if we're "trimming" on the stick:
+  // Because we'll need to change it if we're "trimming" on the stick:
   let aileron = 0;
   if (useStickInstead) {
     step = constrainMap(weight, 1000, 6000, 1, 3);
@@ -4442,18 +4443,21 @@ export async function flyLevel(autopilot, state) {
 
   const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
   const { targetBank, maxDBank, targetHeading, headingDiff } =
+    // ...and we'll need this function to know whether we're on stick or not, too.
     getTargetBankAndTurnRate(autopilot, heading, maxBank, useStickInstead);
 
   ... 
   
   // And of course, we now need to either update the aileron trim
-  // or the aileron itself, so, which one are we working with?
+  // or just "the aileron", so: which one are we working with?
   if (useStickInstead) {
     const position = aileron + update / 100;
-    // Even though the aileron value is a percent value, when *setting*
-    // the aileron you need to map that to [-16384,+16384], and it has
-    // to be an integer value or it'll crash SimConnect:
-    api.trigger("AILERON_SET", (-16384 * position) | 0);
+    // Even though the aileron value is reported as percentage, when
+    // *setting* the aileron you need to map that to [-16384,+16384],
+    // and it has to be a clean integer value or it'll crash SimConnect
+    // Oh, and a positive aileron value corresponds to a negative here.
+    // Because of course it does.
+    api.trigger("AILERON_SET", (-16383 * position) | 0);
   } else {
     trim.roll += update;
     api.set("AILERON_TRIM_PCT", trim.roll);
@@ -4465,7 +4469,11 @@ function getTargetBankAndTurnRate(autopilot, heading, maxBank, useStickInstead) 
   
   if (targetHeading) {
     headingDiff = getCompassDiff(heading, targetHeading);
-    // if we're flying on stick, use a sliding target
+    // if we're flying on stick, we use a sliding target, where we always
+    // target half the distance to our real target. This will converge on
+    // the real target as we progress through the turn, but it lets us
+    // not overshoot (much) by taking slower to make the turn, especially
+    // as we get close to our target.
     if (useStickInstead) headingDiff /= 2;
     targetBank = constrainMap(headingDiff, -30, 30, maxBank, -maxBank);
     maxDBank = constrainMap(abs(headingDiff), 0, 10, 0, maxDBank);
@@ -4475,13 +4483,13 @@ function getTargetBankAndTurnRate(autopilot, heading, maxBank, useStickInstead) 
 }
 ```
 
-We're partially "guessing" here, with an alternate step size based on "flying a bunch of planes and seeing what works", and the heading isn't held as strictly as the trim based approach, but at least now we can _fly_ planes without aileron trim, even if it's going to be less precise. In fact, we're probably going to drift, but again: we'll take it. At least things "work".
+We're partially "guessing" here, with an alternative step size based on "flying a bunch of planes and seeing what works". The heading also isn't held as strictly as the trim-based approach, but at least now we can _fly_ planes without aileron trim, even if it's going to be less precise. In fact, we're probably going to drift, but again: we'll take it. At least things "work".
 
-In fact, let's use Just Flight's [PA28 Piper Turbo Arrow III](https://www.justflight.com/product/pa-28r-turbo-arrow-iii-iv-microsoft-flight-simulator) to demonstrate the effect of this code, setting it to a heading of 250 degrees, switching to 300, and then back to 250. It can't hold those, but it's "close enough to probably be fine if we have a flight path", which we'll tackle in part 4.
+Let's use Just Flight's [PA28 Piper Turbo Arrow III](https://www.justflight.com/product/pa-28r-turbo-arrow-iii-iv-microsoft-flight-simulator) to demonstrate the effect of this code, setting it to a heading of 250 degrees, switching to 300, and then back to 250. It can't hold those, but it's "close enough to probably be fine if we have a flight path", which we'll tackle in part 4.
 
 ![image-20240114143517017](./image-20240114143517017.png)
 
-The Piper settles a few degrees off from the actual heading it needs to fly, actually flying 253, 303, and 253, but given how few planes are "broken" in this way, we're going to call that good enough. We could test a few more planes and if they're all off in the same way, we can always just "cheat" by updating `getTargetBankAndTurnRate` so that it takes the heading that's 3 degrees less than what we specified or something.
+The Piper settles a few degrees off from the actual heading it needs to fly (actually flying 253, 303, and 253) but given how few planes are "broken" in this way, we're going to call that good enough. We could test a few more planes that don't have aileron trim, and if they're all off in the same way, we can always just "cheat" by updating `getTargetBankAndTurnRate` so that it uses a heading that's 3 degrees less than what we specified or something. But that's more of an "if there's a plane we like to fly with this specific problem" rather than something that's worth tackling now.
 
 So let's move on to something a little more universally useful:
 
@@ -4491,7 +4499,14 @@ Remember when we needed emergency measures to deal with the plane being told to 
 
 So let's write an auto throttle to help us through those situations. Every plane model comes with "ideal cruise speed", "climb speed" and "typical descent rate" values, so we can write a new autopilot mode that looks at our current speed and vertical speed, and then throttles up or down in order to ensure we're keeping a reasonable speed.
 
-Let's make a `src/autopilot/auto-throttle.js` and get to work:
+Let's add a new value to our `constants.js`:
+
+```javascript
+...
+const AUTO_THROTTLE = `ATT`;
+```
+
+And then let's make a `src/autopilot/auto-throttle.js` file and get to work:
 
 ```javascript
 import { ALTITUDE_HOLD, AUTO_THROTTLE } from "../utils/constants.js";
@@ -4500,60 +4515,76 @@ import { constrainMap } from "../utils/utils.js";
 const { abs } = Math;
 
 export function autoThrottle(autopilot, flightInformation) {
-  const { modes } = autopilot;
-  
+  const { api, modes } = autopilot;
 	const { data: flightData, model: flightModel } = flightInformation;
+  
+  // We'll need to know our current altitude and speed...
   const { alt, speed } = flightData;
   const { speed: dV } = flightData.d;
+  
+  // As well as knowing how many engines we're working with,
+  // and what the plane's intended cruise speed is:
   const { engineCount, cruiseSpeed } = flightModel;
 
   const targetAlt = modes[ALTITUDE_HOLD];
   const targetSpeed = cruiseSpeed;
   const diff = abs(speed - targetSpeed);
   
+  // An accelleration threshold that we use to determine
+  // if we should (still) speed up or down:
   const threshold = constrainMap(diff, 0, 10, 0.01, 0.2);
+  
+  // A factor for "how much our altitude difference matters":
   const altFactor = constrainMap(targetAlt - alt, 0, 100, 0, 0.25);
+  
+  // And our throttling step size
   const step = constrainMap(diff, 0, 50, 1, 5);
+  
+  const throttle = amount => {
+    changeThrottle(api, engineCount, amount, 25, 100);
+  }
 
-  // throttle up situation
+  // 1) are we in a throttle-up situation?
   if (targetSpeed - speed > 2) {
     console.log(`throttle up`);
     if (dV <= threshold) {
-      changeThrottle(autopilot.api, engineCount, step, 25, 100);
+      throttle(step);
     }
     // do we need to climb? then throttle up a bit more
     if (alt < targetAlt - 50) {
       console.log(`climbimg`);
-      changeThrottle(autopilot.api, engineCount, altFactor * step, 25, 100);
+      throttle(altFactor * step);
     }
     // are we speeding up more than desired?
     if (dV > threshold) {
-      changeThrottle(autopilot.api, engineCount, step / 4, 25, 100);
+      throttle(step / 4);
     }
   }
 
-  // throttle down situation
+  // 2) are we in a throttle-down situation?
   if (speed - targetSpeed > 2) {
     console.log(`throttle down`);
     if (dV >= -3 * threshold) {
       console.log(`dV range good, throttling down`);
-      changeThrottle(autopilot.api, engineCount, -step, 25, 100);
+      throttle(-step);
     }
     // do we need to descend? then throttle down a bit more
     if (alt > targetAlt + 50) {
       console.log(`descending`);
-      changeThrottle(autopilot.api, engineCount, -altFactor * step, 25, 100);
+      throttle(-altFactor * step);
     }
     // Are we slowing down more than desired?
     if (dV < -3 * threshold) {
       console.log(`dV too low, throttling up`);
-      changeThrottle(autopilot.api, engineCount, step / 4, 25, 100);
+      throttle(step / 4);
     }
   }
 }
 
 /**
- *
+ * To make life easier we make the "change the throttle" functionality
+ * its own function, where we update all engines by the amount indicated,
+ * and then poll the first engine to see what the *actual* new value is.
  */
 async function changeThrottle(api, engineCount = 4, byHowMuch, floor = 0, ceiling = 100) {
   let newThrottle;
