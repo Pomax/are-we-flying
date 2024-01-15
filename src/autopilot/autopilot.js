@@ -233,6 +233,7 @@ export class AutoPilot {
   }
 
   async setParameters(params) {
+    console.log(params);
     const { modes } = this;
     try {
       if (params[AUTO_TAKEOFF] === true) {
@@ -241,7 +242,7 @@ export class AutoPilot {
       if (params[AUTO_LAND] && !this.modes[AUTO_LAND]) {
         await this.engageAutoLand(params[AUTO_LAND]);
       }
-      if (params.MASTER !== true) {
+      if (params.MASTER !== undefined) {
         modes.MASTER = params.MASTER;
         if (modes.MASTER) {
           // make sure the in-game autopilot is not running.

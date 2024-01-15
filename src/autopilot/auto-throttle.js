@@ -11,14 +11,15 @@ export function autoThrottle(
   const { modes } = autopilot;
   const { alt, speed } = flightData;
   const { speed: dV } = flightData.d;
-  const { engineCount, isAcrobatic } = flightModel;
+  const { engineCount, isAcrobatic, weight } = flightModel;
   const targetAlt = modes[ALTITUDE_HOLD];
   const targetSpeed = getTargetSpeed(modes, flightModel);
   const diff = abs(speed - targetSpeed);
   const threshold = constrainMap(diff, 0, 10, 0.01, 0.2);
   const altFactor = constrainMap(targetAlt - alt, 0, 100, 0, 0.25);
   const f = isAcrobatic ? 1 / 5 : 1;
-  const step = constrainMap(diff, 0, 50, f * 1, f * 5);
+  let step = constrainMap(diff, 0, 50, f * 1, f * 5);
+  step = constrainMap(weight, 1000, 6000, step/5, step);
 
   console.log(
     `[autothrottle] speed: ${nf(speed)}, target speed: ${nf(

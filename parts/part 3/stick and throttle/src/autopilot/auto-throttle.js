@@ -9,7 +9,7 @@ export function autoThrottle(autopilot, flightInformation) {
   const { data: flightData, model: flightModel } = flightInformation;
   const { alt, speed } = flightData;
   const { speed: dV } = flightData.d;
-  const { engineCount, cruiseSpeed } = flightModel;
+  const { engineCount, cruiseSpeed, weight } = flightModel;
 
   const targetAlt = modes[ALTITUDE_HOLD];
   const targetSpeed = getTargetSpeed(modes, cruiseSpeed);
@@ -17,7 +17,9 @@ export function autoThrottle(autopilot, flightInformation) {
 
   const threshold = constrainMap(diff, 0, 10, 0.01, 0.2);
   const altFactor = constrainMap(targetAlt - alt, 0, 100, 0, 0.25);
-  const step = constrainMap(diff, 0, 50, 1, 5);
+
+  let step = constrainMap(diff, 0, 50, 1, 5);
+  step = constrainMap(weight, 1000, 6000, step/5, step);
 
   // throttle up situation
   if (targetSpeed - speed > 2) {

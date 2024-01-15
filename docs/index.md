@@ -4256,6 +4256,20 @@ export async function flyLevel(autopilot, state) {
   
   ...
 }
+  
+// And let's add 2 letters to our target finding function to help us out, too:
+function getTargetBankAndTurnRate(autopilot, heading, maxBank) {
+  ...
+  if (targetHeading) {
+    // instead of targeting "the actual heading", we're going to target
+    // a heading midway between "here" and "the real target". This changes
+    // our targeting behaviour from a linear function into a quadratic
+    // easing function. Nice!
+    headingDiff = getCompassDiff(heading, targetHeading) / 2;
+    ...
+  }
+  ...
+}
 ```
 
  Let's look at the difference this makes, by temporarily changing the charting config for our `heading` value from "always show the full 0 through 360 degrees" to "dynamically zoom the graph as needed" (similar to how vertical speed gets plotted). First, changing course from 250 degrees to 300 degrees and back with `SNAP_TO_HEADING` turned off vs. with `SNAP_TO_HEADING` turned on:
@@ -4264,47 +4278,23 @@ export async function flyLevel(autopilot, state) {
 
 Much better. The first two turns with our original code take "forever" to actually stabilize, overshooting, then again, and then _again_, whereas with snapping turned on we get to our target heading and then as the name implies we "snap to that heading" and now that's the direction we're going.
 
-## Flying some test flights in different planes
+## Edge-case testing
 
-Now that we have pretty decent control of both the horizontal and the vertical, let's get a few planes up in the air, manually trim them so they fly mostly straight ahead, and then turn on our bespoke, artisanal autopilot and see how the various planes fly.
-
-### The planes
-
-To make sure we're getting a decent result, here's my cross section of test planes in MSFS:
-
-![DeHavilland DHC-2 "Beaver"](./images/planes/beaver-shot.png)
-
-- The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), which we've been testing with so far.
-
-![Cessna 310R](./images/planes/310-shot.png)
-
-- The [Cessna 310R](https://en.wikipedia.org/wiki/Cessna%5F310), a (very good looking once the gear is up) small twin turbo-prop plane. The 310R is still relatively light, and responds to trim quite quickly.
-
-![Beechcraft Model 18](./images/planes/beech-shot.png)
-
-- The [Beechcraft Model 18](https://en.wikipedia.org/wiki/Beechcraft%5FModel%5F18), a gorgeous twin radial engine aeroplane and is a delight to fly. it's slow to respond, but that might actually be beneficial in our case, because our autopilot only runs once every half second.
-
-![Douglas DC-3](./images/planes/dc3-shot.png)
-
-- The [Douglas DC-3](https://en.wikipedia.org/wiki/Douglas%5FDC-3), an almost four times bigger twin radial engine aeroplane. This lumbering beast will overshoot if you let it. However, it does respond to trim instructions, and it _will_ end up going where we tell it to go. It just takes it a while, and might be a little bouncy.
+Now that we have pretty decent control of both the horizontal and the vertical, let's see what happens when we throw this code at some fun edge cases: planes that don't quite follow the same recipe as most other planes. Like....
 
 ![Top Rudder Solo 103](./images/planes/top-rudder-shot.png)
 
-- And finally, the [Top Rudder Solo 103](https://www.toprudderaircraft.com/product-page/103solo-standard) - this type of plane was never meant to have an autopilot. Under no circumstances should you try to add one in real life. Not that you could if you wanted to, Which no sane person would want. _So we will_. _Because we can_.
+The [Top Rudder Solo 103](https://www.toprudderaircraft.com/product-page/103solo-standard) - this type of plane was never meant to have an autopilot. Under no circumstances should you try to add one in real life. Not that you could if you wanted to, Which no sane person would want. So we will. _Because we can_.
 
-### The flights
+That said, this is the least likely plane to succeed, mostly because it flies so close to its stall speed: when the stars align it'll do 60 knots, but 50 is more typical, at 30 knots there's a good chance that you'll fall out of the sky when you even so much as thinking about tipping the wings because you're on the edge of no longer having enough lift to maintain altitude, and at 25 knots it's just a brick. Not a problem under normal operation, but when we slap on an autopilot... let's just say things might get exciting!
 
-We'll be flying all of these in fair weather, starting at an altitude of 1500 feet and flying a heading of 345 degrees. We'll test a heading change from 345 to 270 and back, then an altitude change from 1500 feet to 2500 feet and back down to 1500 feet, and then we'll test those two changes combined, changing heading while also changing altitude.
-
-And let's start with the one that's the least like to succeed!
-
-#### Top Rudder Solo 103
-
-I say least likely, because while flying straight isn't too taxing, and flying a heading isn't too taxing, and flying up or down isn't super hard, doing everything at once _may_ just be a bit too much for an ultralight, so let's see how we do.
+So, let's see what happens when we start a flight and turn on our autopilot. We'll first see if it can hold an altitude, then set it to climb, see if it can do that, and then set it to descend, and see if it can do that.
 
 ![image-20240112182416946](./image-20240112182416946.png)
 
-...We... uh... yeah, we may need to do something about that. See that "speed" graph? That's showing us that we're losing speed due to how much we're trying to climb. And we're losing _a lot_ of speed. So much, in fact, that we end up dropping below the safe climbing speed, all the way down to below stall speed. And then the fun starts. So before we move on to other planes, let's add "making sure we have enough speed to stay in the air" to our emergency handling in `altitude-hold.js`:
+...We... uh... yeah, we may need to do something about that. Things start out alright, where we're holding altitude perfectly fine, but once we start to climb, things start to go wrong, fast. See that "speed" graph? That's showing us that as we're climbing, we're losing speed. Nothing unusual about that, but we're losing _a lot_ of speed. So much so, in fact, that we drop below the safe climbing speed of 30 knots, all the way down to below stall speed at 21 knots. And then it's basically game over.
+
+So let's add "making sure we have enough speed to stay in the air" to our emergency handling in `altitude-hold.js`:
 
 ```javascript
 ...
@@ -4339,7 +4329,7 @@ function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, cruiseSpeed) {
       // If we're at climbSpeed, which is the absolute slowest we can go
       // if we want to safely climb, just stop climbing entirely. Otherwise,
       // interpolate between "don't climb" and half the original target VS
-      // if we're at our theshold speed. 
+      // at our theshold speed.
       targetVS = constrainMap(speed, climbSpeed, threshold, 0, targetVS/2);
     }
   }
@@ -4348,39 +4338,23 @@ function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, cruiseSpeed) {
 }
 ```
 
-This code should be fairly self-explanatory (given the code comments): SimConnect gives us various designed speeds, include the "safe climb speed" and cruise speed, so we can use those to determine whether we've slowed down too much. We don't actually go below the climb speed, so we check whether we've dropped below "10 knots above the climb speed", and if so, we fairly aggressively reduce the target vertical speed that we calculated so far, to the point where if our speed were to ever reach the actual climb speed, we just stop climbing entirely.
+This code should be fairly self-explanatory (given the code comments): SimConnect gives us various design speeds, include the "safe climb speed" (V<sub>Y</sub>), cruise speed (V<sub>C</sub>), and stall speeds (V<sub>S<sub>0</sub></sub> for stall speed when set up to land, and V<sub>S<sub>1</sub></sub> for stall speed during regular flight) so we can use those to determine whether we've slowed down too much. We don't actually want the plane below the climb speed (so we can ignore the stall speeds) so we can check whether we've dropped below "10 knots above the climb speed" (10 knots above, because if our speed's already dropping, it's goin got keep dropping while we try to correct for it, so we need that safety byffer), and if so we fairly aggressively reduce the target vertical speed calculated so far, to the point where if our speed ends up at climb speed, we just set it to zero. This might mean we climb a _lot_ slower than we otherwise would, but on the upside we're going to _keep_ climbing instead of dropping out of the sky!
 
-With this in place, we're no longer at risk of the death spiral we were getting in before. In fact, we can now "comfortably" climb from 1500 feet up to 6000, back down to 1500, and back up to 6000. In so far as flying up to that altitude will be comfortable in an ultralight, or course... I hope we're wearing thermal pants!
+So we're no longer at risk of the death spiral we were getting in before. In fact, we can now "comfortably" climb from 1500 feet up to 6000 feet, and back down to 1500, and then back up to 6000 etc. etc:
 
 ![image-20240112224841383](./image-20240112224841383.png)
 
-Also, can I just point out: **we added an autopilot to an ultralight**. 
+...insofar as flying up to that altitude can be called comfortable when piloting an ultralight, or course... I hope we're wearing thermal pants! And can I just point out: **we added an autopilot to an ultralight**. That alone would be an amazing bit of open source to run alongside your game! And we're only getting started!
 
-#### De Havilland DHC-2 "Beaver"
+Buuuuut just out of curiosity, what if we change altitude and heading at the same time? Let's try a 500 foot climb with a 90 degree turn at the same time, and then a 500 foot descent with another 90 degree turn. Place your bets on what will happen... will we live?
 
-How much better does the Beaver fare? Quite a lot, actually. It can do the 1000 feet climb and descent just fine (which is good: it's an aeroplane, so it'd better) although we can see a bit of an overshoot. Nothing too terrible, but if we were better programmers maybe we could have prevented that. Then again, maybe not, because autopilot programming is far from trivial, so we'll take it!
+![image-20240115101015322](./image-20240115101015322.png)
 
-SCIENCE IMAGES GO HERE
+We will! It's certainly not confidence inspiring, it doesn't look like a thing we'll ever _actually_ want to do, and even if we do, we'll probably want our hands on the stick despite having an "autopilot", but: we'll live! Excellent!
 
-We also see that heading mode works quite well, with only a small overshoot that gets almost immediately corrected for.
+(You may also notice that we seem to be far most stable going down than going up: turns out actually having enough air flowing over your control surfaces makes an aircraft easier to work with... who knew!)
 
-#### Cessna 310R
-
-An excellent plane for autopilot code, the 310R goes where we tell it to, when we tell it to, and goes as straight as you can go at 190 knots.
-
-SCIENCE IMAGES GO HERE
-
-#### Beechcraft Model 18
-
-The model 18 performs surprisingly well, which shouldn't be _too_ surprising given that it has two honking huge engines, and is nice and slow to respond to autopilot instructions.
-
-SCIENCE IMAGES GO HERE
-
-#### Douglas DC-3
-
-Much like the model 18, the DC-3 is a bit "wibbly" (we'd definitely feel it pitching up and down more), but overall even this lumbering behemoth just does what the autopilot asks of it.
-
-SCIENCE IMAGES GO HERE
+So let's try another edge-case. A normal plane, but one that doesn't have aileron trim. How do we deal with that?
 
 ## Planes without aileron trim
 
@@ -4485,21 +4459,122 @@ function getTargetBankAndTurnRate(autopilot, heading, maxBank, useStickInstead) 
 
 We're partially "guessing" here, with an alternative step size based on "flying a bunch of planes and seeing what works". The heading also isn't held as strictly as the trim-based approach, but at least now we can _fly_ planes without aileron trim, even if it's going to be less precise. In fact, we're probably going to drift, but again: we'll take it. At least things "work".
 
-Let's use Just Flight's [PA28 Piper Turbo Arrow III](https://www.justflight.com/product/pa-28r-turbo-arrow-iii-iv-microsoft-flight-simulator) to demonstrate the effect of this code, setting it to a heading of 250 degrees, switching to 300, and then back to 250. It can't hold those, but it's "close enough to probably be fine if we have a flight path", which we'll tackle in part 4.
+![image-20240115101349727](./image-20240115101349727.png)
+
+Let's use Just Flight's [PA28 Piper Turbo Arrow III](https://www.justflight.com/product/pa-28r-turbo-arrow-iii-iv-microsoft-flight-simulator) to demonstrate the effect of this code, setting it to a heading of 250 degrees, switching to 300, and then back to 250. It can't strictly hold those, but it's "close enough to probably be fine if we have a flight path", which we'll tackle in part 4.
 
 ![image-20240114143517017](./image-20240114143517017.png)
 
 The Piper settles a few degrees off from the actual heading it needs to fly (actually flying 253, 303, and 253) but given how few planes are "broken" in this way, we're going to call that good enough. We could test a few more planes that don't have aileron trim, and if they're all off in the same way, we can always just "cheat" by updating `getTargetBankAndTurnRate` so that it uses a heading that's 3 degrees less than what we specified or something. But that's more of an "if there's a plane we like to fly with this specific problem" rather than something that's worth tackling now.
 
-So let's move on to something a little more universally useful:
+What other edge-cases might we have?
+
+## Controlling acrobatic planes
+
+Say we want to have some fun in our stunt plane, but it's a boring flight to the practice "grounds" so we just turn on our autopilot to get us there.
+
+![image-20240115101751750](./image-20240115101751750.png)
+
+Will our current autopilot code actually get us there? As it turns out, no. No it won't:
+
+![image-20240115102153561](./image-20240115102153561.png)
+
+That's a hard crash. And adding our plane to the list of "trim on stick" planes won't help either: the problem here is that these planes fly fundamentally differently from "regular" planes, with near-instant response to control inputs, and our autopilot simply can't run fast enough to keep up. We can't really speed up our autopilot (I mean, we can probably speed it up _a bit_, but we're definitely not going to run it every frame: we only have so much CPU available, and MSFS famously wants all of it), but what we _can_ do is make our autopilot give these kinds of planes much smaller corrections. This will make us turn slower, but on the upside: it makes the plane turn slower rather than immediately trying to do a roll.
+
+Let's add an `isAcrobatic` flag to our flight model, in `flight-information.js`, and reorganize it since we're now working with multiple lists:
+
+```javascript
+...
+
+// Yay, more hard-coded lists!
+const noAileron = [`Turbo Arrow`].map(v => v.toLowerCase());
+const acrobatic = [`Pitts`].map(v => v.toLowerCase());
+
+export class FlightInformation {
+  ...
+    // Then our "update the model" code:
+  async updateModel() {
+    ...
+    const title = data.title.toLowerCase();
+    data.hasAileronTrim = !noAileron.some((t) =>title.includes(t));
+    data.isAcrobatic = acrobatic.some((t) => title.includes(t));
+    ...
+  }
+  ...
+}
+```
+
+And presto, we now have an `isAcrobatic` flag that we can check in our `fly-level.js` code:
+
+```javascript
+...
+export async function flyLevel(autopilot, state) {
+  ...
+  const { hasAileronTrim, weight, isAcrobatic } = flightModel;
+  ...
+
+  // Let's pass that value into our target finding function
+  const { targetBank, maxDBank, targetHeading, headingDiff } =
+    getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic);
+  const aHeadingDiff = abs(headingDiff);
+  const diff = targetBank - bank;
+
+  // And of course, use it to drastically reduce the step size,
+  // until we're very close to our target, then only moderately
+  // reduce the step size.
+  if (isAcrobatic) {
+    step = constrainMap(aHeadingDiff, 0, 10, step / 5, step / 20);
+  }
+  ...
+}
+  
+// Remember how we made the heading a quadratic easing function?
+// We're going to undo that for acrobatic planes, otherwise it
+// will take them waaaay too long to cover the last few degrees
+function getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic) {
+  ...
+    headingDiff = getCompassDiff(heading, targetHeading);
+    if (!isAcrobatic) headingDiff /= 2;
+  ...
+}
+
+```
+
+There. Let's see what that did for us:
+
+![image-20240115105424178](./image-20240115105424178.png)
+
+Looking pretty great!
+
+So, let's try one more edge-case: planes that cruise very close to their "never exceed" (V<sub>NE</sub>) speed limit.
 
 ## Auto-throttling
 
-Remember when we needed emergency measures to deal with the plane being told to climb faster than its engine could sustain? Our solution then was to decrease the target VS, and we're going to keep that solution, but a second option is to throttle up (if we can) so that the plane has the power it needs. Conversely, we never put in any descent protection, but as we descend we can pick up speed, and if we descent for several thousand feet, we might reach the point where we've picked up so much speed that the plane can't cope and something breaks. And then it's game over.
+Say we're flying a bear:
 
-So let's write an auto throttle to help us through those situations. Every plane model comes with "ideal cruise speed", "climb speed" and "typical descent rate" values, so we can write a new autopilot mode that looks at our current speed and vertical speed, and then throttles up or down in order to ensure we're keeping a reasonable speed.
+![image-20240115110330358](./image-20240115110330358.png)
 
-Let's add a new value to our `constants.js`:
+This is the Daher Kodiak 100. It's fast! It's famous! It's also relatively easy to fly, but it has a really weird design quirk in MSFS... see if you can spot it:
+
+![image-20240115110509192](./image-20240115110509192.png)
+
+If we look at its supposed cruise speed as reported by MSFS, it likes to fly at 174 knots. And if we look at our cockpit dash, it says we're going to die at 180 knots. That's... not a lot of leeway between "merrily cruising along" and "tearing a two million dollar plane apart in mid-air". So let's start a flight at 1500 feet, at its cruise speed of 174 knots, and climb up to its "intended" cruise altitude of 12000, and then... come back down to 1500 feet. And you can probably guess where this is going.
+
+![image-20240115112822755](./image-20240115112822755.png)
+
+Going up: not a problem! The Kodiak has a minimal climb speed of 101 knots, so we have power _to spare_. We never even drop below 120 knots during our climb. And then we try to descend.
+
+![image-20240115113754611](./image-20240115113754611.png)
+
+The first few thousand feet: not a problem! But our speed's slowly creeping up, and after a little over 4000 feet of descent, at an altitude of 7860.7 feet, we die.
+
+![image-20240115113934671](./image-20240115113934671.png)
+
+Game over.
+
+So how do we deal with this edge-case? If you remember when we needed emergency measures to deal with the plane being told to climb faster than its engine could sustain, our solution then was to decrease the target VS. However, a second option would have been to just throttle up so that the plane has the power it needs, with a reduced target VS only once we're maxed out on the throttle.
+
+Conversely, we can throttle _down_ if we're descending and we're seeing the plane go faster than its intended cruise speed. So let's write some "auto throttle" code  to help us keep our Kodiak 100 in one piece, starting with a new value to our `constants.js`:
 
 ```javascript
 ...
@@ -4537,9 +4612,18 @@ export function autoThrottle(autopilot, flightInformation) {
   // A factor for "how much our altitude difference matters":
   const altFactor = constrainMap(targetAlt - alt, 0, 100, 0, 0.25);
   
-  // And our throttling step size
-  const step = constrainMap(diff, 0, 50, 1, 5);
+  // And our throttling step size, which is both dependent on
+  // how far off our speed is from the target...
+  let step = constrainMap(diff, 0, 50, 1, 5);
   
+  // As well as how light the plane is, because the amount of
+  // throttle we need for a lumbering hulk will be way more
+  // than we need for a little and nimble little plane.
+  step = constrainMap(weight, 1000, 6000, step/5, step);
+  
+  // Also we want to make sure that while we can throttle
+  // up to 100%, we never throttle down past 25%. Because
+  // we don't want the engines to cut out on us.
   const throttle = amount => {
     changeThrottle(api, engineCount, amount, 25, 100);
   }
@@ -4602,15 +4686,24 @@ async function changeThrottle(api, engineCount = 4, byHowMuch, floor = 0, ceilin
 }
 ```
 
+Effectively: "try to maintain cruise speed". And with that in place, what does our Kodiak do when told to go from 12000 feet down to 1500 feet?
 
+![image-20240115120925999](./image-20240115120925999.png)
 
-Run at cruise speed, and throttle appropriately for climb/descent
+And once more: we live. You can see the auto-throttle keeping our speed around 174 knots (we go over a bit, we go under a bit) through pretty much the entire descent. Of course, not all planes are going to need this, and it would be downright silly to turn on for something like the DHC-2 Beaver, but for the planes that need it, we now have a button that keeps us alive.
 
-TODO: WRITE SECTION
+And with that, we've exhausted the list of edge cases to look at. Which means our autopilot is done! Which means we can finally get down to writing the _real_ autopilot! ..._Wait, what?_
 
 # Part four: "Let's just have JavaScript fly the plane for us"
 
-We have a pretty fancy autopilot, but the best autopilots let you plan your flight path, and then just... fly that for you. So before we call it a day (week? ...month??) let's not be outdone by the real world and make an even more convenient autopilot that lets us put some points on the map (rather than trying to input a flight plan one letter at a time with a jog dial), and then just takes off for you, figuring out what elevation to fly in order to stay a fixed distance above the ground, and landing at whatever is a nearby airport at the end of the flight. All on its own.
+So far we've been looking at what we _call_ an autopilot, but is it? Can we just get in the plane, and then tell it to pilot itself? In the real world: no, absolutely not, for very good reasons. But we're not dealing with the real world, we're dealing with a video game that we have near enough full control over, so why would we stop at "what you can do in the real world" when we can make things _so_ much cooler by adding in the bits you won't get in real life? We now have the basics in place for making the plane go where we want it to go, so let's create a UI that lets use _tell it_ where we want it to go, starting _and ending_ on a runway. Because now we're ready to tackle the  _really_ interesting parts:
+
+- creating a waypoint-based navigation system where you just put markers on the map to form a flight path, and have the plane figure out how to fly that path,
+- adding terrain awareness so we don't even need to care about setting the correct altitudes for each waypoint,
+- adding auto-takeoff so we can start the plane on the runway, hit "take off!" and then have the plane just... do that, and finally,
+- adding auto-landing, so that at the end of the flight, the plane just finds a nearby airport, figures out the approach, and then lands itself.
+
+If that sounds like too much work: it might be. And no one would blame you if you stopped here. But if that sounds _amazing_... we're not at the bottom of this page yet, let's implement some crazy shit!
 
 ## Waypoint navigation
 

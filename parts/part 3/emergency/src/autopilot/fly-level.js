@@ -150,7 +150,7 @@ function getTargetBankAndTurnRate(autopilot, heading, maxBank) {
   let targetHeading = FEATURES.FLY_SPECIFIC_HEADING && modes[HEADING_MODE];
   let headingDiff;
   if (targetHeading) {
-    headingDiff = getCompassDiff(heading, targetHeading);
+    headingDiff = getCompassDiff(heading, targetHeading) / 2;
     targetBank = constrainMap(headingDiff, -30, 30, maxBank, -maxBank);
     maxDBank = constrainMap(abs(headingDiff), 0, 10, 0, maxDBank);
   }

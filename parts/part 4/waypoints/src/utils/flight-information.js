@@ -52,6 +52,11 @@ export class FlightInformation {
       data.title.toLowerCase().includes(t.toLowerCase())
     );
 
+    const acrobatic = ['Pitts'];
+    data.isAcrobatic = acrobatic.some((t) =>
+      data.title.toLowerCase().includes(t.toLowerCase())
+    );
+
     // Create a convenience value for trimming
     data.pitchTrimLimit = [data.trimUpLimit ?? 10, data.trimDownLimit ?? -10];
     return (this.model = data);

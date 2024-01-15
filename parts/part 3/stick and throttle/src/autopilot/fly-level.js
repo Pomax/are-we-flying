@@ -47,7 +47,7 @@ export async function flyLevel(autopilot, state) {
   const { bank: dBank } = flightData.d ?? { bank: 0 };
 
   // And our model data
-  const { hasAileronTrim, weight } = flightModel;
+  const { hasAileronTrim, weight, isAcrobatic } = flightModel;
   const useStickInstead = hasAileronTrim === false;
 
   // Then, since we're running this over and over, how big should
@@ -67,9 +67,13 @@ export async function flyLevel(autopilot, state) {
   // be a number that may change every iteration.
   const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
   const { targetBank, maxDBank, targetHeading, headingDiff } =
-    getTargetBankAndTurnRate(autopilot, heading, maxBank, useStickInstead);
+    getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic);
   const aHeadingDiff = abs(headingDiff);
   const diff = targetBank - bank;
+
+  if (isAcrobatic) {
+    step = constrainMap(aHeadingDiff, 0, 10, step / 5, step / 20);
+  }
 
   // Then, we determine a trim update, based on how much we're off by.
   // Negative updates will correct us to the left, positive updates
@@ -150,12 +154,7 @@ export async function flyLevel(autopilot, state) {
 }
 
 // And our new function:
-function getTargetBankAndTurnRate(
-  autopilot,
-  heading,
-  maxBank,
-  useStickInstead
-) {
+function getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic) {
   const { modes } = autopilot;
 
   let targetBank = DEFAULT_TARGET_BANK;
@@ -171,8 +170,7 @@ function getTargetBankAndTurnRate(
   let headingDiff;
   if (targetHeading) {
     headingDiff = getCompassDiff(heading, targetHeading);
-    // if we're flying on stick, use a sliding target
-    if (useStickInstead) headingDiff /= 2;
+    if (!isAcrobatic) headingDiff /= 2;
     targetBank = constrainMap(headingDiff, -30, 30, maxBank, -maxBank);
     maxDBank = constrainMap(abs(headingDiff), 0, 10, 0, maxDBank);
   }
