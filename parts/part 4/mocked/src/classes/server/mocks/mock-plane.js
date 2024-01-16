@@ -10,7 +10,8 @@ import {
 const { abs, sign, PI } = Math;
 const TAU = PI * 2;
 
-// Our starting point is runway 27 at Victoria airport
+// Our starting point is runway 27 at Victoria
+// airport on Vancouver Island, BC, Canada.
 let lat = 48.646548831015394;
 let long = -123.41169834136964;
 let heading = 285.8;
@@ -22,7 +23,7 @@ const UPDATE_FREQUENCY = 450;
 
 export class MockPlane {
   constructor() {
-    this.TITLE = "Generic Airplane Number 1";
+    this.TITLE = "pretty terrible testing plane";
 
     // airplane data
     this.CATEGORY = 2;
@@ -93,12 +94,13 @@ export class MockPlane {
     this.VS = 0;
     this.dVS = 0;
 
+    this.lastCall = Date.now();
     this.run();
   }
 
-  run(now = Date.now()) {
-    this.lastCall = now;
-    runLater(() => this.update(), UPDATE_FREQUENCY);
+  run() {
+    this.update();
+    runLater(() => this.run(), UPDATE_FREQUENCY);
   }
 
   /**
@@ -107,7 +109,11 @@ export class MockPlane {
   update() {
     // get time-since-last-call in seconds
     const now = Date.now();
-    const interval = (now - this.lastCall) / 1000;
+    const ms = (now - this.lastCall);
+    const interval = ms / 1000;
+
+    if (ms < 100) return;
+    this.lastCall = now;
 
     // update the current altitude
     if (sign(this.VS) !== sign(this.dVS)) this.VS -= this.VS / 10;
@@ -117,9 +123,10 @@ export class MockPlane {
     } else {
       this.VS += update;
     }
+
     this.ALT += (this.VS / interval) * this.speedFactor;
 
-    // This plane can't crash.
+    // This plane can't crash, because what would be the point?
     if (this.ALT < 0) {
       this.ALT = 0;
       this.VS = 0;
@@ -143,14 +150,11 @@ export class MockPlane {
     long = long2;
 
     // update the magnetic deviation given this position
-    deviation = geomag.field(lat, long, altMeters / 1000).declination;
+    deviation = geomag.field(lat, long, this.ALT).declination;
 
     // update the current heading
     this.PLANE_BANK_DEGREES += -100 * radians(this.AILERON_TRIM_PCT);
-    heading -= (this.speedFactor * degrees(this.PLANE_BANK_DEGREES)) / 5;
-
-    // And then schedule the next update
-    this.run(now);
+    heading -= degrees(this.PLANE_BANK_DEGREES) / 10;
   }
 
   get speedFactor() {
@@ -227,8 +231,11 @@ export class MockPlane {
       this.GENERAL_ENG_THROTTLE_LEVER_POSITION = value;
     }
     if (name === `ELEVATOR_TRIM_POSITION`) {
+      if (isNaN(value)) {
+        console.trace();
+      }
       this.ELEVATOR_TRIM_POSITION = value;
-      this.dVS = degrees(value);
+      this.dVS = degrees(value)/100;
     }
     if (name === `AILERON_TRIM_PCT`) {
       this.AILERON_TRIM_PCT = value;

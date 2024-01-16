@@ -43,7 +43,7 @@ export async function flyLevel(autopilot, state) {
   const { data: flightData, model: flightModel } = state;
 
   // Get our current bank/roll information:
-  const { bank, speed, heading, turnRate } = flightData;
+  const { aileronTrim, bank, speed, heading, turnRate } = flightData;
   const { bank: dBank } = flightData.d ?? { bank: 0 };
 
   // And our model data
@@ -116,21 +116,22 @@ export async function flyLevel(autopilot, state) {
     if (aDiff < 2) update /= 2;
   }
 
-  console.log({
-    speed,
-    heading,
-    targetHeading,
-    headingDiff,
-    bank,
-    maxBank,
-    dBank,
-    maxDBank,
-    targetBank,
-    diff,
-    turnRate,
-    step,
-    update,
-  });
+  // console.log({
+  //   aileronTrim,
+  //   speed,
+  //   heading,
+  //   targetHeading,
+  //   headingDiff,
+  //   bank,
+  //   maxBank,
+  //   dBank,
+  //   maxDBank,
+  //   targetBank,
+  //   diff,
+  //   turnRate,
+  //   step,
+  //   update,
+  // });
 
   // If we're banking too hard, counter trim by "a lot".
   if (FEATURES.EMERGENCY_PROTECTION) {

@@ -1,7 +1,7 @@
 import { __root } from "./constants.js";
 import { win32, posix } from "node:path";
 
-const { PI } = Math;
+const { asin, atan2, sin, cos, PI } = Math;
 
 export function runLater(fn, timeoutInMillis) {
   // this is literally just setTimeout, but with a try/catch so
@@ -61,4 +61,29 @@ export function exceeds(a, b) {
   if (a < -b) return a + b;
   if (a > b) return a - b;
   return 0;
+}
+
+export function getPointAtDistance(lat1, long1, d, heading, R = 6371) {
+  `
+    lat: initial latitude, in degrees
+    lon: initial longitude, in degrees
+    d: target distance from initial in kilometers
+    heading: (true) heading in degrees
+    R: optional radius of sphere, defaults to mean radius of earth
+
+    Returns new lat/lon coordinate {d}km from initial, in degrees
+  `;
+
+  lat1 = radians(lat1);
+  long1 = radians(long1);
+  const a = radians(heading);
+  const lat2 = asin(sin(lat1) * cos(d / R) + cos(lat1) * sin(d / R) * cos(a));
+  const dx = cos(d / R) - sin(lat1) * sin(lat2);
+  const dy = sin(a) * sin(d / R) * cos(lat1);
+  const long2 = long1 + atan2(dy, dx);
+  return { lat: degrees(lat2), long: degrees(long2) };
+}
+
+export function lerp(r, a, b) {
+  return (1 - r) * a + r * b;
 }

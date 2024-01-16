@@ -61,6 +61,9 @@ import { AutopilotRouter } from "./routers/autopilot-router.js";
 // connector, we're going to make it a global (to our module):
 let api = false;
 
+import { MOCK_API } from "./mocks/mock-api.js";
+const USE_MOCK = process.argv.includes(`--mock`);
+
 // Next up, our server class:
 export class ServerClass {
   #authenticatedClients = [];
@@ -71,7 +74,7 @@ export class ServerClass {
     // set up the API variable - note that because this is a global,
     // clients can't directly access the API. However, we'll be setting
     // up some API routing to make that a non-issue in a bit.
-    api = new MSFS_API();
+    api = USE_MOCK ? new MOCK_API() : new MSFS_API();
 
     // Set up call handling for API calls: this will be explained after we
     // finish writing this class. We bind it as `this.api` so that any
@@ -85,6 +88,8 @@ export class ServerClass {
     autopilot = new AutoPilot(api, (params) =>
       clients.forEach((client) => client.onAutoPilot(params))
     );
+
+    if (USE_MOCK) api.setAutopilot(autopilot);
 
     // And set up call routing for the autopilot in the same way as we
     // did for the API: only authenticated clients are allowed to mess

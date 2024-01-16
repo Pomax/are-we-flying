@@ -1,4 +1,15 @@
-import { MockPlane } from "./mock-plane.js";
+import url from "node:url";
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+
+import { watch } from "../../../utils/reload-watcher.js";
+let { MockPlane } = await watch(__dirname, "./mock-plane.js", (lib) => {
+  MockPlane = lib.MockPlane;
+  if (plane) {
+    Object.setPrototypeOf(plane, MockPlane.prototype);
+  }
+});
+let plane = new MockPlane();
+
 import { runLater } from "../../../utils/utils.js";
 
 export class MOCK_API {
@@ -11,7 +22,6 @@ export class MOCK_API {
       ==========================================
     `);
     this.connected = true;
-    this.plane = new MockPlane();
   }
 
   async setAutopilot(autopilot) {
@@ -49,15 +59,16 @@ export class MOCK_API {
       };
     }
     // everything else gets handled by the "plane".
-    return this.plane.get(props);
+    const result = plane.get(props);
+    return result;
   }
 
   async set(name, value) {
-    this.plane.set(name.replace(/:.*/, ``), value);
+    plane.set(name.replace(/:.*/, ``), value);
   }
 
   async trigger(name, value) {
-    this.plane.trigger(name, value);
+    plane.trigger(name, value);
   }
 
   async on({ name }, handler) {
