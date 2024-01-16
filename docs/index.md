@@ -4706,7 +4706,7 @@ If that sounds like too much work: it might be. And no one would blame you if yo
 
 ## Mocking ourselves an airplane
 
-Before we jump into waypoint navigation, let's "quickly" implement a mock airplane, to save ourselves the hassle of needing to run MSFS for some tests that would take forever to run through MSFS, and just... don't need it running? All we need is our own fake plane, with associated fake API to report on that plane, such that it "mostly" behaves: as long as it models some rudimentary physics, running our autopilot code on it should work.
+Before we jump into all this, let's "quickly" implement a mock airplane, to save ourselves the hassle of needing to run MSFS for some tests that would take forever to run through MSFS, and just... don't need it running? All we need is our own fake plane, with associated fake API to report on that plane, such that it "mostly" behaves: as long as it models some rudimentary physics, running our autopilot code on it should work.
 
 ## Waypoint navigation
 
