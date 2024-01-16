@@ -1,9 +1,9 @@
 import { watchFile } from "node:fs";
-import { __root } from "./constants.js";
+import { root } from "./constants.js";
 import { rootRelative } from "./utils.js";
 
 export async function watch(basePath, modulePath, onChange) {
-  const filePath = basePath + modulePath;
+  const filePath = basePath + `/` + modulePath;
   const moduleURL = `file:///${filePath}`;
 
   // Step 1: don't run file-watching in production. Obviously.
@@ -19,7 +19,7 @@ export async function watch(basePath, modulePath, onChange) {
     .map((v) => {
       return v
         .trim()
-        .replace(`file:///${__root}`, `./`)
+        .replace(`file:///${root}`, `./`)
         .replace(/^at /, `  in `)
         .replace(/new (\S+)/, `$1.constructor`);
     })

@@ -1,8 +1,6 @@
 // First we load our .env file:
-import url from "node:url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
-dotenv.config({ path: `${__dirname}/.env` });
+dotenv.config({ path: `${import.meta.dirname}/.env` });
 
 // Then we set up socketless so it can do its thing:
 import { createServer } from "socketless";

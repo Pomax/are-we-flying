@@ -1,8 +1,5 @@
-import url from "node:url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-
 import { watch } from "../../../utils/reload-watcher.js";
-let { MockPlane } = await watch(__dirname, "./mock-plane.js", (lib) => {
+let { MockPlane } = await watch(import.meta.dirname, "./mock-plane.js", (lib) => {
   MockPlane = lib.MockPlane;
   if (plane) {
     Object.setPrototypeOf(plane, MockPlane.prototype);

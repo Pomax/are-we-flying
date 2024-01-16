@@ -1,14 +1,14 @@
-import url from "node:url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+const { dirname } = import.meta;
+
 import dotenv from "dotenv";
-dotenv.config({ path: `${__dirname}/.env` });
+dotenv.config({ path: `${dirname}/.env` });
 const { API_PORT, WEB_PORT } = process.env;
 
 import { ClientClass } from "./src/classes/client/client.js";
 import { createWebClient } from "socketless";
 
 const serverURL = `http://localhost:${API_PORT}`;
-const dir = `${__dirname}/public`;
+const dir = `${dirname}/public`;
 const { clientWebServer } = createWebClient(ClientClass, serverURL, dir);
 
 clientWebServer.listen(WEB_PORT, () => {

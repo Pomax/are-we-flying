@@ -1,5 +1,4 @@
-import url from "node:url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+const dirname = import.meta.dirname;
 import { watch } from "../utils/reload-watcher.js";
 
 import { runLater } from "../utils/utils.js";
@@ -14,20 +13,20 @@ import {
 
 // and import the "fly level" code using our hot-reloading technique
 let { flyLevel } = await watch(
-  __dirname,
+  dirname,
   `fly-level.js`,
   (lib) => (flyLevel = lib.flyLevel)
 );
 
 // and import the "fly level" code using our hot-reloading technique
 let { autoThrottle } = await watch(
-  __dirname,
+  dirname,
   `auto-throttle.js`,
   (lib) => (autoThrottle = lib.autoThrottle)
 );
 
 let { altitudeHold } = await watch(
-  __dirname,
+  dirname,
   `altitude-hold.js`,
   (lib) => (altitudeHold = lib.altitudeHold)
 );

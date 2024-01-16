@@ -1,4 +1,4 @@
-import { __root } from "./constants.js";
+import { root } from "./constants.js";
 import { win32, posix } from "node:path";
 
 const { asin, atan2, sin, cos, PI } = Math;
@@ -18,7 +18,7 @@ export function runLater(fn, timeoutInMillis) {
 
 // Get a file's path relative to the project root directory
 export function rootRelative(filepath) {
-  return filepath.split(win32.sep).join(posix.sep).replace(__root, `./`);
+  return filepath.split(win32.sep).join(posix.sep).replace(root, `./`);
 }
 
 // Check whether something "is a value"

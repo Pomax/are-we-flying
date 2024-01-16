@@ -1,8 +1,7 @@
 // Load the environment:
-import url from "node:url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+const dirname = import.meta.dirname
 import dotenv from "dotenv";
-dotenv.config({ path: `${__dirname}/../../../.env` });
+dotenv.config({ path: `${dirname}/../../../.env` });
 
 const { FLIGHT_OWNER_KEY } = process.env;
 
@@ -31,7 +30,7 @@ import { watch } from "../../utils/reload-watcher.js";
 // Import our fancy new class, in a way that lets us hot-reload it:
 let flightInformation;
 let { FlightInformation } = await watch(
-  __dirname,
+  dirname,
   `../../utils/flight-information.js`,
   (module) => {
     FlightInformation = module.FlightInformation;
@@ -44,7 +43,7 @@ let { FlightInformation } = await watch(
 // we'll make the autopilot hot-reloadable:
 let autopilot = false;
 let { AutoPilot } = await watch(
-  __dirname,
+  dirname,
   `../../autopilot/autopilot.js`,
   (module) => {
     AutoPilot = module.AutoPilot;

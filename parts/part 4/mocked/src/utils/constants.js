@@ -1,7 +1,5 @@
 import { join, resolve, sep, win32, posix } from "node:path";
-import url from "node:url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
-export const __root = (resolve(join(__dirname, `..`, `..`)) + sep)
+export const root = (resolve(join(import.meta.dirname, `..`, `..`)) + sep)
   .split(win32.sep)
   .join(posix.sep);
 
