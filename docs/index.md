@@ -59,15 +59,15 @@ And along the way we're going to learn a few developer tricks like hot reloading
 
 By the time we're done, we'll have a web page that looks a little bit like this:
 
-![sim view on the map](./image-20240115124122803.png)
+![sim view on the map](./images/sim-view-on-map.png)
 
 While the in game view looking like this:
 
-![in-game sim view](./image-20240115124017069.png)
+![in-game sim view](./images/in-game-sim-view.png)
 
 or this:
 
-![image-20240115123949721](./image-20240115123949721.png)
+![in-game sim view outside](./images/in-game-sim-view-outside.png)
 
 If that sounds (and looks) good to you, then read on!
 
@@ -85,7 +85,7 @@ As mentioned, we're going to have to do a bit of prep work before we can start w
 
 In high fidelity image media, we'll be implementing this:
 
-<img src="./images/server/server-diagram.png" alt="image-20230606182637607" style="display: inline-block; zoom: 80%;" />
+<img src="./images/server/server-diagram.png" style="display: inline-block; zoom: 80%;" />
 
 And as mentioned, to make our lives a little easier we're going to be using the [socketless](https://www.npmjs.com/package/socketless) library to take care of the actual client/server management, so we can just focus on writing the code that's going to let us show a user interface based on talking to MSFS. The nice thing about this library is that it does some magic that lets clients and servers call functions on each other "without knowing there's a network". If the server has a function called `test` then the client can just call `const testResult = await this.server.test()` and done, as far as the client knows, the server is just a local variable. Similarly, if the client has a function called `test` then server can call that with a `const testResult = await this.clients[...].test()` and again, as far as the server knows it's just working with a local variable.
 
@@ -3308,9 +3308,9 @@ Let's confirm everything works.
 - start our API server with `node api-server`,
 - start our client web server with `node web-server --owner --browser`,
 - we won't need to start MSFS for this one, as nothing we're doing relies on having the game running (yet!)
-- our browser should open and we should see our page with the new autopilot button:<br>![image-20231105095108092](./images/page/ap-button-off.png)
+- our browser should open and we should see our page with the new autopilot button:<br>![our AP button off...](./images/page/ap-button-off.png)
 
-- and if we click it, we should see it turn red, because it now has an `active` class:<br>![image-20231105095214329](./images/page/ap-button-on.png)
+- and if we click it, we should see it turn red, because it now has an `active` class:<br>![And our AP button on](./images/page/ap-button-on.png)
 
 The important thing to realize is that the button doesn't turn red "when we clicked it" because we didn't write any code that adds an `active` class when we click a button. Instead _a lot more_ happens:
 
@@ -3353,11 +3353,10 @@ So how do we determine the size of corrections we need to put in? Enter the cons
 Before we do anything else, let's first look at what is probably _the_ single most important function in our autopilot: `constrainMap`. This function takes a value, relative to some interval `[a,b]`, and maps it to the corresponding value in a different interval `[c,d]`, such that `a` maps to `c`, `b` maps to `d`, and anything in between `a` and `b` is some new value between `c` and `d`. This is nothing special, that's just numerical mapping, but the critical part here is that in addition to the standard mapping, we also make sure that any value less than `a` _still maps to `c`_ and any value greater than `b` _still maps to `d`_:
 
 <figure style="width: 80%; margin: auto; margin-bottom: 1em;">
-  <a href="images/constrain_map.png" target="_blank">
-    <img src="images/constrain_map.png" alt="Constrained mapping"/>
-  </a>
+  <img src="images/constrain_map.png" alt="Constrained mapping"/>
   <figcaption style="font-style: italic; text-align: center;">Mapping interval [a,b] to [c,d]<br></figcaption>
 </figure>
+
 
 That last part is critically important: if we're going to write an autopilot, we want to be able to effect proportional changes, but we want to "cap" those changes to some minimum and maximum value because just yanking the plane in some direction so hard that it stalls is the opposite of useful.
 
@@ -3591,7 +3590,7 @@ Now, we could test this immediately, but we've only implemented half of a minima
 
 ### ALT: altitude hold
 
-<img src="./images/alt-hold/holding-altitude.png" alt="image-20231105212055349" style="zoom:67%;" />
+<img src="./images/alt-hold/holding-altitude.png" style="zoom:67%;" />
 
 Next up: making the plane hold its vertical position. This requires updating the "pitch trim" (also known as elevator trim) rather than our aileron trim, by looking at the plane's vertical speed and trying to keep it at zero. That is, we're going to look at how fast the plane is moving up or down through the air, and then we're going to try to get that value down to zero by pitching the plane a little in whichever direction counteracts the vertical movement.
 
@@ -3763,13 +3762,13 @@ And we'll update our HTML partial to include the ALT switch:
 
 Then, in order to see how well our code works, we'll be flying around a bit in The [De Havilland DHC-2 "Beaver"](https://en.wikipedia.org/wiki/De%5FHavilland%5FCanada%5FDHC-2%5FBeaver), a fun little piston engine bush plane:
 
-![image-20231105214745162](./images/planes/beaver-shot.png)
+![The DeHavilland DHC-2 "Beaver"](./images/planes/beaver-shot.png)
 
 And our order of operations will be to spawn the plane at cruise altitude in above the middle of the pacific ocean in fair weather, have it stabilize itself on the in-game autopilot as a substitute for manually trimming the plane, and then switch to our own autopilot (which will turn off the in-game one) to see how well that holds up. And then we're going to compare our "before" and "after" graphs to see what we can learn.
 
 See if you can tell when we switched from the in-game autopilot to our own autopilot in the following science:
 
-![image-20240112092353775](./image-20240112092353775.png)
+![Initial test](./images/combined/initial-test.png)
 
 So yeah, this should be relatively obvious: our autopilot is more aggressive than the in-game one, which means it won't be as smooth of a ride, but the more important thing to notice is that our VS is not centered around zero, and our bank angle isn't either, even if it's hard to tell. We've left our in-game autopilot altitude of 1500 and ended up at about 1560 feet over the course of our own autopilot being active in these graphs, and we've also drifted to the left, starting at a heading of 341 degrees but slowly turning towards 338 by the end of the graph.
 
@@ -3921,7 +3920,7 @@ export class Autopilot {
 
 So let's save all that and then first set both our new `DAMPEN_CLOSE_TO_ZERO` and `TARGET_TO_HOLD` features to `false`,  so that we're still flying "the same way we did before". Then, after we've established that we're autopiloting just as aggressively (because nothing changed in terms of the code running yet), we change them to `true`, and save, to see the immediately result... 
 
-![image-20240112093322537](./image-20240112093322537.png)
+![With target altitude](./images/alt-hold/target-altitude.png)
 
 We see that our VS is now actually centered around zero, so we're _actually_ holding altitude, with a calmer moment-to-moment dVS, too, meaning that when we do change VS, it's less abrupt and we're less likely to get airsick.
 
@@ -4125,15 +4124,15 @@ And we're done, our wing leveler can now actually fly a heading and maintain tha
 
 Technically, we also just implemented "change logic", because if we can set an altitude or heading, then we can also change those numbers and the plane will go "okay well that's not what we're doing here, let me put in corrections until we're at that altitude/flying that heading". But if we do that, we see that the transitions aren't exactly smooth. If we change our altitude, and we look at the VS curve...
 
-![image-20240112095149402](./image-20240112095149402.png)
+![image-20240112095149402](./images/combined/improvement-01.png)
 
 That's definitely choppy. Things get worse though, if we try to change our heading:
 
-![image-20240112095455585](./image-20240112095455585.png)
+![image-20240112095455585](./images/combined/improvement-02.png)
 
 The heading change isn't super smooth either, but what's worse is that when we bank we're going to drop (because that's how physics works, we've traded lift for torque), and in order to compensate the autopilot will change the plane's pitch, but then when we come out of our turn, that extra VS pushes us up, then the autopilot tries to correct for that, but it's a bit too much, so we end up undershooting, then the autopilot tries to correct for a VS that's already larger than it can cope with, so it adds as much as it can, and we overshoot. And now we're in a situation where we're _technically_ in a "stable flight" configuration, but my goodness _would it ever be uncomfortable_:
 
-![image-20240112095836943](./image-20240112095836943.png)
+![image-20240112095836943](./images/combined/improvement-03.png)
 
 We might not be crashing, but we're also not really "flying" anymore, we're on a nightmare rollercoaster of death. So let's fix that.
 
@@ -4197,13 +4196,13 @@ export async function altitudeHold(autopilot, flightInformation) {
 
 And this seems to have tamed our rollercoaster well enough:
 
-![image-20240112125552085](./image-20240112125552085.png)
+![ALT intervention](./images/combined/alt-intervention/alt-intervention.png)
 
 Putting it through its paces by running four 100 degree turns shows that we're still not turning "perfectly level", but that's fine, at least we manage to make a turn and end up pointing in the right direction, at the right altitude after coming out of our turn, instead of things going horribly wrong.
 
 In fact, let's intentionally make things go horribly wrong by yanking on the stick and making the plane rocket upwards, as well as push down to induce a nose dive. Do we stabilize to a safe situation again?
 
-![image-20240112160036573](./image-20240112160036573.png)
+![ALT intervention](./images/combined/alt-intervention/alt-intervention 2.png)
 
 We do! Sure, it won't be comfortable, and it'll be scary as heck, but we can just ride it out, instead of either getting stuck in a nightmare ride or our plane crashing.
 
@@ -4274,7 +4273,7 @@ function getTargetBankAndTurnRate(autopilot, heading, maxBank) {
 
  Let's look at the difference this makes, by temporarily changing the charting config for our `heading` value from "always show the full 0 through 360 degrees" to "dynamically zoom the graph as needed" (similar to how vertical speed gets plotted). First, changing course from 250 degrees to 300 degrees and back with `SNAP_TO_HEADING` turned off vs. with `SNAP_TO_HEADING` turned on:
 
-![image-20240114094850203](./image-20240114094850203.png)
+![Snap to heading](./images/combined/heading-snap/snap-to-heading.png)
 
 Much better. The first two turns with our original code take "forever" to actually stabilize, overshooting, then again, and then _again_, whereas with snapping turned on we get to our target heading and then as the name implies we "snap to that heading" and now that's the direction we're going.
 
@@ -4290,7 +4289,7 @@ That said, this is the least likely plane to succeed, mostly because it flies so
 
 So, let's see what happens when we start a flight and turn on our autopilot. We'll first see if it can hold an altitude, then set it to climb, see if it can do that, and then set it to descend, and see if it can do that.
 
-![image-20240112182416946](./image-20240112182416946.png)
+![A Top Rudder failure...](./images/combined/top-rudder-failure.png)
 
 ...We... uh... yeah, we may need to do something about that. Things start out alright, where we're holding altitude perfectly fine, but once we start to climb, things start to go wrong, fast. See that "speed" graph? That's showing us that as we're climbing, we're losing speed. Nothing unusual about that, but we're losing _a lot_ of speed. So much so, in fact, that we drop below the safe climbing speed of 30 knots, all the way down to below stall speed at 21 knots. And then it's basically game over.
 
@@ -4342,13 +4341,13 @@ This code should be fairly self-explanatory (given the code comments): SimConnec
 
 So we're no longer at risk of the death spiral we were getting in before. In fact, we can now "comfortably" climb from 1500 feet up to 6000 feet, and back down to 1500, and then back up to 6000 etc. etc:
 
-![image-20240112224841383](./image-20240112224841383.png)
+![Top Rudder success!](./images/combined/top-rudder-success.png)
 
 ...insofar as flying up to that altitude can be called comfortable when piloting an ultralight, or course... I hope we're wearing thermal pants! And can I just point out: **we added an autopilot to an ultralight**. That alone would be an amazing bit of open source to run alongside your game! And we're only getting started!
 
 Buuuuut just out of curiosity, what if we change altitude and heading at the same time? Let's try a 500 foot climb with a 90 degree turn at the same time, and then a 500 foot descent with another 90 degree turn. Place your bets on what will happen... will we live?
 
-![image-20240115101015322](./image-20240115101015322.png)
+![Top Rudder success!](./images/combined/top-rudder-success-2.png)
 
 We will! It's certainly not confidence inspiring, it doesn't look like a thing we'll ever _actually_ want to do, and even if we do, we'll probably want our hands on the stick despite having an "autopilot", but: we'll live! Excellent!
 
@@ -4459,11 +4458,11 @@ function getTargetBankAndTurnRate(autopilot, heading, maxBank, useStickInstead) 
 
 We're partially "guessing" here, with an alternative step size based on "flying a bunch of planes and seeing what works". The heading also isn't held as strictly as the trim-based approach, but at least now we can _fly_ planes without aileron trim, even if it's going to be less precise. In fact, we're probably going to drift, but again: we'll take it. At least things "work".
 
-![image-20240115101349727](./image-20240115101349727.png)
+![the Piper Turbo Arrow III](./images/planes/turbo-arrow-III-shot.png)
 
 Let's use Just Flight's [PA28 Piper Turbo Arrow III](https://www.justflight.com/product/pa-28r-turbo-arrow-iii-iv-microsoft-flight-simulator) to demonstrate the effect of this code, setting it to a heading of 250 degrees, switching to 300, and then back to 250. It can't strictly hold those, but it's "close enough to probably be fine if we have a flight path", which we'll tackle in part 4.
 
-![image-20240114143517017](./image-20240114143517017.png)
+![Leveling using the stick](./images/combined/no-aileron-trim/level-on-stick.png)
 
 The Piper settles a few degrees off from the actual heading it needs to fly (actually flying 253, 303, and 253) but given how few planes are "broken" in this way, we're going to call that good enough. We could test a few more planes that don't have aileron trim, and if they're all off in the same way, we can always just "cheat" by updating `getTargetBankAndTurnRate` so that it uses a heading that's 3 degrees less than what we specified or something. But that's more of an "if there's a plane we like to fly with this specific problem" rather than something that's worth tackling now.
 
@@ -4473,11 +4472,11 @@ What other edge-cases might we have?
 
 Say we want to have some fun in our stunt plane, but it's a boring flight to the practice "grounds" so we just turn on our autopilot to get us there.
 
-![image-20240115101751750](./image-20240115101751750.png)
+![the Pitts Special S1](./images/planes/pitts-special-shot.png)
 
 Will our current autopilot code actually get us there? As it turns out, no. No it won't:
 
-![image-20240115102153561](./image-20240115102153561.png)
+![image-20240115102153561](./images/combined/acrobatic/bad-acrobatics.png)
 
 That's a hard crash. And adding our plane to the list of "trim on stick" planes won't help either: the problem here is that these planes fly fundamentally differently from "regular" planes, with near-instant response to control inputs, and our autopilot simply can't run fast enough to keep up. We can't really speed up our autopilot (I mean, we can probably speed it up _a bit_, but we're definitely not going to run it every frame: we only have so much CPU available, and MSFS famously wants all of it), but what we _can_ do is make our autopilot give these kinds of planes much smaller corrections. This will make us turn slower, but on the upside: it makes the plane turn slower rather than immediately trying to do a roll.
 
@@ -4542,7 +4541,7 @@ function getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic) {
 
 There. Let's see what that did for us:
 
-![image-20240115105424178](./image-20240115105424178.png)
+![image-20240115105424178](./images/combined/acrobatic/good-acrobatics.png)
 
 Looking pretty great!
 
@@ -4552,23 +4551,25 @@ So, let's try one more edge-case: planes that cruise very close to their "never 
 
 Say we're flying a bear:
 
-![image-20240115110330358](./image-20240115110330358.png)
+![The Kodiak 100](./images/planes/kodiak-100-shot.png)
 
 This is the Daher Kodiak 100. It's fast! It's famous! It's also relatively easy to fly, but it has a really weird design quirk in MSFS... see if you can spot it:
 
-![image-20240115110509192](./image-20240115110509192.png)
+![The problem with the Kodiak 100...](./images/combined/throttle/kodiak-problem.png)
 
 If we look at its supposed cruise speed as reported by MSFS, it likes to fly at 174 knots. And if we look at our cockpit dash, it says we're going to die at 180 knots. That's... not a lot of leeway between "merrily cruising along" and "tearing a two million dollar plane apart in mid-air". So let's start a flight at 1500 feet, at its cruise speed of 174 knots, and climb up to its "intended" cruise altitude of 12000, and then... come back down to 1500 feet. And you can probably guess where this is going.
 
-![image-20240115112822755](./image-20240115112822755.png)
+![Gettting to 12,000 feet is not a problem](./images/combined/throttle/kodiak-climb.png)
 
-Going up: not a problem! The Kodiak has a minimal climb speed of 101 knots, so we have power _to spare_. We never even drop below 120 knots during our climb. And then we try to descend.
+Going up: not a problem! With a cruise speed of 174 bit a minimum safe climb speed of 101 knots, the Kodiak has power _to spare_. We never even drop below 120 knots during our climb. And then we try to descend.
 
-![image-20240115113754611](./image-20240115113754611.png)
+![Descending 12,000 feet does not end well](./images/combined/throttle/kodiak-descent-death.png)
 
-The first few thousand feet: not a problem! But our speed's slowly creeping up, and after a little over 4000 feet of descent, at an altitude of 7860.7 feet, we die.
+The first few thousand feet: not a problem!
 
-![image-20240115113934671](./image-20240115113934671.png)
+But all the while our speed is slowly creeping up, and after a little over 4000 feet of descent, at an altitude of 7860.7 feet, we're going too fast for the plane to handle and... 
+
+![we overstressed the plane, which is a polite way to say we died](./images/combined/throttle/overstressed.png)
 
 Game over.
 
@@ -4688,11 +4689,9 @@ async function changeThrottle(api, engineCount = 4, byHowMuch, floor = 0, ceilin
 
 Effectively: "try to maintain cruise speed". And with that in place, what does our Kodiak do when told to go from 12000 feet down to 1500 feet?
 
-![image-20240115120925999](./image-20240115120925999.png)
+![A fixed Kodiak 100](./images/combined/throttle/fixed.png)
 
-And once more: we live. You can see the auto-throttle keeping our speed around 174 knots (we go over a bit, we go under a bit) through pretty much the entire descent. Of course, not all planes are going to need this, and it would be downright silly to turn on for something like the DHC-2 Beaver, but for the planes that need it, we now have a button that keeps us alive.
-
-And with that, we've exhausted the list of edge cases to look at. Which means our autopilot is done! Which means we can finally get down to writing the _real_ autopilot! ..._Wait, what?_
+And once more: we live. You can see the auto-throttle keeping our speed around 174 knots (we go over a bit, we go under a bit) through pretty much the entire descent. And with that, we've exhausted the list of edge cases to look at. Which means our autopilot is done! Which means we can finally get down to writing the _real_ autopilot! ..._Wait, what?_
 
 # Part four: "Let's just have JavaScript fly the plane for us"
 
@@ -4704,6 +4703,10 @@ So far we've been looking at what we _call_ an autopilot, but is it? Can we just
 - adding auto-landing, so that at the end of the flight, the plane just finds a nearby airport, figures out the approach, and then lands itself.
 
 If that sounds like too much work: it might be. And no one would blame you if you stopped here. But if that sounds _amazing_... we're not at the bottom of this page yet, let's implement some crazy shit!
+
+## Mocking ourselves an airplane
+
+Before we jump into waypoint navigation, let's "quickly" implement a mock airplane, to save ourselves the hassle of needing to run MSFS for some tests that would take forever to run through MSFS, and just... don't need it running? All we need is our own fake plane, with associated fake API to report on that plane, such that it "mostly" behaves: as long as it models some rudimentary physics, running our autopilot code on it should work.
 
 ## Waypoint navigation
 
