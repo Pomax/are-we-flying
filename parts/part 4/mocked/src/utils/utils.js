@@ -87,3 +87,7 @@ export function getPointAtDistance(lat1, long1, d, heading, R = 6371) {
 export function lerp(r, a, b) {
   return (1 - r) * a + r * b;
 }
+
+export function flip(v) {
+  return Math.abs(v - 1);
+}

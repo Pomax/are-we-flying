@@ -1,265 +1,190 @@
 import * as geomag from "geomag";
+import { getInitialState } from "./simvars.js";
+import { convertValues, renameData } from "../../../utils/flight-values.js";
+import { FEET_PER_METER, ONE_KTS_IN_KMS } from "../../../utils/constants.js";
 import {
   constrainMap,
   degrees,
   getPointAtDistance,
   radians,
   runLater,
+  lerp,
+  flip,
 } from "../../../utils/utils.js";
 
-const { abs, sign, PI } = Math;
-const TAU = PI * 2;
-
-// Our starting point is runway 27 at Victoria
-// airport on Vancouver Island, BC, Canada.
-let lat = 48.646548831015394;
-let long = -123.41169834136964;
-let heading = 285.8;
-let deviation = 15.8;
-let altitude = 0;
-
-const ONE_KTS_IN_KMS = 0.000514444;
 const UPDATE_FREQUENCY = 450;
 
 export class MockPlane {
+  /**
+   * Our starting point will be 1500 feet above runway 27
+   * at Victoria Airport on Vancouver Island, BC, Canada.
+   */
   constructor() {
-    this.TITLE = "pretty terrible testing plane";
-
-    // airplane data
-    this.CATEGORY = 2;
-    this.DESIGN_CRUISE_ALT = 12000;
-    this.DESIGN_SPEED_VS0 = 80;
-    this.ELEVATOR_TRIM_DOWN_LIMIT = 18;
-    this.ELEVATOR_TRIM_UP_LIMIT = 18;
-    this.ENGINE_TYPE = 1;
-    this.IS_GEAR_FLOATS = 0;
-    this.IS_GEAR_RETRACTABLE = 1;
-    this.STALL_ALPHA = 0;
-    this.TYPICAL_DESCENT_RATE = 80;
-    this.WING_AREA = 1000;
-    this.WING_SPAN = 100;
-
-    this.TAILWHEEL_LOCK_ON = 0;
-    this.BRAKE_PARKING_POSITION = 0;
-    this.GEAR_HANDLE_POSITION = 100;
-    this.ENG_COMBUSTION = 1;
-    this.GENERAL_ENG_THROTTLE_LEVER_POSITION = 95;
-    this.ELECTRICAL_TOTAL_LOAD_AMPS = -148.123;
-
-    // flight data
-    this.AILERON_POSITION = 0;
-    this.ELEVATOR_TRIM_PCT = 0;
-    this["GEAR_POSITION:1"] = 1;
-    this.GEAR_SPEED_EXCEEDED = 0;
-    this.RUDDER_POSITION = 0;
-
-    this.GPS_GROUND_TRUE_TRACK = radians(150);
-    this.PLANE_BANK_DEGREES = 0;
-    this.PLANE_PITCH_DEGREES = 0;
-    this.TURN_INDICATOR_RATE = 0;
-
-    // control values
-    this.ELEVATOR_POSITION = 0;
-    this.AILERON_TRIM_PCT = 0;
-    this.ELEVATOR_TRIM_POSITION = 0;
-    this.RUDDER_TRIM_PCT = 0;
-
-    // autopilot values
-    this.AUTOPILOT_MASTER = 0;
-    this.AUTOPILOT_HEADING_LOCK_DIR = heading - deviation;
-
-    // model properties
-    this.DESIGN_SPEED_VNE = 200;
-    this.DESIGN_SPEED_CLIMB = 120;
-    this.DESIGN_SPEED_VC = 280;
-    this.DESIGN_SPEED_VS1 = 100;
-    this.DESIGN_SPEED_MIN_ROTATION = 100;
-    this.DESIGN_TAKEOFF_SPEED = 120;
-    this.IS_TAIL_DRAGGER = 0;
-    this.NUMBER_OF_ENGINES = 1;
-    this.STATIC_CG_TO_GROUND = 0;
-    this.TOTAL_WEIGHT = 3000;
-
-    // "game" values
-    this.CRASH_FLAG = 0;
-    this.CRASH_SEQUENCE = 0;
-    this.OVERSPEED_WARNING = 0;
-    this.CAMERA_STATE = 2; // cockpit
-    this.CAMERA_SUBSTATE = 2; // unlocked view
-    this.ELECTRICAL_AVIONICS_BUS_VOLTAGE = 480;
-    this.ELECTRICAL_TOTAL_LOAD_AMPS = 400;
-
-    // non-simconnect values
-    this.ALT = 1500;
-    this.VS = 0;
-    this.dVS = 0;
-
-    this.lastCall = Date.now();
+    this.data = getInitialState();
     this.run();
   }
 
-  run() {
-    this.update();
-    runLater(() => this.run(), UPDATE_FREQUENCY);
+  setPosition(lat, long) {
+    const { data } = this;
+    data.PLANE_LATITUDE = radians(lat);
+    data.PLANE_LATITUDE = radians(long);
+  }
+
+  setHeading(
+    deg,
+    lat = degrees(this.data.PLANE_LATITUDE),
+    long = degrees(this.data.PLANE_LONGITUDE),
+    alt = this.data.INDICATED_ALTITUDE / (1000 * FEET_PER_METER)
+  ) {
+    console.log(`heading: ${deg}`);
+    const { data } = this;
+    const declination = geomag.field(lat, long, alt).declination;
+    data.MAGVAR = radians(declination);
+    deg = (deg + 360) % 360;
+    data.PLANE_HEADING_DEGREES_MAGNETIC = radians(deg);
+    data.PLANE_HEADING_DEGREES_TRUE = radians(deg + declination);
+  }
+
+  setAltitude(feet, lat, long, groundAlt = this.getGroundAlt(lat, long)) {
+    const { data } = this;
+    data.INDICATED_ALTITUDE = feet;
+    data.PLANE_ALT_ABOVE_GROUND = feet - groundAlt;
+    data.PLANE_ALT_ABOVE_GROUND_MINUS_CG =
+      data.PLANE_ALT_ABOVE_GROUND - data.STATIC_CG_TO_GROUND;
+  }
+
+  getGroundAlt(lat, long) {
+    // if we have an elevation server, we could use that here.
+    return 0;
+  }
+
+  run(previousCallTime = Date.now()) {
+    let callTime = Date.now();
+    const ms = callTime - previousCallTime;
+    if (ms > 10) {
+      const interval = ms / 1000;
+      this.update(interval);
+    } else {
+      callTime = previousCallTime;
+    }
+    runLater(() => this.run(callTime), UPDATE_FREQUENCY);
   }
 
   /**
    * This function basically runs the world's worst flight simulation.
    */
-  update() {
-    // get time-since-last-call in seconds
-    const now = Date.now();
-    const ms = (now - this.lastCall);
-    const interval = ms / 1000;
+  update(interval) {
+    console.log(`update`);
+    const { data } = this;
+    const converted = Object.assign({}, data);
+    convertValues(converted);
+    renameData(converted, this.previousValues);
+    this.previousValues = converted;
 
-    if (ms < 100) return;
-    this.lastCall = now;
+    // update our current speed based on the throttle lever, too
+    const throttle = data.GENERAL_ENG_THROTTLE_LEVER_POSITION;
+    const speed = constrainMap(throttle, 0, 100, 0, 150);
+    data.AIRSPEED_TRUE = lerp(0.2, data.AIRSPEED_TRUE, speed);
+    data.AIRSPEED_INDICATED = 0.95 * data.AIRSPEED_TRUE;
 
-    // update the current altitude
-    if (sign(this.VS) !== sign(this.dVS)) this.VS -= this.VS / 10;
-    const update = this.dVS / interval;
-    if (sign(this.VS) !== sign(this.dVS)) {
-      this.VS += constrainMap(this.VS, 0, 100, update, 100 * update);
-    } else {
-      this.VS += update;
-    }
+    // update the current altitude by turning the current elevator
+    // trim position into a target pitch and vertical speed, and then
+    // applying a partial change so that the plane "takes a while to
+    // get there" because otherwise our autopilot won't work =)
+    const { pitchTrim, lat, long, vs1, climbSpeed } = converted;
+    const pitch = constrainMap(pitchTrim, -100, 100, -30, 30);
+    data.PLANE_PITCH_DEGREES = radians(pitch);
+    let vs = constrainMap(pitchTrim, -100, 100, 6000, -6000);
+    // correct VS based on our "speed"
+    const dV = data.AIRSPEED_TRUE - climbSpeed;
+    if (dV < 0) vs -= constrainMap(dV, -(climbSpeed - vs1), 0, -3000, 0);
+    data.VERTICAL_SPEED = lerp(0.1, data.VERTICAL_SPEED, vs / 60);
 
-    this.ALT += (this.VS / interval) * this.speedFactor;
+    // update the current heading by turning the current aileron trim
+    // position into a target bank, and then applying a partical change
+    // so that the plane "takes a while to get there" because otherwise
+    // our autopilot still can't work =)
+    const { aileronTrim } = converted;
+    const bankFromTrim = constrainMap(aileronTrim, -100, 100, -90, 90);
+    data.PLANE_BANK_DEGREES = lerp(0.5, data.PLANE_BANK_DEGREES, bankFromTrim);
 
-    // This plane can't crash, because what would be the point?
-    if (this.ALT < 0) {
-      this.ALT = 0;
-      this.VS = 0;
-      this.dVS = 0;
-    }
-
-    // It also pitches *terribly*
-    this.PLANE_PITCH_DEGREES = radians(
-      constrainMap(this.AIRSPEED_TRUE, 0, 200, -10, 0) - this.VS / 2
+    const turnRateFromTrim = constrainMap(aileronTrim, -100, 100, -10, 10);
+    data.TURN_INDICATOR_RATE = lerp(
+      0.5,
+      data.TURN_INDICATOR_RATE,
+      turnRateFromTrim
     );
 
-    // update the current GPS position
-    const d = this.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
-    const { lat: lat2, long: long2 } = getPointAtDistance(
-      lat,
-      long,
-      d,
-      heading
+    console.log(
+      aileronTrim,
+      // dTrim,
+      bankFromTrim,
+      data.PLANE_BANK_DEGREES,
+      turnRateFromTrim,
+      data.TURN_INDICATOR_RATE
     );
-    lat = lat2;
-    long = long2;
 
-    // update the magnetic deviation given this position
-    deviation = geomag.field(lat, long, this.ALT).declination;
+    // Then we update all our derivative values.
+    data.INDICATED_ALTITUDE += data.VERTICAL_SPEED / interval;
 
-    // update the current heading
-    this.PLANE_BANK_DEGREES += -100 * radians(this.AILERON_TRIM_PCT);
-    heading -= degrees(this.PLANE_BANK_DEGREES) / 10;
+    // update heading
+    const { heading } = converted;
+    const updatedHeading = heading + data.TURN_INDICATOR_RATE / interval;
+    this.setHeading(updatedHeading, lat, long);
+
+    // update our GPS position
+    const d = data.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
+    const h = degrees(data.PLANE_HEADING_DEGREES_TRUE);
+    const { lat: lat2, long: long2 } = getPointAtDistance(lat, long, d, h);
+    data.PLANE_LATITUDE = radians(lat2);
+    data.PLANE_LONGITUDE = radians(long2);
   }
-
-  get speedFactor() {
-    return constrainMap(this.AIRSPEED_TRUE, 0, 30, 0, 1);
-  }
-
-  // dynamic properties
-
-  get GROUND_ALTITUDE() {
-    return altitude;
-  }
-
-  get PLANE_HEADING_DEGREES_MAGNETIC() {
-    return radians(heading - deviation) % TAU;
-  }
-
-  get PLANE_HEADING_DEGREES_TRUE() {
-    return radians(heading);
-  }
-
-  get VERTICAL_SPEED() {
-    return this.VS;
-  }
-
-  get INDICATED_ALTITUDE() {
-    return this.ALT;
-  }
-
-  get PLANE_ALT_ABOVE_GROUND() {
-    return this.INDICATED_ALTITUDE - this.GROUND_ALTITUDE;
-  }
-
-  get PLANE_ALT_ABOVE_GROUND_MINUS_CG() {
-    return this.PLANE_ALT_ABOVE_GROUND;
-  }
-
-  get SIM_ON_GROUND() {
-    return this.PLANE_ALT_ABOVE_GROUND < 1 ? 1 : 0;
-  }
-
-  get AIRSPEED_TRUE() {
-    return (
-      (this.GENERAL_ENG_THROTTLE_LEVER_POSITION / 100) *
-      0.8 *
-      this.DESIGN_SPEED_VNE
-    );
-  }
-
-  get AIRSPEED_INDICATED() {
-    return this.AIRSPEED_TRUE * 0.95;
-  }
-
-  get PLANE_LATITUDE() {
-    return radians(lat);
-  }
-  get PLANE_LONGITUDE() {
-    return radians(long);
-  }
-
-  // API mocks
 
   get(props) {
     const response = {};
     props.forEach((name) => {
-      response[name] = this[name.replace(/:.*/, ``)];
+      response[name] = this.data[name.replace(/:.*/, ``)];
     });
     return response;
   }
 
   set(name, value) {
     // console.log(`setting ${name} to ${value}`);
+    const { data } = this;
     if (name === `GENERAL_ENG_THROTTLE_LEVER_POSITION`) {
       if (value < 0.01) value = 0;
-      this.GENERAL_ENG_THROTTLE_LEVER_POSITION = value;
+      data.GENERAL_ENG_THROTTLE_LEVER_POSITION = value;
     }
     if (name === `ELEVATOR_TRIM_POSITION`) {
-      if (isNaN(value)) {
-        console.trace();
-      }
-      this.ELEVATOR_TRIM_POSITION = value;
-      this.dVS = degrees(value)/100;
+      data.ELEVATOR_TRIM_POSITION = value;
     }
     if (name === `AILERON_TRIM_PCT`) {
-      this.AILERON_TRIM_PCT = value;
+      data.AILERON_TRIM_PCT = value;
     }
     if (name === `AUTOPILOT_HEADING_LOCK_DIR`) {
-      this.AUTOPILOT_HEADING_LOCK_DIR = value;
+      data.AUTOPILOT_HEADING_LOCK_DIR = value;
     }
   }
 
-  trigger(name, value) {
+  trigger(name) {
+    // console.log(`triggering event ${name}`);
+    const { data } = this;
     if (name === `AP_MASTER`) {
-      this.AUTOPILOT_MASTER = abs(this.AUTOPILOT_MASTER - 1);
+      data.AUTOPILOT_MASTER = flip(data.AUTOPILOT_MASTER);
     }
     if (name === `TOGGLE_TAILWHEEL_LOCK`) {
-      this.TAILWHEEL_LOCK_ON = abs(this.TAILWHEEL_LOCK_ON - 1);
+      data.TAILWHEEL_LOCK_ON = flip(data.TAILWHEEL_LOCK_ON);
     }
     if (name === `PARKING_BRAKES`) {
-      this.BRAKE_PARKING_POSITION = abs(this.BRAKE_PARKING_POSITION - 1);
+      data.BRAKE_PARKING_POSITION = flip(data.BRAKE_PARKING_POSITION);
     }
     if (name === `GEAR_UP`) {
-      this.GEAR_HANDLE_POSITION = 0;
+      data.GEAR_HANDLE_POSITION = 0;
+      data.GEAR_POSITION = 1;
     }
     if (name === `GEAR_DOWN`) {
-      this.GEAR_HANDLE_POSITION = 100;
+      data.GEAR_HANDLE_POSITION = 100;
+      data.GEAR_POSITION = 0;
     }
   }
 }

@@ -58,7 +58,6 @@ export class MockPlane {
     this.GEAR_SPEED_EXCEEDED = 0;
     this.RUDDER_POSITION = 0;
 
-    this.GPS_GROUND_TRUE_TRACK = radians(150);
     this.PLANE_BANK_DEGREES = 0;
     this.PLANE_PITCH_DEGREES = 0;
     this.TURN_INDICATOR_RATE = 0;

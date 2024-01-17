@@ -1,10 +1,14 @@
 import { watch } from "../../../utils/reload-watcher.js";
-let { MockPlane } = await watch(import.meta.dirname, "./mock-plane.js", (lib) => {
-  MockPlane = lib.MockPlane;
-  if (plane) {
-    Object.setPrototypeOf(plane, MockPlane.prototype);
+let { MockPlane } = await watch(
+  import.meta.dirname,
+  "./mock-plane.js",
+  (lib) => {
+    MockPlane = lib.MockPlane;
+    if (plane) {
+      Object.setPrototypeOf(plane, MockPlane.prototype);
+    }
   }
-});
+);
 let plane = new MockPlane();
 
 import { runLater } from "../../../utils/utils.js";
@@ -29,6 +33,7 @@ export class MOCK_API {
         MASTER: true,
         LVL: true,
         ALT: 1500,
+        HDG: 270,
       });
     }, 10000);
 

@@ -62,6 +62,7 @@ export const FLIGHT_DATA = [
   `GEAR_SPEED_EXCEEDED`,
   `GROUND_ALTITUDE`,
   `INDICATED_ALTITUDE`,
+  `MAGVAR`,
   `OVERSPEED_WARNING`,
   `PLANE_ALT_ABOVE_GROUND_MINUS_CG`,
   `PLANE_ALT_ABOVE_GROUND`,
@@ -80,6 +81,7 @@ export const FLIGHT_DATA = [
 
 // These are all degree values that are actually stored as radians.
 export const DEGREE_VALUES = [
+  `MAGVAR`,
   `PLANE_LATITUDE`,
   `PLANE_LONGITUDE`,
   `PLANE_BANK_DEGREES`,
@@ -187,6 +189,7 @@ export const NAME_MAPPING = {
   IS_GEAR_FLOATS: `isFloatPlane`,
   IS_GEAR_RETRACTABLE: `hasRetractibleGear`,
   IS_TAIL_DRAGGER: `isTailDragger`,
+  MAGVAR: `declination`,
   NUMBER_OF_ENGINES: `engineCount`,
   OVERSPEED_WARNING: `overSpeed`,
   PLANE_ALT_ABOVE_GROUND_MINUS_CG: `lift`,
@@ -213,10 +216,12 @@ export const NAME_MAPPING = {
 
 // Our list of "first derivatives", i.e. our deltas
 export const DERIVATIVES = [
+  `aileronTrim`,
   `bank`,
   `heading`,
   `lift`,
   `pitch`,
+  `pitchTrim`,
   `speed`,
   `trueHeading`,
   `trueSpeed`,
@@ -233,7 +238,7 @@ export function renameData(data, previousValues) {
   // just preallocate the values we _might_ need for that.
   const d = {};
   const now = Date.now();
-  const before = previousValues?.__date_time ?? now;
+  const before = previousValues?.__date_time ?? now - 0.001;
   const dt = (now - before) / 1000; // delta per second seconds
 
   // Then perform the name mapping, but with extra code for getting
