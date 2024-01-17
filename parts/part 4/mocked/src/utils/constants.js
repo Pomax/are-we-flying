@@ -7,6 +7,7 @@ export const FEET_PER_METER = 3.28084;
 export const KNOT_IN_FPS = 1.68781;
 export const FPS_IN_KNOTS = 1 / KNOT_IN_FPS;
 export const ONE_KTS_IN_KMS = 0.000514444;
+export const FPS_PER_KNOT = 1.68781;
 
 // flight modes
 export const LEVEL_FLIGHT = `LVL`;

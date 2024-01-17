@@ -7,6 +7,7 @@ const declination = 15.883026056332483;
 const heading = 270;
 const lat = 48.646548831015394;
 const long = -123.41169834136964;
+const trimLimit = 18;
 
 const data = {
   AILERON_POSITION: 0,
@@ -31,10 +32,10 @@ const data = {
   ELECTRICAL_AVIONICS_BUS_VOLTAGE: 480,
   ELECTRICAL_TOTAL_LOAD_AMPS: -148.123,
   ELEVATOR_POSITION: 0,
-  ELEVATOR_TRIM_DOWN_LIMIT: 18,
+  ELEVATOR_TRIM_DOWN_LIMIT: trimLimit,
   ELEVATOR_TRIM_PCT: 0,
   ELEVATOR_TRIM_POSITION: 0,
-  ELEVATOR_TRIM_UP_LIMIT: 18,
+  ELEVATOR_TRIM_UP_LIMIT: trimLimit,
   ENG_COMBUSTION: 1, // note that we removed the :<num> suffix
   ENGINE_TYPE: 1,
   GEAR_HANDLE_POSITION: 0,
@@ -57,7 +58,7 @@ const data = {
   PLANE_HEADING_DEGREES_TRUE: radians(heading + declination),
   PLANE_LATITUDE: radians(lat),
   PLANE_LONGITUDE: radians(long),
-  PLANE_PITCH_DEGREES: -1,
+  PLANE_PITCH_DEGREES: 0,
   RUDDER_POSITION: 0,
   RUDDER_TRIM_PCT: 0,
   SIM_ON_GROUND: 0,

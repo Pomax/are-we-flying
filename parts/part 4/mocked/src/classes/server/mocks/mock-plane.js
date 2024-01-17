@@ -1,7 +1,11 @@
 import * as geomag from "geomag";
 import { getInitialState } from "./simvars.js";
 import { convertValues, renameData } from "../../../utils/flight-values.js";
-import { FEET_PER_METER, ONE_KTS_IN_KMS } from "../../../utils/constants.js";
+import {
+  FEET_PER_METER,
+  ONE_KTS_IN_KMS,
+  FPS_PER_KNOT,
+} from "../../../utils/constants.js";
 import {
   constrainMap,
   degrees,
@@ -12,6 +16,7 @@ import {
   flip,
 } from "../../../utils/utils.js";
 
+const { abs, sign, tan, PI } = Math;
 const UPDATE_FREQUENCY = 450;
 
 export class MockPlane {
@@ -36,7 +41,6 @@ export class MockPlane {
     long = degrees(this.data.PLANE_LONGITUDE),
     alt = this.data.INDICATED_ALTITUDE / (1000 * FEET_PER_METER)
   ) {
-    console.log(`heading: ${deg}`);
     const { data } = this;
     const declination = geomag.field(lat, long, alt).declination;
     data.MAGVAR = radians(declination);
@@ -74,7 +78,6 @@ export class MockPlane {
    * This function basically runs the world's worst flight simulation.
    */
   update(interval) {
-    console.log(`update`);
     const { data } = this;
     const converted = Object.assign({}, data);
     convertValues(converted);
@@ -92,45 +95,35 @@ export class MockPlane {
     // applying a partial change so that the plane "takes a while to
     // get there" because otherwise our autopilot won't work =)
     const { pitchTrim, lat, long, vs1, climbSpeed } = converted;
-    const pitch = constrainMap(pitchTrim, -100, 100, -30, 30);
-    data.PLANE_PITCH_DEGREES = radians(pitch);
-    let vs = constrainMap(pitchTrim, -100, 100, 6000, -6000);
-    // correct VS based on our "speed"
-    const dV = data.AIRSPEED_TRUE - climbSpeed;
-    if (dV < 0) vs -= constrainMap(dV, -(climbSpeed - vs1), 0, -3000, 0);
-    data.VERTICAL_SPEED = lerp(0.1, data.VERTICAL_SPEED, vs / 60);
+    const p = sign(pitchTrim) * (abs(pitchTrim) / 100) ** 1.2;
+    const pitchAngle = constrainMap(p, -1, 1, -3, 3);
+    data.PLANE_PITCH_DEGREES = radians(pitchAngle);
+    const newVS =
+      tan(-data.PLANE_PITCH_DEGREES) *
+      FPS_PER_KNOT *
+      data.AIRSPEED_TRUE *
+      60 *
+      5;
+    data.VERTICAL_SPEED = lerp(0.85, data.VERTICAL_SPEED, newVS);
 
     // update the current heading by turning the current aileron trim
     // position into a target bank, and then applying a partical change
     // so that the plane "takes a while to get there" because otherwise
     // our autopilot still can't work =)
     const { aileronTrim } = converted;
-    const bankFromTrim = constrainMap(aileronTrim, -100, 100, -90, 90);
-    data.PLANE_BANK_DEGREES = lerp(0.5, data.PLANE_BANK_DEGREES, bankFromTrim);
+    const newBank =
+      100 * radians(constrainMap(aileronTrim, -100, 100, 180, -180));
+    data.PLANE_BANK_DEGREES = lerp(0.1, data.PLANE_BANK_DEGREES, newBank);
+    let turnRate = aileronTrim * 30;
+    data.TURN_INDICATOR_RATE = lerp(0.1, data.TURN_INDICATOR_RATE, turnRate);
 
-    const turnRateFromTrim = constrainMap(aileronTrim, -100, 100, -10, 10);
-    data.TURN_INDICATOR_RATE = lerp(
-      0.5,
-      data.TURN_INDICATOR_RATE,
-      turnRateFromTrim
-    );
-
-    console.log(
-      aileronTrim,
-      // dTrim,
-      bankFromTrim,
-      data.PLANE_BANK_DEGREES,
-      turnRateFromTrim,
-      data.TURN_INDICATOR_RATE
-    );
+    // // update heading
+    const { heading } = converted;
+    const updatedHeading = heading + 2 * turnRate * interval;
+    this.setHeading(updatedHeading, lat, long);
 
     // Then we update all our derivative values.
-    data.INDICATED_ALTITUDE += data.VERTICAL_SPEED / interval;
-
-    // update heading
-    const { heading } = converted;
-    const updatedHeading = heading + data.TURN_INDICATOR_RATE / interval;
-    this.setHeading(updatedHeading, lat, long);
+    data.INDICATED_ALTITUDE += data.VERTICAL_SPEED * interval;
 
     // update our GPS position
     const d = data.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
@@ -157,9 +150,10 @@ export class MockPlane {
     }
     if (name === `ELEVATOR_TRIM_POSITION`) {
       data.ELEVATOR_TRIM_POSITION = value;
+      data.ELEVATOR_TRIM_PCT = constrainMap(value, -PI / 2, PI / 2, 1, -1);
     }
     if (name === `AILERON_TRIM_PCT`) {
-      data.AILERON_TRIM_PCT = value;
+      data.AILERON_TRIM_PCT = value / 100;
     }
     if (name === `AUTOPILOT_HEADING_LOCK_DIR`) {
       data.AUTOPILOT_HEADING_LOCK_DIR = value;
