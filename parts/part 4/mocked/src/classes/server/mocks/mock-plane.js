@@ -1,5 +1,5 @@
 import * as geomag from "geomag";
-import { getInitialState } from "./simvars.js";
+import { getInitialState } from "./fake-flight-data.js";
 import { convertValues, renameData } from "../../../utils/flight-values.js";
 import {
   FEET_PER_METER,
@@ -10,29 +10,25 @@ import {
   constrainMap,
   degrees,
   getPointAtDistance,
+  lerp,
   radians,
   runLater,
-  lerp,
-  flip,
 } from "../../../utils/utils.js";
 
 const { abs, sign, tan, PI } = Math;
 const UPDATE_FREQUENCY = 450;
 
+/**
+ * ...
+ */
 export class MockPlane {
-  /**
-   * Our starting point will be 1500 feet above runway 27
-   * at Victoria Airport on Vancouver Island, BC, Canada.
-   */
   constructor() {
-    this.data = getInitialState();
+    this.reset();
     this.run();
   }
 
-  setPosition(lat, long) {
-    const { data } = this;
-    data.PLANE_LATITUDE = radians(lat);
-    data.PLANE_LATITUDE = radians(long);
+  reset() {
+    this.data = getInitialState();
   }
 
   setHeading(
@@ -75,57 +71,77 @@ export class MockPlane {
   }
 
   /**
-   * This function basically runs the world's worst flight simulation.
+   * This function basically runs the world's worst flight
+   * simulator: we're not even going to bother with a flight
+   * model and computing forces, even though we're trying to
+   * work with a trim-based autopilot, we're just going to
+   * constrainMap and interpolate our way to victory.
    */
   update(interval) {
+    // First, use the code we already wrote to data-fy the flight.
     const { data } = this;
     const converted = Object.assign({}, data);
     convertValues(converted);
     renameData(converted, this.previousValues);
     this.previousValues = converted;
 
-    // update our current speed based on the throttle lever, too
-    const throttle = data.GENERAL_ENG_THROTTLE_LEVER_POSITION;
-    const speed = constrainMap(throttle, 0, 100, 0, 150);
-    data.AIRSPEED_TRUE = lerp(0.2, data.AIRSPEED_TRUE, speed);
-    data.AIRSPEED_INDICATED = 0.95 * data.AIRSPEED_TRUE;
-
-    // update the current altitude by turning the current elevator
+    // Update the current altitude by turning the current elevator
     // trim position into a target pitch and vertical speed, and then
     // applying a partial change so that the plane "takes a while to
     // get there" because otherwise our autopilot won't work =)
-    const { pitchTrim, lat, long, vs1, climbSpeed } = converted;
+    const { pitchTrim, lat, long } = converted;
     const p = sign(pitchTrim) * (abs(pitchTrim) / 100) ** 1.2;
     const pitchAngle = constrainMap(p, -1, 1, -3, 3);
     data.PLANE_PITCH_DEGREES = radians(pitchAngle);
+
+    // Okay fine, there's *one* bit of real math: converting
+    // the plane's pitch into a vertical speed, since we know
+    // how fast we're going, and thus how many feet per second
+    // we're covering, and thus how many vertical feet that
+    // works out to. This is, of course, *completely wrong*
+    // compared to the real world, but: this is a mock.
+    // We don't *need* realistic, we just need good enough.
     const newVS =
       tan(-data.PLANE_PITCH_DEGREES) *
       FPS_PER_KNOT *
       data.AIRSPEED_TRUE *
       60 *
       5;
-    data.VERTICAL_SPEED = lerp(0.85, data.VERTICAL_SPEED, newVS);
+    data.VERTICAL_SPEED = lerp(0.15, data.VERTICAL_SPEED, newVS);
 
-    // update the current heading by turning the current aileron trim
-    // position into a target bank, and then applying a partical change
-    // so that the plane "takes a while to get there" because otherwise
-    // our autopilot still can't work =)
+    // Then update our current speed, based on the throttle lever,
+    // with a loss (or gain) offset based on the current vertical
+    // speed, so the autothrottle/targetVS code has something to
+    // work with.
+    const throttle = data.GENERAL_ENG_THROTTLE_LEVER_POSITION;
+    const vsOffset = constrainMap(newVS, -16, 16, -10, 10);
+    const speed = constrainMap(throttle, 0, 100, 0, 150) - vsOffset;
+    data.AIRSPEED_TRUE = lerp(0.8, data.AIRSPEED_TRUE, speed);
+    data.AIRSPEED_INDICATED = 0.95 * data.AIRSPEED_TRUE;
+
+    // Update the current bank and turn rate by turning the current
+    // aileron trim position into a values that we then "lerp to" so
+    // that the change is gradual.
     const { aileronTrim } = converted;
-    const newBank =
-      100 * radians(constrainMap(aileronTrim, -100, 100, 180, -180));
-    data.PLANE_BANK_DEGREES = lerp(0.1, data.PLANE_BANK_DEGREES, newBank);
+    const newBankDegrees = constrainMap(aileronTrim, -100, 100, 180, -180);
+    const newBank = 100 * radians(newBankDegrees);
+    data.PLANE_BANK_DEGREES = lerp(0.9, data.PLANE_BANK_DEGREES, newBank);
     let turnRate = aileronTrim * 30;
-    data.TURN_INDICATOR_RATE = lerp(0.1, data.TURN_INDICATOR_RATE, turnRate);
+    data.TURN_INDICATOR_RATE = lerp(0.9, data.TURN_INDICATOR_RATE, turnRate);
 
-    // // update heading
+    // Update heading, taking into account that the slower we go, the
+    // faster we can turn, and the faster we go, the slower we can turn:
     const { heading } = converted;
-    const updatedHeading = heading + 2 * turnRate * interval;
+    const speedFactor = constrainMap(speed, 100, 150, 4, 1);
+    const updatedHeading = heading + speedFactor * turnRate * interval;
     this.setHeading(updatedHeading, lat, long);
 
-    // Then we update all our derivative values.
-    data.INDICATED_ALTITUDE += data.VERTICAL_SPEED * interval;
+    // Update our altitude values...
+    const { alt } = converted;
+    const newAltitude = alt + data.VERTICAL_SPEED * interval;
+    this.setAltitude(newAltitude, lat, long);
 
-    // update our GPS position
+    // And update our GPS position.
     const d = data.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
     const h = degrees(data.PLANE_HEADING_DEGREES_TRUE);
     const { lat: lat2, long: long2 } = getPointAtDistance(lat, long, d, h);
@@ -133,16 +149,12 @@ export class MockPlane {
     data.PLANE_LONGITUDE = radians(long2);
   }
 
-  get(props) {
-    const response = {};
-    props.forEach((name) => {
-      response[name] = this.data[name.replace(/:.*/, ``)];
-    });
-    return response;
-  }
-
+  /**
+   * We accept all of four variables, one each so that
+   * ATT, ALT, and LVL modes work, and then one for updating
+   * the heading bug, because we use that in the browser.
+   */
   set(name, value) {
-    // console.log(`setting ${name} to ${value}`);
     const { data } = this;
     if (name === `GENERAL_ENG_THROTTLE_LEVER_POSITION`) {
       if (value < 0.01) value = 0;
@@ -157,28 +169,6 @@ export class MockPlane {
     }
     if (name === `AUTOPILOT_HEADING_LOCK_DIR`) {
       data.AUTOPILOT_HEADING_LOCK_DIR = value;
-    }
-  }
-
-  trigger(name) {
-    // console.log(`triggering event ${name}`);
-    const { data } = this;
-    if (name === `AP_MASTER`) {
-      data.AUTOPILOT_MASTER = flip(data.AUTOPILOT_MASTER);
-    }
-    if (name === `TOGGLE_TAILWHEEL_LOCK`) {
-      data.TAILWHEEL_LOCK_ON = flip(data.TAILWHEEL_LOCK_ON);
-    }
-    if (name === `PARKING_BRAKES`) {
-      data.BRAKE_PARKING_POSITION = flip(data.BRAKE_PARKING_POSITION);
-    }
-    if (name === `GEAR_UP`) {
-      data.GEAR_HANDLE_POSITION = 0;
-      data.GEAR_POSITION = 1;
-    }
-    if (name === `GEAR_DOWN`) {
-      data.GEAR_HANDLE_POSITION = 100;
-      data.GEAR_POSITION = 0;
     }
   }
 }

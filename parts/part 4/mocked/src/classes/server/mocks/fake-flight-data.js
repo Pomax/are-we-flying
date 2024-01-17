@@ -1,5 +1,9 @@
 import { radians } from "../../../utils/utils.js";
 
+/**
+ * Our starting point will be 1500 feet above runway 27
+ * at Victoria Airport on Vancouver Island, BC, Canada.
+ */
 const altitude = 1500;
 const static_cg_height = 5;
 const speed = 142;
@@ -9,6 +13,9 @@ const lat = 48.646548831015394;
 const long = -123.41169834136964;
 const trimLimit = 18;
 
+/**
+ * All the values that our FlightInformation object needs:
+ */
 const data = {
   AILERON_POSITION: 0,
   AILERON_TRIM_PCT: 0,
@@ -74,6 +81,11 @@ const data = {
   WING_SPAN: 50,
 };
 
+/**
+ * And as our export, a function that returns a *copy*
+ * of the above data, so that we can reset to it if
+ * we need to.
+ */
 export function getInitialState() {
   return Object.assign({}, data);
 }

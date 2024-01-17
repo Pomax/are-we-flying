@@ -1,4 +1,7 @@
 import { watch } from "../../../utils/reload-watcher.js";
+import { runLater } from "../../../utils/utils.js";
+
+let plane;
 let { MockPlane } = await watch(
   import.meta.dirname,
   "./mock-plane.js",
@@ -9,9 +12,6 @@ let { MockPlane } = await watch(
     }
   }
 );
-let plane = new MockPlane();
-
-import { runLater } from "../../../utils/utils.js";
 
 export class MOCK_API {
   constructor() {
@@ -22,33 +22,49 @@ export class MOCK_API {
       =                                        =
       ==========================================
     `);
-    this.connected = true;
+    this.reset();
   }
 
-  async setAutopilot(autopilot) {
-    console.log(`Starting flight in 10 seconds`);
-
-    runLater(() => {
-      autopilot.setParameters({
-        MASTER: true,
-        LVL: true,
-        ALT: 1500,
-        HDG: 270,
-      });
-    }, 10000);
-
-    for (let i = 1; i < 10; i++) {
-      const msg = `${10 - i}...`;
-      setTimeout(() => console.log(msg), 1000 * i);
+  reset(notice) {
+    if (notice) console.log(notice);
+    plane ??= new MockPlane();
+    plane.reset();
+    this.connected = true;
+    this.started = false;
+    const { autopilot } = this;
+    if (autopilot) {
+      autopilot.disable();
+      this.setAutopilot(autopilot);
     }
   }
 
-  async connect(options) {
-    options.onConnect();
+  async setAutopilot(autopilot) {
+    if (this.started) return;
+    this.autopilot = autopilot;
+    this.started = true;
+    runLater(
+      () => {
+        autopilot.setParameters({
+          MASTER: true,
+          LVL: true,
+          ALT: 1500,
+          HDG: 270,
+        });
+      },
+      10000,
+      `--- Starting autopilot in 10 seconds ---`,
+      () => {
+        for (let i = 1; i < 10; i++) {
+          const msg = `${10 - i}...`;
+          setTimeout(() => console.log(msg), 1000 * i);
+        }
+      }
+    );
   }
 
   async get(...props) {
     const first = props[0];
+    // Airport calls get handled diuectly...
     if (props.length === 1 && first === `ALL_AIRPORTS`) {
       return { ALL_AIRPORTS: AIRPORTS };
     }
@@ -60,22 +76,20 @@ export class MOCK_API {
         [first]: AIRPORTS.find((a) => a.icao === first.replace(`AIRPORT:`, ``)),
       };
     }
-    // everything else gets handled by the "plane".
-    const result = plane.get(props);
-    return result;
+    // ...and everything else, we pull from our plane.
+    const response = {};
+    props.forEach((name) => {
+      response[name] = plane.data[name.replace(/:.*/, ``)];
+    });
+    return response;
   }
 
-  async set(name, value) {
-    plane.set(name.replace(/:.*/, ``), value);
-  }
+  // Setters, we hand off to the plane itself, but triggers
+  // and event registration, we flat out don't care about.
+  set = async (name, value) => plane.set(name.replace(/:.*/, ``), value);
+  trigger = async () => {};
+  on = async () => {};
 
-  async trigger(name, value) {
-    plane.trigger(name, value);
-  }
-
-  async on({ name }, handler) {
-    if (name === `Sim`) {
-      runLater(() => handler(1), 1000);
-    }
-  }
+  // And the connect handler is just "yep, connected" =)
+  connect = async (options) => options.onConnect();
 }

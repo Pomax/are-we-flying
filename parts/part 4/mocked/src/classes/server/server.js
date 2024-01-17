@@ -1,5 +1,5 @@
 // Load the environment:
-const dirname = import.meta.dirname
+const dirname = import.meta.dirname;
 import dotenv from "dotenv";
 dotenv.config({ path: `${dirname}/../../../.env` });
 
@@ -88,14 +88,21 @@ export class ServerClass {
       clients.forEach((client) => client.onAutoPilot(params))
     );
 
-    if (USE_MOCK) api.setAutopilot(autopilot);
-
     // And set up call routing for the autopilot in the same way as we
     // did for the API: only authenticated clients are allowed to mess
     // with the AP settings =)
     this.autopilot = this.lock(new AutopilotRouter(autopilot), (client) =>
       this.#authenticatedClients.includes(client)
     );
+
+    if (USE_MOCK) {
+      // Explicitly bind the autopilot if we're running a mock,
+      // because the mock is going to have to turn it on without
+      // any sort of user involvement.
+      api.setAutopilot(autopilot);
+      // And allow clients to call this.server.mock.reset(),
+      this.mock = { reset: () => api.reset(`Resetting the mock flight`) };
+    }
 
     connectServerToAPI(api, async () => {
       console.log(`Connected to MSFS.`);

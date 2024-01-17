@@ -3,8 +3,14 @@ import { win32, posix } from "node:path";
 
 const { asin, atan2, sin, cos, PI } = Math;
 
-export function runLater(fn, timeoutInMillis) {
-  // this is literally just setTimeout, but with a try/catch so
+export function runLater(fn, timeoutInMS, notice, preCall) {
+  // Do we have a "label" to print?
+  if (notice) console.log(notice);
+
+  // Is there some initial code to run?
+  if (preCall) preCall();
+
+  // This is literally just setTimeout, but with a try/catch so
   // that if the function we're running throws an error, we
   // completely ignore that instead of crashing the server.
   setTimeout(() => {
@@ -13,7 +19,7 @@ export function runLater(fn, timeoutInMillis) {
     } catch (e) {
       console.error(e);
     }
-  }, timeoutInMillis);
+  }, timeoutInMS);
 }
 
 // Get a file's path relative to the project root directory
@@ -85,9 +91,5 @@ export function getPointAtDistance(lat1, long1, d, heading, R = 6371) {
 }
 
 export function lerp(r, a, b) {
-  return (1 - r) * a + r * b;
-}
-
-export function flip(v) {
-  return Math.abs(v - 1);
+  return r * a + (1 - r) * b;
 }
