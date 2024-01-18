@@ -29,6 +29,7 @@ export class MOCK_API {
     if (notice) console.log(notice);
     plane ??= new MockPlane();
     plane.reset();
+    this.plane = plane;
     this.connected = true;
     this.started = false;
     const { autopilot } = this;

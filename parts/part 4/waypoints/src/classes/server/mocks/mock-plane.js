@@ -24,11 +24,16 @@ const UPDATE_FREQUENCY = 450;
 export class MockPlane {
   constructor() {
     this.reset();
+    this.playbackRate = 1;
     this.run();
   }
 
   reset() {
     this.data = getInitialState();
+  }
+
+  setPlaybackRate(factor) {
+    this.playbackRate = factor;
   }
 
   setHeading(
@@ -78,6 +83,8 @@ export class MockPlane {
    * constrainMap and interpolate our way to victory.
    */
   update(interval) {
+    interval *= this.playbackRate;
+    
     // First, use the code we already wrote to data-fy the flight.
     const { data } = this;
     const converted = Object.assign({}, data);

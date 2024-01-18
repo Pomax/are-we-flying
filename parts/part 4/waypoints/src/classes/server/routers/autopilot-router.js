@@ -33,7 +33,11 @@ export class AutopilotRouter {
     autopilot.waypoints.remove(id);
   }
 
-  resetFlight(client) {
-    autopilot.waypoints.resetFlight();
+  resetWaypoints(client) {
+    autopilot.waypoints.resetWaypoints();
+  }
+
+  clearWaypoints(client) {
+    autopilot.waypoints.reset();
   }
 }

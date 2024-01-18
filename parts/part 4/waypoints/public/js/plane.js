@@ -31,6 +31,34 @@ export class Plane {
     this.charts = initCharts();
     this.autopilot = new Autopilot(this);
     this.waypointOverlay = new WaypointOverlay(server, map);
+    this.setupControls(map);
+  }
+
+  setupControls(map) {
+    this.centerMapOnPlane = true;
+    const btn = (this.centerButton =
+      document.getElementById(`center-on-plane`));
+    btn.addEventListener(`change`, ({ target }) => {
+      this.centerMapOnPlane = !!target.checked;
+    });
+    map.on(`drag`, () => {
+      if (btn.checked) btn.click();
+    });
+    if (!btn.checked) btn.click();
+    document
+      .querySelector(`#map-controls .reset`)
+      .addEventListener(`click`, () => {
+        if (confirm(`Are you sure you want to reset all waypoints?`)) {
+          this.server.autopilot.resetWaypoints();
+        }
+      });
+    document
+      .querySelector(`#map-controls .clear`)
+      .addEventListener(`click`, () => {
+        if (confirm(`Are you sure you want to clear all waypoints?`)) {
+          this.server.autopilot.resetFlight();
+        }
+      });
   }
 
   /**
@@ -143,7 +171,7 @@ export class Plane {
 
     // And make sure the map stays centered on our plane,
     // so we don't "fly off the screen":
-    map.setView([lat, long]);
+    if (this.centerMapOnPlane) map.setView([lat, long]);
 
     // And set some classes that let us show pause/crash states:
     const { paused, crashed } = general;

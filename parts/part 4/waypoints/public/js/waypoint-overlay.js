@@ -17,7 +17,9 @@ export class WaypointOverlay {
   }
 
   manage(waypoints = []) {
-    waypoints.forEach((waypoint) => this.manageWaypoint(waypoint));
+    waypoints.forEach((waypoint, pos) =>
+      this.manageWaypoint(waypoint, pos + 1)
+    );
     // Do we need to remove any waypoints from our map?
     if (waypoints.length < this.waypoints.length) {
       this.waypoints
@@ -30,28 +32,35 @@ export class WaypointOverlay {
    * Is this a new waypoint that we need to put on the map, or
    * is this a previously known waypoint that we need to update?I lik
    */
-  manageWaypoint(waypoint) {
+  manageWaypoint(waypoint, number) {
     const { waypoints } = this;
     const { id } = waypoint;
     const known = waypoints.find((e) => e.id === id);
-    if (!known) return this.addWaypoint(waypoint);
-    this.updateWaypoint(known, waypoint);
+    if (!known) return this.addWaypoint(waypoint, number);
+    this.updateWaypoint(known, waypoint, number);
   }
 
-  addWaypoint(waypoint) {
+  addWaypoint(waypoint, number) {
     // unpack and reassemble, because state content is immutable.
-    const { id, lat, long, completed } = waypoint;
-    waypoint = { id, lat, long, completed };
-    console.log(waypoint);
+    const { id, lat, long, active, completed, distance } = waypoint;
+    waypoint = { id, lat, long, active, completed, distance };
+
+    const waypointClass = `waypoint-marker${completed ? ` completed` : ``}${
+      active ? ` active` : ``
+    }`;
 
     // First we create a Leaflet icon, which is a div with custom size and CSS classes:
     const icon = L.divIcon({
       iconSize: [40, 40],
       iconAnchor: [20, 40],
       className: `waypoint-div`,
-      html: `<img class="${`waypoint-marker${
-        completed ? ` completed` : ``
-      }`}" src="css/images/marker-icon.png">`,
+      html: `
+        <div class="${waypointClass}">
+          <div class="pre"></div>
+          <img src="css/images/marker-icon.png">
+          <div class="post"></div>
+        </div>
+      `,
     });
 
     // Then we create a Leaflet marker that uses that icon as its visualisation:
@@ -59,6 +68,10 @@ export class WaypointOverlay {
       { lat, lng: long },
       { icon, draggable: true }
     ).addTo(this.map));
+
+    marker
+      .getElement()
+      .querySelector(`.pre`).textContent = `waypoint ${number} (${distance.toFixed(1)} NM)`;
 
     // Then we add a "show dialog on click" to our marker:
     marker.on(`click`, () => this.showWaypointModal(waypoint));
@@ -100,14 +113,14 @@ export class WaypointOverlay {
       // if it did, we also need to update the trail(s) that connect to it.
       const prev = waypoint.prev;
       if (prev) {
-        waypoint.trail?.remove?.();
+        waypoint.trail?.remove();
         waypoint.trail = this.addNewTrail(prev.lat, prev.long);
         waypoint.trail.add(lat, long);
       }
 
       const next = waypoint.next;
       if (next) {
-        next.trail?.remove?.();
+        next.trail?.remove();
         next.trail = this.addNewTrail(lat, long);
         next.trail.add(next.lat, next.long);
       }
@@ -115,10 +128,14 @@ export class WaypointOverlay {
 
     // Do we need to update its altitude information?
     const div = waypoint.marker.getElement();
-    if (alt) {
-      waypoint.alt = alt;
-      if (div && div.dataset) div.dataset.alt = `${alt}'`;
+    if (div && div.dataset) {
+      if (alt) {
+        div.dataset.alt = `${alt}'`;
+      } else {
+        delete div.dataset.alt;
+      }
     }
+    waypoint.alt = alt;
 
     // What about the waypoint "state" classes?
     const classes = div.classList;
@@ -137,21 +154,50 @@ export class WaypointOverlay {
     div.innerHTML = `
       <div class="content">
         <h3>Waypoint ${id}</h3>
-        <input type="number" class="altitude" value="${
-          alt ? alt : ``
-        }" placeholder="Elevation?"/>
-        <button>activate</button>
-        <button>complete</button>
+        <fieldset>
+          <label>elevation:</label>
+          <input type="number" class="altitude" value="${
+            alt ? alt : ``
+          }" placeholder="feet above sea level"/>
+        </fieldset>
       </div>
     `;
-    // div.addEventListener(`click`, (evt) => {
-    //   const { target } = evt;
-    //   if (target === div) {
-    //     evt.preventDefault();
-    //     evt.stopPropagation();
-    //     div.remove();
-    //   }
-    // });
+    const input = div.querySelector(`input.altitude`);
+    div.addEventListener(`click`, (evt) => {
+      const { target } = evt;
+      if (target === div) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        div.remove();
+        const alt = parseFloat(input.value);
+        if (!isNaN(alt) && alt > 0) {
+          this.server.autopilot.setWaypointElevation(id, alt);
+        } else if (input.value.trim() === ``) {
+          this.server.autopilot.setWaypointElevation(id, false);
+        }
+      }
+    });
+    const controller = new AbortController();
+    document.addEventListener(
+      `keydown`,
+      ({ key }) => {
+        if (key === `Escape`) {
+          div.remove();
+          controller.abort();
+        }
+        if (key === `Enter`) {
+          div.click();
+          controller.abort();
+        }
+      },
+      { signal: controller.signal }
+    );
     document.body.appendChild(div);
+    input.addEventListener(`focus`, ({ target }) => {
+      const v = target.value;
+      target.value = ``;
+      target.value = v;
+    });
+    input.focus();
   }
 }

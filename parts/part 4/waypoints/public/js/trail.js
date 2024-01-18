@@ -38,4 +38,9 @@ export class Trail {
     // add the new point to the polygon that Leafet's working with.
     this.line.addLatLng(pair);
   }
+
+  // Remove this trail from the map
+  remove() {
+    this.line.remove();
+  }
 }

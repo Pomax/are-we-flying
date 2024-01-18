@@ -19,7 +19,17 @@ div.modal {
     box-shadow: 3px 3px 14px #000;
 
     & h3 {
-        font-family: sans-serif
+      font-family: sans-serif;
+    }
+
+    fieldset {
+      border: none;
+      margin: 0;
+      padding: 0;
     }
   }
+}
+
+label[for="center-on-plane"] {
+  cursor: pointer;
 }

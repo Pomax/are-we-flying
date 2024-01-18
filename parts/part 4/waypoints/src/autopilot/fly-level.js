@@ -198,9 +198,8 @@ function getTargetBankAndTurnRate(
     let target = getHeadingFromTo(lat, long, lat2, long2);
     let hdg = parseFloat((target - declination).toFixed(2));
     if (modes[HEADING_MODE] !== hdg) {
-      autopilot.setParameters({ HDG: hdg });
+      autopilot.setParameters({ [HEADING_MODE]: hdg });
     }
-    console.log(`checking transition...`);
     autopilot.waypoints.transition(lat, long);
   }
 

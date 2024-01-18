@@ -1,3 +1,6 @@
+import { getDistanceBetweenPoints } from "../../utils/utils.js";
+import { KM_PER_NM } from "../../utils/constants.js";
+
 export class Waypoint {
   // We'll use a silly little id function, because
   // we don't need uuids, we just need something
@@ -18,6 +21,7 @@ export class Waypoint {
     this.completed = false;
     this.active = false;
     this.next = undefined;
+    this.distance = 0;
   }
 
   setPosition(lat, long) {
@@ -32,6 +36,15 @@ export class Waypoint {
 
   setNext(nextWaypoint) {
     this.next = nextWaypoint;
+    if (this.next) {
+      this.next.distance =
+        getDistanceBetweenPoints(
+          this.lat,
+          this.long,
+          this.next.lat,
+          this.next.long
+        ) / KM_PER_NM;
+    }
   }
 
   activate() {

@@ -63,18 +63,19 @@ export class WayPointManager {
     this.points.forEach((waypoint) => waypoint.reset());
     this.currentWaypoint = this.points[0];
     this.currentWaypoint?.activate();
+    this.resequence();
   }
 
   // Check whether we should transition to the next waypoint
   // based on the plane's current GPS coordinate
   transition(lat, long) {
-    console.log(`check transition`);
     const { currentWaypoint } = this;
     if (!currentWaypoint) return;
+
     const { lat: lat2, long: long2 } = currentWaypoint;
     const thresholdInKm = 1;
     const d = getDistanceBetweenPoints(lat, long, lat2, long2);
-    console.log(d, thresholdInKm);
+
     if (d < thresholdInKm) {
       currentWaypoint.deactivate();
       this.currentWaypoint = currentWaypoint?.complete();

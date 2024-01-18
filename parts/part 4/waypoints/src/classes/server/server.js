@@ -101,7 +101,10 @@ export class ServerClass {
       // any sort of user involvement.
       api.setAutopilot(autopilot);
       // And allow clients to call this.server.mock.reset(),
-      this.mock = { reset: () => api.reset(`Resetting the mock flight`) };
+      this.mock = {
+        reset: (client) => api.reset(`Resetting the mock flight`),
+        setPlaybackRate: (client, v) => api.plane.setPlaybackRate(v),
+      };
     }
 
     connectServerToAPI(api, async () => {
