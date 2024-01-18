@@ -4704,17 +4704,484 @@ So far we've been looking at what we _call_ an autopilot, but is it? Can we just
 
 If that sounds like too much work: it might be. And no one would blame you if you stopped here. But if that sounds _amazing_... we're not at the bottom of this page yet, let's implement some crazy shit!
 
-## Mocking ourselves an airplane
+## Mocking ourselves an MSFS
 
-Before we jump into all this, let's "quickly" implement a mock airplane, to save ourselves the hassle of needing to run MSFS for some tests that would take forever to run through MSFS, and just... don't need it running? All we need is our own fake plane, with associated fake API to report on that plane, such that it "mostly" behaves: as long as it models some rudimentary physics, running our autopilot code on it should work.
+Before we jump into all this, let's "quickly" mock ourselves a Microsoft Flight Simulator game, to save ourselves the hassle of needing to run MSFS for some tests that would take forever to run through MSFS, and just... don't need it running? That sounds like a lot of work, but really all we need in this particular case is something that pretends to be the SimConnect API with _only_ as many variables included as gets used by our code, running _The world's worst flight simulation_ because we don't care whether our plane's going to fly "realistically", we just need it to fly in a way that responds "close enough to reality". So let's first define our data pool in a `src/classes/server/mocks/fake-flight-data.js`:
+
+```javascript
+import { radians } from "../../../utils/utils.js";
+
+/**
+ * Our starting point will be 1500 feet above runway 27
+ * at Victoria Airport on Vancouver Island, BC, Canada.
+ */
+const altitude = 1500;
+const static_cg_height = 5;
+const speed = 142;
+const declination = 15.883026056332483;
+const heading = 270;
+const lat = 48.646548831015394;
+const long = -123.41169834136964;
+const trimLimit = 18;
+
+/**
+ * All the values that our FlightInformation object needs:
+ */
+const data = {
+  AILERON_POSITION: 0,
+  AILERON_TRIM_PCT: 0,
+  AIRSPEED_INDICATED: speed * 0.95,
+  AIRSPEED_TRUE: speed,
+  AUTOPILOT_HEADING_LOCK_DIR: heading,
+  AUTOPILOT_MASTER: 0,
+  BRAKE_PARKING_POSITION: 0,
+  CAMERA_STATE: 2, // cockpit view
+  CAMERA_SUBSTATE: 2, // unlocked view
+  CATEGORY: 2,
+  CRASH_FLAG: 0,
+  CRASH_SEQUENCE: 0,
+  DESIGN_CRUISE_ALT: 12000,
+  DESIGN_SPEED_CLIMB: 100,
+  DESIGN_SPEED_MIN_ROTATION: 100,
+  DESIGN_SPEED_VC: 145,
+  DESIGN_SPEED_VS0: 60,
+  DESIGN_SPEED_VS1: 70,
+  DESIGN_TAKEOFF_SPEED: 100,
+  ELECTRICAL_AVIONICS_BUS_VOLTAGE: 480,
+  ELECTRICAL_TOTAL_LOAD_AMPS: -148.123,
+  ELEVATOR_POSITION: 0,
+  ELEVATOR_TRIM_DOWN_LIMIT: trimLimit,
+  ELEVATOR_TRIM_PCT: 0,
+  ELEVATOR_TRIM_POSITION: 0,
+  ELEVATOR_TRIM_UP_LIMIT: trimLimit,
+  ENG_COMBUSTION: 1, // note that we removed the :<num> suffix
+  ENGINE_TYPE: 1,
+  GEAR_HANDLE_POSITION: 0,
+  GEAR_POSITION: 1, // note that we removed the :<num> suffix
+  GEAR_SPEED_EXCEEDED: 0,
+  GENERAL_ENG_THROTTLE_LEVER_POSITION: 95,
+  GROUND_ALTITUDE: 0,
+  INCIDENCE_ALPHA: 0,
+  INDICATED_ALTITUDE: altitude,
+  IS_GEAR_FLOATS: 0,
+  IS_GEAR_RETRACTABLE: 1,
+  IS_TAIL_DRAGGER: 0,
+  MAGVAR: declination,
+  NUMBER_OF_ENGINES: 1,
+  OVERSPEED_WARNING: 0,
+  PLANE_ALT_ABOVE_GROUND_MINUS_CG: altitude - static_cg_height,
+  PLANE_ALT_ABOVE_GROUND: altitude,
+  PLANE_BANK_DEGREES: 0,
+  PLANE_HEADING_DEGREES_MAGNETIC: radians(heading),
+  PLANE_HEADING_DEGREES_TRUE: radians(heading + declination),
+  PLANE_LATITUDE: radians(lat),
+  PLANE_LONGITUDE: radians(long),
+  PLANE_PITCH_DEGREES: 0,
+  RUDDER_POSITION: 0,
+  RUDDER_TRIM_PCT: 0,
+  SIM_ON_GROUND: 0,
+  STALL_ALPHA: 0,
+  STATIC_CG_TO_GROUND: static_cg_height,
+  TAILWHEEL_LOCK_ON: 0,
+  TITLE: `pretty terrible testing plane`,
+  TOTAL_WEIGHT: 3000,
+  TURN_INDICATOR_RATE: 0,
+  TYPICAL_DESCENT_RATE: 80,
+  VERTICAL_SPEED: 0,
+  WING_AREA: 250,
+  WING_SPAN: 50,
+};
+
+/**
+ * And as our export, a function that returns a *copy*
+ * of the above data, so that we can reset to it if
+ * we need to.
+ */
+export function getInitialState() {
+  return Object.assign({}, data);
+}
+```
+
+So far so good, this is just.. data. Let's turn that into "a flight" by creating a `mock-plane.js` in the same dir:
+
+```javascript
+import * as geomag from "geomag";
+import { getInitialState } from "./fake-flight-data.js";
+import { convertValues, renameData } from "../../../utils/flight-values.js";
+import { FEET_PER_METER, FPS_PER_KNOT, ONE_KTS_IN_KMS } from "../../../utils/constants.js";
+import { constrainMap, degrees, getPointAtDistance, lerp, radians, runLater } from "../../../utils/utils.js";
+
+const { abs, sign, tan, PI } = Math;
+const UPDATE_FREQUENCY = 450;
+
+/**
+ * We're going to ignore physics entirely and just fake ourselves a flight.
+ */
+export class MockPlane {
+  constructor() {
+    this.reset();
+    this.run();
+  }
+
+  reset() {
+    this.data = getInitialState();
+  }
+
+  setHeading(
+    deg,
+    lat = degrees(this.data.PLANE_LATITUDE),
+    long = degrees(this.data.PLANE_LONGITUDE),
+    alt = this.data.INDICATED_ALTITUDE / (1000 * FEET_PER_METER)
+  ) {
+    const { data } = this;
+    const declination = geomag.field(lat, long, alt).declination;
+    data.MAGVAR = radians(declination);
+    deg = (deg + 360) % 360;
+    data.PLANE_HEADING_DEGREES_MAGNETIC = radians(deg);
+    data.PLANE_HEADING_DEGREES_TRUE = radians(deg + declination);
+  }
+
+  setAltitude(feet, lat, long, groundAlt = this.getGroundAlt(lat, long)) {
+    const { data } = this;
+    data.INDICATED_ALTITUDE = feet;
+    data.PLANE_ALT_ABOVE_GROUND = feet - groundAlt;
+    data.PLANE_ALT_ABOVE_GROUND_MINUS_CG =
+      data.PLANE_ALT_ABOVE_GROUND - data.STATIC_CG_TO_GROUND;
+  }
+
+  getGroundAlt(lat, long) {
+    // if we have an elevation server, we could use that here.
+    return 0;
+  }
+
+  run(previousCallTime = Date.now()) {
+    let callTime = Date.now();
+    const ms = callTime - previousCallTime;
+    if (ms > 10) {
+      const interval = ms / 1000;
+      this.update(interval);
+    } else {
+      callTime = previousCallTime;
+    }
+    runLater(() => this.run(callTime), UPDATE_FREQUENCY);
+  }
+
+  /**
+   * This is where we run our "world's worst flight simulator":
+   * we're not even going to bother with a simplified flight model
+   * and computing lift and drag forces with simplified math. Even
+   * though we're trying to work with a trim-based autopilot, we're
+   * just going to constrainMap and interpolate our way to victory.
+   */
+  update(interval) {
+    // First, use the code we already wrote to data-fy the flight.
+    const { data } = this;
+    const converted = Object.assign({}, data);
+    convertValues(converted);
+    renameData(converted, this.previousValues);
+    this.previousValues = converted;
+
+    // Update the current altitude by turning the current elevator
+    // trim position into a target pitch and vertical speed, and then
+    // applying a partial change so that the plane "takes a while to
+    // get there" because otherwise our autopilot won't work =)
+    const { pitchTrim, lat, long } = converted;
+    const p = sign(pitchTrim) * (abs(pitchTrim) / 100) ** 1.2;
+    const pitchAngle = constrainMap(p, -1, 1, -3, 3);
+    data.PLANE_PITCH_DEGREES = radians(pitchAngle);
+
+    // Okay fine, there's *one* bit of real math: converting
+    // the plane's pitch into a vertical speed, since we know
+    // how fast we're going, and thus how many feet per second
+    // we're covering, and thus how many vertical feet that
+    // works out to. This is, of course, *completely wrong*
+    // compared to the real world, but: this is a mock.
+    // We don't *need* realistic, we just need good enough.
+    const newVS =
+      tan(-data.PLANE_PITCH_DEGREES) *
+      FPS_PER_KNOT *
+      data.AIRSPEED_TRUE *
+      60 *
+      5;
+    data.VERTICAL_SPEED = lerp(0.15, data.VERTICAL_SPEED, newVS);
+
+    // Then update our current speed, based on the throttle lever,
+    // with a loss (or gain) offset based on the current vertical
+    // speed, so the autothrottle/targetVS code has something to
+    // work with.
+    const throttle = data.GENERAL_ENG_THROTTLE_LEVER_POSITION;
+    const vsOffset = constrainMap(newVS, -16, 16, -10, 10);
+    const speed = constrainMap(throttle, 0, 100, 0, 150) - vsOffset;
+    data.AIRSPEED_TRUE = lerp(0.8, data.AIRSPEED_TRUE, speed);
+    data.AIRSPEED_INDICATED = 0.95 * data.AIRSPEED_TRUE;
+
+    // Update the current bank and turn rate by turning the current
+    // aileron trim position into a values that we then "lerp to" so
+    // that the change is gradual.
+    const { aileronTrim } = converted;
+    const newBankDegrees = constrainMap(aileronTrim, -100, 100, 180, -180);
+    const newBank = 100 * radians(newBankDegrees);
+    data.PLANE_BANK_DEGREES = lerp(0.9, data.PLANE_BANK_DEGREES, newBank);
+    let turnRate = aileronTrim * 30;
+    data.TURN_INDICATOR_RATE = lerp(0.9, data.TURN_INDICATOR_RATE, turnRate);
+
+    // Update heading, taking into account that the slower we go, the
+    // faster we can turn, and the faster we go, the slower we can turn:
+    const { heading } = converted;
+    const speedFactor = constrainMap(speed, 100, 150, 4, 1);
+    const updatedHeading = heading + speedFactor * turnRate * interval;
+    this.setHeading(updatedHeading, lat, long);
+
+    // Update our altitude values...
+    const { alt } = converted;
+    const newAltitude = alt + data.VERTICAL_SPEED * interval;
+    this.setAltitude(newAltitude, lat, long);
+
+    // And update our GPS position.
+    const d = data.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
+    const h = degrees(data.PLANE_HEADING_DEGREES_TRUE);
+    const { lat: lat2, long: long2 } = getPointAtDistance(lat, long, d, h);
+    data.PLANE_LATITUDE = radians(lat2);
+    data.PLANE_LONGITUDE = radians(long2);
+  }
+
+  /**
+   * We accept all of four variables, one each so that
+   * ATT, ALT, and LVL modes work, and then one for updating
+   * the heading bug, because we use that in the browser.
+   */
+  set(name, value) {
+    const { data } = this;
+    if (name === `GENERAL_ENG_THROTTLE_LEVER_POSITION`) {
+      if (value < 0.01) value = 0;
+      data.GENERAL_ENG_THROTTLE_LEVER_POSITION = value;
+    }
+    if (name === `ELEVATOR_TRIM_POSITION`) {
+      data.ELEVATOR_TRIM_POSITION = value;
+      data.ELEVATOR_TRIM_PCT = constrainMap(value, -PI / 2, PI / 2, 1, -1);
+    }
+    if (name === `AILERON_TRIM_PCT`) data.AILERON_TRIM_PCT = value / 100;
+    if (name === `AUTOPILOT_HEADING_LOCK_DIR`) data.AUTOPILOT_HEADING_LOCK_DIR = value;
+  }
+}
+```
+
+There are a few utility functions here that we do need to add to our `utils.js` though:
+
+```javascript
+...
+
+/**
+ * Returns new lat/lon coordinate {d}km from initial, in degrees.
+ *
+ *   lat: initial latitude, in degrees
+ *   lon: initial longitude, in degrees
+ *   d: target distance from initial in kilometers
+ *   heading: (true) heading in degrees
+ *   R: optional radius of sphere, defaults to mean radius of earth
+ */
+export function getPointAtDistance(lat1, long1, d, heading, R = 6371) {
+  lat1 = radians(lat1);
+  long1 = radians(long1);
+  const a = radians(heading);
+  const lat2 = asin(sin(lat1) * cos(d / R) + cos(lat1) * sin(d / R) * cos(a));
+  const dx = cos(d / R) - sin(lat1) * sin(lat2);
+  const dy = sin(a) * sin(d / R) * cos(lat1);
+  const long2 = long1 + atan2(dy, dx);
+  return { lat: degrees(lat2), long: degrees(long2) };
+}
+
+/**
+ * Linear interpolation between values "a" and "b",
+ *
+ *  r: a value in the internval [0,1], specifying the ratio of a:b
+ */
+export function lerp(r, a, b) {
+  return r * a + (1-r) * b;
+}
+
+```
+
+And now we're almost done, we just need to create a fake API. We'll create a as `mock-api.js`:
+
+```javascript
+import { watch } from "../../../utils/reload-watcher.js";
+import { runLater } from "../../../utils/utils.js";
+
+let plane;
+let { MockPlane } = await watch(
+  import.meta.dirname,
+  "./mock-plane.js",
+  (lib) => {
+    MockPlane = lib.MockPlane;
+    if (plane) {
+      Object.setPrototypeOf(plane, MockPlane.prototype);
+    }
+  }
+);
+
+export class MOCK_API {
+  constructor() {
+    console.log(`
+      ==========================================
+      =                                        =
+      =        !!! USING MOCKED API !!!        =
+      =                                        =
+      ==========================================
+    `);
+    this.reset();
+  }
+
+  reset(notice) {
+    if (notice) console.log(notice);
+    plane ??= new MockPlane();
+    plane.reset();
+    this.connected = true;
+    this.started = false;
+    const { autopilot } = this;
+    if (autopilot) {
+      autopilot.disable();
+      this.setAutopilot(autopilot);
+    }
+  }
+
+  async setAutopilot(autopilot) {
+    if (this.started) return;
+    this.autopilot = autopilot;
+    this.started = true;
+    runLater(
+      () => autopilot.setParameters({ MASTER: true, LVL: true, ALT: 1500, HDG: 270 }),
+      10000,
+      `--- Starting autopilot in 10 seconds ---`,
+      () => {
+        for (let i = 1; i < 10; i++) {
+          const msg = `${10 - i}...`;
+          setTimeout(() => console.log(msg), 1000 * i);
+        }
+      }
+    );
+  }
+
+  // The getter pulls values from our plane's data object:
+  async get(...props) {
+    const response = {};
+    props.forEach((name) =>
+      (response[name] = plane.data[name.replace(/:.*/, ``)])
+    );
+    return response;
+  }
+
+  // Setters, we hand off to the plane itself, but triggers
+  // and event registration, we flat out don't care about:
+  set = async (name, value) => plane.set(name.replace(/:.*/, ``), value);
+  trigger = async () => {};
+  on = async () => {};
+
+  // And the connect handler is just "yep, connected" =)
+  connect = async (options) => options.onConnect();
+}
+```
+
+This code should be pretty self-explanatory, although we did update our `runLater` function in our `utils.js` to allow for a convenient "log before scheduling stuff" and "run some code before scheduling stuff":
+
+```javascript
+...
+
+export function runLater(fn, timeoutInMS, notice, preCall) {
+  // Do we have a "label" to print?
+  if (notice) console.log(notice);
+  // Is there some initial code to run?
+  if (preCall) preCall();
+  ...
+}
+```
+
+And now we just tie that into our server class:
+
+```javascript
+...
+
+import { MOCK_API } from "./mocks/mock-api.js";
+const USE_MOCK = process.argv.includes(`--mock`);
+
+export class ServerClass {
+  ...
+  async init() {
+    const { clients } = this;
+
+    // set up the API variable - note that because this is a global,
+    // clients can't directly access the API. However, we'll be setting
+    // up some API routing to make that a non-issue in a bit.
+    api = USE_MOCK ? new MOCK_API() : new MSFS_API();
+    
+    ...
+
+    if (USE_MOCK) {
+      // Explicitly bind the autopilot if we're running a mock,
+      // because the mock is going to have to turn it on without
+      // any sort of user involvement.
+      api.setAutopilot(autopilot);
+      // And allow clients to call this.server.mock.reset(),
+      this.mock = { reset: () => api.reset(`Resetting the mock flight`) };
+    }
+    
+    connectServerToAPI(api, async () => {
+      ...
+    });
+  }
+}
+```
+
+Aaaaand we just faked ourselves an MSFS. We can now run this without needing to have the game running. If we noew run our server with `node api-server.js --mock` we see the following output:
+
+```
+
+      ==========================================
+      =                                        =
+      =        !!! USING MOCKED API !!!        =
+      =                                        =
+      ==========================================
+
+resetting autopilot
+--- Starting autopilot in 10 seconds ---
+Connected to MSFS.
+Registering API server to the general sim events.
+new game started, resetting autopilot
+resetting autopilot
+Server listening on http://localhost:8080
+9...
+8...
+7...
+6...
+authenticated client 18d1892f121-1e183
+5...
+4...
+3...
+2...
+1...
+Engaging autopilot
+Engaging heading hold at 270 degrees
+Engaging wing leveler. Initial trim: 0
+Engaging altitude hold at 1500 feet. Initial trim: 0
+```
+
+And our client is none the wiser: as far as it knows it's still just connecting to a regular api server:
+
+![A mocked flight](./images/page/mocked-flight.png)
+
+And sure, the science doesn't look the same as for real planes, but that's not what we're interested in: all we care about is that if we change altitude in the autopilot, the plane does that, and if we change heading, the plane does that, too. Which it does:
+
+![Mocked flight science](./images/page/mocked-science.png)
+
+Sure, it's not as responsive as in-game planes, and the graphs look synthetic, but for the waypoint code we're about to write it doesn't matter _how fast_ or even _how well_ the plane can change altitude or turn, what matters is that it does those things _at all_.
 
 ## Waypoint navigation
 
-Now that we can fly a specific heading and altitude, and we can switch to new headings and altitudes, the next logical step would be to tell them autopilot to do that automatically, by programming a flight path to follow, with our plane flying towards some waypoint, and then when it gets close, transitioning to flying towards the next waypoint, and so on. Something like this:
+So that we have a fake plane that can fly on our autopilot, holding a specific heading and altitude, and able to switch to new headings and altitudes, the next logical step would be to tell the autopilot to just do that for us based on a flight path. We want to be able to give the autopilot a bunch of coordinates and then make it fly towards waypoints, and then when it gets close, transition to flying towards the next waypoint, and so on, until we run out of waypoints. Something like this:
 
 ![image-20230529142215897](./images/page/map-with-waypoints.png)
 
-Flying towards a point is pretty easy, but transitioning in a way that "feels right" is a bit more work, so there might be a bit more code here than you'd expect. Plus, we want to place, move, and remove points using the map on our web page, but the actual waypoints themselves will live in the autopilot, so there's a bit of work to be done there, too.
+Flying towards a point is pretty easy, but transitioning in a way that "feels right" is a bit more work, so there might be a bit more code here than you'd expect. Plus, we want to place, move, and remove points using the map on our web page, but the actual waypoints themselves will live server-side, so there's a bit of work to be done there, too.
 
 As such, we're going to need to break down waypoint logic as a few separate tasks:
 
@@ -4727,22 +5194,23 @@ As such, we're going to need to break down waypoint logic as a few separate task
 
 ### The server side
 
-We'll start with a model for waypoints:
+We'll model waypoints pretty plainly in their own `src/autopilot/waypoints/waypoint.js`:
 
 ```javascript
-// a silly little id function, but we don't need full uuids here
-const nextId = (() => {
-  let id = 1;
-  return () => id++;
-})();
-
 export class Waypoint {
-  constructor(owner, lat, long, alt = false) {
-    this.id = nextId();
-    this.owner = owner;
+  // We'll use a silly little id function, because
+  // we don't need uuids, we just need something
+  // that we can use to order and find waypoints.
+  static nextId = (() => {
+    let id = 1;
+    return () => id++;
+  })();
+  
+  constructor(lat, long, alt = false) {
+    this.id = Waypoint.nextId();
     this.reset();
-    this.move(lat, long);
-    this.elevate(alt);
+    this.setPosition(lat, long);
+    this.setElevation(alt);
   }
 
   reset() {
@@ -4751,63 +5219,40 @@ export class Waypoint {
     this.next = undefined;
   }
 
-  // Set this waypoint's GPS location:
-  move(lat, long) {
+  setPosition(lat, long) {
     this.lat = lat;
     this.long = long;
   }
 
-  // set this waypoint's altitude
-  elevate(alt) {
-    // are we removing the elevation information by passing something falsey?
-    if (!alt) return (this.alt = false);
-
-    // We are not, so much sure the value we got is a sensible number.
+  setElevation(alt) {
     alt = parseFloat(alt);
-    if (!isNaN(alt) && alt > 0) this.alt = alt;
+    this.alt = !isNaN(alt) && alt > 0 ? alt : false;
   }
 
-  // Since waypoints define a flight path, it's useful to have a reference to "the next waypoint" (if there is one):
-  setNext(next) {
-    this.next = next;
+  setNext(nextWaypoint) {
+    this.next = nextWaypoint;
   }
 
-  // Waypoints can be (de)activated and completed.
   activate() {
     this.active = Date.now();
   }
+  
   deactivate() {
     this.active = false;
   }
+  
   complete() {
     this.completed = true;
-  }
-
-  // And since we need to send them to the client, make sure that when this gets turned into JSON,
-  // we do *not* include the owner object. The toJSON() function is really useful for that.
-  toJSON() {
-    const { id, lat, long, alt, active, complete, next } = this;
-    return { id, lat, long, alt, active, completed, next: next?.id };
   }
 }
 ```
 
-And that's all we need them to do. Next up, a little waypoint manager:
+And that's all we need them to do. Next up, a little waypoint manager, housed in its own `waypoint-manager.js` file:
 
 ```javascript
-import { KMS_PER_KNOT, HEADING_MODE } from "./constants.js";
-import {
-  degrees,
-  dist,
-  getHeadingFromTo,
-  getDistanceBetweenPoints,
-  pathIntersection,
-} from "./utils.js";
 import { Waypoint } from "./waypoint.js";
 
-const { abs } = Math;
-
-export class WayPoints {
+export class WayPointManager {
   constructor(autopilot) {
     this.autopilot = autopilot;
     this.reset();
@@ -4818,34 +5263,30 @@ export class WayPoints {
     this.currentWaypoint = undefined;
   }
 
-  // Make sure that if someone asks for all waypoints, they don't get a reference to the actual array.
+  // Make sure that if someone asks for all waypoints, they
+  // don't get a direct reference to the array we're using.
   getWaypoints() {
     return this.points.slice();
   }
 
-  // Add a waypoint for a specific GPS coordinate
-  add(lat, long, alt) {
+  addWaypoint(lat, long, alt) {
     const { points } = this;
-    const waypoint = new Waypoint(this, lat, long, alt);
+    const waypoint = new Waypoint(lat, long, alt);
     points.push(waypoint);
     // If we don't have a "current" point, this is now it.
     this.currentWaypoint ??= waypoint;
     this.resequence();
-    return waypoint;
   }
 
-  // Move a waypoint around
-  move(id, lat, long) {
-    this.points.find((e) => e.id === id)?.move(lat, long);
+  setWaypointPosition(id, lat, long) {
+    this.points.find((e) => e.id === id)?.setPosition(lat, long);
   }
 
-  // Change a waypoint's elevation
-  elevate(id, alt) {
-    this.points.find((e) => e.id === id)?.elevate(alt);
+  setWaypointElevation(id, alt) {
+    this.points.find((e) => e.id === id)?.setElevation(alt);
   }
 
-  // Remove a waypoint from the flight path
-  remove(id) {
+  removeWaypoint(id) {
     const { points } = this;
     const pos = points.findIndex((e) => e.id === id);
     if (pos > -1) {
@@ -4857,143 +5298,95 @@ export class WayPoints {
     }
   }
 
-  // Make sure all waypoints point to the next one in the flight path.
+  // Make sure each waypoint knows what "the next waypoint" is.
   resequence() {
     const { points } = this;
-    for (let i = points.length - 1; i >= 0; i--) {
-      points[i].setNext(points[i + 1]);
-    }
+    points.forEach((p, i) => p.setNext(points[i + 1]));
   }
 
-  // remove all active/completed flags from all waypoints and mark the first point as our active point.
+  // Remove all active/completed flags from all waypoints
+  // and mark the first point as our active point.
   resetWaypoints() {
     this.points.forEach((waypoint) => waypoint.reset());
-    this.resequence();
     this.currentWaypoint = this.points[0];
   }
 
-  // Move the currently active waypoint to "the next" waypoint. Which might be nothing.
+  // Move the currently active waypoint to "the next"
+  // waypoint (which might be undefined).
   transition() {
-    const { currentWaypoint: c } = this;
-    c.complete();
-    this.currentWaypoint = this.currentWaypoint.next;
-  }
-
-  getHeading(state) {
-    // We'll implement this function in a bit since it's the important one.
+    this.currentWaypoint = this.currentWaypoint?.complete();
   }
 }
 ```
-
-We'll come back to the `getHeading` function in a bit, since that's the part that we'll tap into in our heading mode code to determine where to steer the plane, but for now let's close the loop so we can send and receive waypoint information to and from the client, where we see and work with them on our Leaflet map.
 
 First, we update the server's autopilot code, so it can do waypoint things (which is mostly passing things on to the waypoint manager):
 
 ```javascript
+import { WayPointManager } from "./waypoints/waypoint-manager.js";
+
+...
+
 export class AutoPilot {
-  constructor(api, onChange = () => {}, lat = 0, long = 0) {
+  constructor(api, onChange = () => {}) {
     ...
-    this.waypoints = new WayPoints(this, lat, long);
+    this.waypoints = new WayPointManager(this);
   }
 
-  // Read and pass-through functions for waypoints:
-  getWaypoints() { return this.waypoints.getWaypoints(); }
-  addWaypoint(lat, long) { this.waypoints.add(lat, long); }
-  moveWaypoint(id, lat, long) { this.waypoints.move(id, lat, long); }
-  elevateWaypoint(id, alt) { this.waypoints.elevate(id, alt); }
-  removeWaypoint(id) { this.waypoints.remove(id); }
-  resetFlight() { this.waypoints.resetWaypoints(); }
-
-  getAutoPilotParameters() {
-    const state = {
-      MASTER: this.autoPilotEnabled,
-      // add the waypoint information to our autopilot parameters:
-      waypoints: this.waypoints.getWaypoints(),
+  async getParameters() {
+    return {
+      ...this.modes,
+      waypoints: this.getWaypoints(),
     };
-    Object.entries(this.modes).forEach(([key, value]) => {
-      state[key] = value;
-    });
-    return state;
   }
 
   ...
 }
 ```
 
-With an update to our server so that we can actually "talk waypoints" in our autopilot message handling:
+With an update to our autopilot router so that we can actually "talk waypoints":
 
 ```javascript
-    ...
+let autopilot;
 
-    if (action === `autopilot`) {
-      // Autopilot messages need to be further unpacked:
-      const { action, params } = data;
-
-      if (action === `update`) {
-        autopilot.setParameters(params);
-      }
-
-      // We add a new action for waypoint handling, with three possible specific instructions:
-      if (action === `waypoint`) {
-        const { lat, long, alt, move, elevate, id, remove, reset } = data.params;
-        if (reset)        { autopilot.resetFlight(); }
-        else if (move)    { autopilot.moveWaypoint(id, lat, long); }
-        else if (elevate) { autopilot.elevateWaypoint(id, alt); }
-        else if (remove)  { autopilot.removeWaypoint(id); }
-        else { autopilot.addWaypoint(lat, long, alt); }
-      }
-
-      socket.json(`autopilot`, autopilot.getAutoPilotParameters());
-    }
-
-    ...
+export class AutopilotRouter {
+  constructor(_autopilot) { autopilot = _autopilot; }
+  async update(client, params) { autopilot.setParameters(params); }
+  // Our new "routes":
+  getWaypoints() { return autopilot.waypoints.getWaypoints(); }
+  addWaypoint(lat, long) { autopilot.waypoints.addWaypoint(lat, long); }
+  setWaypointPosition(id, lat, long) { autopilot.waypoints.setWaypointPosition(id, lat, long); }
+  setWaypointElevation(id, alt) { autopilot.waypoints.setWaypointElevation(id, alt); }
+  removeWaypoint(id) { autopilot.waypoints.removeWaypoint(id); }
+  resetFlight() { autopilot.waypoints.resetFlight(); }
+}
 ```
 
-So nothing too fancy, mostly just "the bare minimum code necessary to forward data into where it gets handled", and because we added the waypoints to our autopilot parameter set, the client will automatically get them as part of its autopilot interval polling.
+So nothing too fancy, mostly just "the bare minimum code necessary to forward data into where it gets handled", and because we added the waypoints to our autopilot parameter set, the client will see all waypoint changes reflected in their next state update.
 
 ### The client side
 
-In fact, let's switch to the client side and update the data handler for that interval poll:
-
-```javascript
-export class Autopilot {
-  ...
-
-  bootstrap(params) {
-    Object.entries(params).forEach(([key, value]) => {
-      // if we see the waypoints key, we don't want to send this on as a standard
-      // autopilot property, we want to do some special handling instead.
-      if (key === `waypoints`) {
-        return this.owner.manageWaypoints(value);
-      }
-      ...
-    });
-  }
-
-  ...
-}
-```
-
-With a corresponding update in our `plane.js`:
+So let's switch to the client and update the data handling in our `public/js/plane.js`:
 
 ```javascript
 export class Plane {
-  constructor(map, location, heading) {
-    console.log(`building plane`);
-    // set up a waypoint overlay on our Leaflet map
-    this.waypoints = new WaypointOverlay(this, map);
+  constructor(server, map = defaultMap, location = DUNCAN_AIRPORT, heading = 135) {
     ...
+    this.waypointOverlay = new WaypointOverlay(server, map);
   }
 
-  ...
+  async updateState(state) {
+    ...
 
-  // and just forward all the data we get from the autopilot straight to the overlay
-  async manageWaypoints(data) { this.waypoints.manage(data); }
-  ...
+    const { autopilot: params } = state;
+    this.autopilot.update(flightData, params);
+    this.waypointOverlay.manage(params.waypoints);
+
+    this.lastUpdate = { time: now, ...state };
+  }
 };
 ```
 
-Which just leaves implementing the code for managing Leaflet markers that represent our waypoints:
+And then it would help if we had an implementation for that waypoint overlay in :
 
 ```javascript
 import { callAutopilot } from "./api.js";
