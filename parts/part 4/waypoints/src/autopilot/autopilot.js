@@ -84,6 +84,7 @@ export class AutoPilot {
     return {
       ...this.modes,
       waypoints: this.waypoints.getWaypoints(),
+      waypointsRepeat: this.waypoints.repeating,
     };
   }
 

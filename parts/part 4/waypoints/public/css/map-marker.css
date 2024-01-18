@@ -194,6 +194,7 @@
 #map {
   --flight-path-colour: grey;
 }
+
 .waypoint-div {
   &::before {
     content: attr(data-alt);
@@ -210,42 +211,44 @@
     font-weight: bold;
   }
 
-  & .waypoint-marker .pre {
-    display: block;
-    position: absolute;
-    width: auto;
-    white-space: nowrap;
-    background: white;
-    border: 1px solid lightgrey;
-    border-radius: 5px;
-    padding: 0 4px;
-    top: calc(1em - 100%);
-    left: -40%;
-  }
-
-  & .waypoint-marker img {
-    width: 40px !important;
-    height: 40px !important;
-    position: relative;
-    top: -20px;
-    left: 0;
-  }
-
-  &.completed .waypoint-marker img {
-    width: 20px !important;
-    height: 20px !important;
-    filter: hue-rotate(-45deg);
-    opacity: 1;
-    top: 0px;
-    left: 10px;
-  }
-
-  &.completed .waypoint-marker .pre {
-    top: calc(1em - 50%);
-    left: -40%;
-  }
-
   &.active .waypoint-marker img {
     filter: hue-rotate(145deg) brightness(2);
+  }
+
+  & .waypoint-marker {
+    & .pre {
+      display: block;
+      position: absolute;
+      width: auto;
+      white-space: nowrap;
+      background: white;
+      border: 1px solid lightgrey;
+      border-radius: 5px;
+      padding: 0 4px;
+      top: calc(1em - 100%);
+      left: -40%;
+    }
+    & img {
+      width: 40px !important;
+      height: 40px !important;
+      position: relative;
+      top: -20px;
+      left: 0;
+    }
+  }
+
+  &.completed .waypoint-marker {
+    & .pre {
+      top: calc(1em - 50%);
+      left: -40%;
+    }
+    & img {
+      width: 20px !important;
+      height: 20px !important;
+      filter: hue-rotate(-45deg);
+      opacity: 1;
+      top: 0px;
+      left: 10px;
+    }
   }
 }

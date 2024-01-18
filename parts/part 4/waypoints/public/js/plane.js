@@ -45,6 +45,12 @@ export class Plane {
       if (btn.checked) btn.click();
     });
     if (!btn.checked) btn.click();
+
+    document
+      .querySelector(`#map-controls .patrol`)
+      .addEventListener(`click`, () => {
+        this.server.autopilot.toggleRepeating();
+      });
     document
       .querySelector(`#map-controls .reset`)
       .addEventListener(`click`, () => {
@@ -56,7 +62,7 @@ export class Plane {
       .querySelector(`#map-controls .clear`)
       .addEventListener(`click`, () => {
         if (confirm(`Are you sure you want to clear all waypoints?`)) {
-          this.server.autopilot.resetFlight();
+          this.server.autopilot.clearWaypoints();
         }
       });
   }
@@ -124,7 +130,7 @@ export class Plane {
     // Super straight-forward:
     const { autopilot: params } = state;
     this.autopilot.update(flightData, params);
-    this.waypointOverlay.manage(params.waypoints);
+    this.waypointOverlay.manage(params?.waypoints, params?.waypointsRepeat);
 
     this.lastUpdate = { time: now, ...state };
   }

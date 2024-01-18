@@ -40,4 +40,8 @@ export class AutopilotRouter {
   clearWaypoints(client) {
     autopilot.waypoints.reset();
   }
+
+  toggleRepeating(client, value) {
+    autopilot.waypoints.toggleRepeating(value);
+  }
 }

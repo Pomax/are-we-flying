@@ -18,10 +18,10 @@ export class Waypoint {
   }
 
   reset() {
-    this.completed = false;
     this.active = false;
-    this.next = undefined;
+    this.completed = false;
     this.distance = 0;
+    this.next = undefined;
   }
 
   setPosition(lat, long) {

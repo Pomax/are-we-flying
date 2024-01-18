@@ -147,7 +147,7 @@ function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, cruiseSpeed) {
     }
 
     // Get our hold-altitude from our autopilot mode:
-    targetAlt = modes[ALTITUDE_HOLD];
+    targetAlt = autopilot.waypoints.getAltitude(autopilot)
     const plateau = 200;
 
     if (targetAlt) {

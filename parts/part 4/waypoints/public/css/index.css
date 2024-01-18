@@ -14,8 +14,7 @@ div.modal {
   & div.content {
     background: white;
     border-radius: 0.5em;
-    padding: 2em;
-    padding-top: 0;
+    padding: 0 2em 1em 2em;
     box-shadow: 3px 3px 14px #000;
 
     & h3 {
@@ -26,10 +25,19 @@ div.modal {
       border: none;
       margin: 0;
       padding: 0;
+
+      & + fieldset {
+        margin-top: 1em;
+      }
     }
   }
 }
 
 label[for="center-on-plane"] {
   cursor: pointer;
+}
+
+button.active {
+  background: red;
+  color: white;
 }

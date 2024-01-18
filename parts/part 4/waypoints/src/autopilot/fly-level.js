@@ -1,5 +1,3 @@
-import { getHeadingFromTo } from "msfs-simconnect-api-wrapper/special/airports.js";
-import { HEADING_MODE } from "../utils/constants.js";
 import { radians, constrainMap, getCompassDiff } from "../utils/utils.js";
 
 const { abs, sign } = Math;
@@ -191,19 +189,12 @@ function getTargetBankAndTurnRate(
     return { targetBank, maxDBank, heading, headingDiff: 0 };
   }
 
-  // Do we have waypoints?
-  const { currentWaypoint } = autopilot.waypoints;
-  if (currentWaypoint) {
-    const { lat: lat2, long: long2 } = currentWaypoint;
-    let target = getHeadingFromTo(lat, long, lat2, long2);
-    let hdg = parseFloat((target - declination).toFixed(2));
-    if (modes[HEADING_MODE] !== hdg) {
-      autopilot.setParameters({ [HEADING_MODE]: hdg });
-    }
-    autopilot.waypoints.transition(lat, long);
-  }
-
-  let targetHeading = modes[HEADING_MODE];
+  let targetHeading = autopilot.waypoints.getHeading(
+    autopilot,
+    lat,
+    long,
+    declination
+  );
 
   let headingDiff;
   if (targetHeading) {
