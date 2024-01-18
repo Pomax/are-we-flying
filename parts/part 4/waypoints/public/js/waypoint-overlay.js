@@ -128,4 +128,30 @@ export class WaypointOverlay {
     waypoint.completed = completed;
     classes.toggle(`completed`, !!completed);
   }
+
+  showWaypointModal(waypoint) {
+    console.log(`show modal for`, waypoint);
+    const { id, lat, long, alt, active, completed } = waypoint;
+    const div = document.createElement(`div`);
+    div.classList.add(`modal`);
+    div.innerHTML = `
+      <div class="content">
+        <h3>Waypoint ${id}</h3>
+        <input type="number" class="altitude" value="${
+          alt ? alt : ``
+        }" placeholder="Elevation?"/>
+        <button>activate</button>
+        <button>complete</button>
+      </div>
+    `;
+    // div.addEventListener(`click`, (evt) => {
+    //   const { target } = evt;
+    //   if (target === div) {
+    //     evt.preventDefault();
+    //     evt.stopPropagation();
+    //     div.remove();
+    //   }
+    // });
+    document.body.appendChild(div);
+  }
 }

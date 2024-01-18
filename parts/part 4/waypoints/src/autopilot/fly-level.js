@@ -1,3 +1,4 @@
+import { getHeadingFromTo } from "msfs-simconnect-api-wrapper/special/airports.js";
 import { HEADING_MODE } from "../utils/constants.js";
 import { radians, constrainMap, getCompassDiff } from "../utils/utils.js";
 
@@ -43,7 +44,16 @@ export async function flyLevel(autopilot, state) {
   const { data: flightData, model: flightModel } = state;
 
   // Get our current bank/roll information:
-  const { aileronTrim, bank, speed, heading, turnRate } = flightData;
+  const {
+    lat,
+    long,
+    declination,
+    aileronTrim,
+    bank,
+    speed,
+    heading,
+    turnRate,
+  } = flightData;
   const { bank: dBank } = flightData.d ?? { bank: 0 };
 
   // And our model data
@@ -67,7 +77,15 @@ export async function flyLevel(autopilot, state) {
   // be a number that may change every iteration.
   const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
   const { targetBank, maxDBank, targetHeading, headingDiff } =
-    getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic);
+    getTargetBankAndTurnRate(
+      autopilot,
+      heading,
+      maxBank,
+      isAcrobatic,
+      lat,
+      long,
+      declination
+    );
   const aHeadingDiff = abs(headingDiff);
   const diff = targetBank - bank;
 
@@ -155,18 +173,38 @@ export async function flyLevel(autopilot, state) {
 }
 
 // And our new function:
-function getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic) {
+function getTargetBankAndTurnRate(
+  autopilot,
+  heading,
+  maxBank,
+  isAcrobatic,
+  lat,
+  long,
+  declination
+) {
   const { modes } = autopilot;
 
   let targetBank = DEFAULT_TARGET_BANK;
   let maxDBank = DEFAULT_MAX_D_BANK;
 
-  // If there is an autopilot flight heading set (either because the
-  // user set one, or because of the previous waypoint logic) then we
-  // set a new target bank, somewhere between zero and the maximum
-  // bank angle we want to allow, with the target bank closer to zero
-  // the closer we already are to our target heading.
-  let targetHeading = FEATURES.FLY_SPECIFIC_HEADING && modes[HEADING_MODE];
+  if (!FEATURES.FLY_SPECIFIC_HEADING) {
+    return { targetBank, maxDBank, heading, headingDiff: 0 };
+  }
+
+  // Do we have waypoints?
+  const { currentWaypoint } = autopilot.waypoints;
+  if (currentWaypoint) {
+    const { lat: lat2, long: long2 } = currentWaypoint;
+    let target = getHeadingFromTo(lat, long, lat2, long2);
+    let hdg = parseFloat((target - declination).toFixed(2));
+    if (modes[HEADING_MODE] !== hdg) {
+      autopilot.setParameters({ HDG: hdg });
+    }
+    console.log(`checking transition...`);
+    autopilot.waypoints.transition(lat, long);
+  }
+
+  let targetHeading = modes[HEADING_MODE];
 
   let headingDiff;
   if (targetHeading) {

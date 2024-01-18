@@ -195,7 +195,21 @@
   --flight-path-colour: grey;
 }
 
-.waypoint-marker {
+div.waypoint-div img.waypoint-marker {
   width: 100% !important;
   height: 100% !important;
+}
+
+div.waypoint-div.completed img.waypoint-marker {
+  filter: hue-rotate(-45deg);
+  opacity: 1;
+  width: 20px !important;
+  height: 20px !important;
+  position: relative;
+  top: 20px;
+  left: 10px;
+}
+
+div.waypoint-div.active img.waypoint-marker {
+  filter: hue-rotate(145deg) brightness(2);
 }

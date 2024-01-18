@@ -5269,12 +5269,15 @@ export class WayPointManager {
     return this.points.slice();
   }
 
-  addWaypoint(lat, long, alt) {
+  add(lat, long, alt) {
     const { points } = this;
     const waypoint = new Waypoint(lat, long, alt);
     points.push(waypoint);
     // If we don't have a "current" point, this is now it.
-    this.currentWaypoint ??= waypoint;
+    if (!this.currentWaypoint) {
+      this.currentWaypoint = waypoint;
+      this.currentWaypoint.activate();
+    }
     this.resequence();
   }
 
@@ -5286,13 +5289,14 @@ export class WayPointManager {
     this.points.find((e) => e.id === id)?.setElevation(alt);
   }
 
-  removeWaypoint(id) {
+  remove(id) {
     const { points } = this;
     const pos = points.findIndex((e) => e.id === id);
     if (pos > -1) {
       points.splice(pos, 1)[0];
       if (this.currentWaypoint?.id === id) {
         this.currentWaypoint = this.currentWaypoint.next;
+        this.currentWaypoint?.activate();
       }
       this.resequence();
     }
@@ -5309,12 +5313,24 @@ export class WayPointManager {
   resetWaypoints() {
     this.points.forEach((waypoint) => waypoint.reset());
     this.currentWaypoint = this.points[0];
+    this.currentWaypoint?.activate();
   }
 
   // Move the currently active waypoint to "the next"
   // waypoint (which might be undefined).
-  transition() {
-    this.currentWaypoint = this.currentWaypoint?.complete();
+  transition(lat, long) {
+    const { currentWaypoint } = this;
+    if (!currentWaypoint) return;
+
+    const { lat: lat2, long: long2 } = currentWaypoint;
+    const distanceToWaypoint = getDistanceBetweenPoints(lat, long, lat2, long2);
+    const thresholdInKm = 1;
+
+    if (distanceToWaypoint < thresholdInKm) {
+      currentWaypoint.deactivate();
+      this.currentWaypoint = currentWaypoint?.complete();
+      this.currentWaypoint?.activate();
+    }
   }
 }
 ```
@@ -5361,16 +5377,67 @@ export class AutopilotRouter {
 }
 ```
 
-So nothing too fancy, mostly just "the bare minimum code necessary to forward data into where it gets handled", and because we added the waypoints to our autopilot parameter set, the client will see all waypoint changes reflected in their next state update.
+And an update to our `fly-level.js` code that looks at whether there are waypoints, and if so, targets those:
+
+```javascript
+...
+export async function flyLevel(autopilot, state) {
+  ...
+  const { lat, long, declination, bank, speed, heading } = flightData;
+  ...
+  const { targetBank, maxDBank, targetHeading, headingDiff } =
+    getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic, lat, long, declination);
+  ...
+}
+  
+function getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic, lat, long, declination) {
+  const { modes } = autopilot;
+  let targetBank = DEFAULT_TARGET_BANK;
+  let maxDBank = DEFAULT_MAX_D_BANK;
+
+  if (!FEATURES.FLY_SPECIFIC_HEADING) {
+    return { targetBank, maxDBank, heading, headingDiff: 0 };
+  }
+
+  // Do we have waypoints?
+  const { currentWaypoint } = autopilot.waypoints;
+  if (currentWaypoint) {
+    const { lat: lat2, long: long2 } = currentWaypoint;
+    // If we do, then we should fly towards the current waypoint!
+    let target = getHeadingFromTo(lat, long, lat2, long2);
+    let hdg = parseFloat((target - declination).toFixed(2));
+    // Then formally declare that's our heading, by setting the AP heading:
+    if (modes[HEADING_MODE] !== hdg) {
+      autopilot.setParameters({ HDG: hdg });
+    }
+    // And then we check whether we need to switch to the next waypoint.
+    autopilot.waypoints.transition(lat, long);
+  }
+
+  let headingDiff;
+  let targetHeading = modes[HEADING_MODE];
+  if (targetHeading) {
+    ...
+  }
+  return { targetBank, maxDBank, targetHeading, headingDiff };
+}
+```
+
+So nothing _too_ fancy, mostly just "the bare minimum code necessary to forward data into where it gets handled, and then handling it". And because we added the waypoints to our autopilot parameter set, the client will see all those waypoint changes reflected in their next state update.
 
 ### The client side
 
 So let's switch to the client and update the data handling in our `public/js/plane.js`:
 
 ```javascript
+import { WaypointOverlay } from "./waypoint-overlay.js";
+
+...
+
 export class Plane {
   constructor(server, map = defaultMap, location = DUNCAN_AIRPORT, heading = 135) {
     ...
+    // Step 1: a client-side waypoint manager
     this.waypointOverlay = new WaypointOverlay(server, map);
   }
 
@@ -5379,6 +5446,7 @@ export class Plane {
 
     const { autopilot: params } = state;
     this.autopilot.update(flightData, params);
+    // Step 2: giving it the waypoint data and letting it sort out the rest!
     this.waypointOverlay.manage(params.waypoints);
 
     this.lastUpdate = { time: now, ...state };
@@ -5386,223 +5454,145 @@ export class Plane {
 };
 ```
 
-And then it would help if we had an implementation for that waypoint overlay in :
+And then it would help if we had an implementation for that waypoint overlay in `public/waypoint-overlay.js`:
 
 ```javascript
-import { callAutopilot } from "./api.js";
 import { Trail } from "./trail.js";
 
 export class WaypointOverlay {
-  constructor(autopilot, map) {
-    this.autopilot = autopilot;
+  constructor(server, map) {
+    this.server = server;
     this.map = map;
     this.waypoints = [];
-    this.setupMapHandling();
+    // Set up the event handling for the map:
+    this.map.on(`click`, ({ latlng }) => {
+      const { lat, lng } = latlng;
+      server.autopilot.addWaypoint(lat, lng);
+    });
   }
 
-  // Set up the event handling for the map: if we click, put a new waypoint on that GPS location.
-  setupMapHandling() {
-    this.map.on(`click`, (e) => this.add(e));
-    // ...we'll be adding some more to this function later!
+  addNewTrail(lat, long) {
+    return new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
   }
 
-  // The "manage" function takes all the waypoint information we got from the
-  // autopilot and turns it into Leaflet marker add/update or remove instructions.
-  manage(waypoints) {
-    // Manage each waypoint that's in the list.
+  manage(waypoints = []) {
     waypoints.forEach((waypoint) => this.manageWaypoint(waypoint));
-
-    // So we need to remove any waypoints from our map?
+    // Do we need to remove any waypoints from our map?
     if (waypoints.length < this.waypoints.length) {
-      const toRemove = this.waypoints.filter(
-        (w) => !waypoints.find((e) => e.id === w.id)
-      );
-      const noAPcall = true;
-      toRemove.forEach((waypoint) => this.remove(waypoint));
+      this.waypoints
+        .filter((w) => !waypoints.find((e) => e.id === w.id))
+        .forEach(({ id }) => this.server.autopilot.removeWaypoint(id));
     }
   }
 
-  // This function gets called for all waypoints that the autopilot says exist.
+  /**
+   * Is this a new waypoint that we need to put on the map, or
+   * is this a previously known waypoint that we need to update?I lik
+   */
   manageWaypoint(waypoint) {
     const { waypoints } = this;
     const { id } = waypoint;
-    // That means that they're either new points, or updates to points we already know about.
     const known = waypoints.find((e) => e.id === id);
-    if (!known) return this.addNewWaypoint(waypoint);
-    this.updateKnownWaypoint(known, waypoint);
+    if (!known) return this.addWaypoint(waypoint);
+    this.updateWaypoint(known, waypoint);
   }
 
-  // Adding a new waypoint means creating a new marker:
-  addNewWaypoint(waypoint) {
-    // And remember that if we refresh the page mid-flight, we might get a bunch
-    // of waypoints that have already been completed, so take that into account.
+  /**
+   * If this is a new waypoint, we need to add it to our local list
+   * of waypoints.
+   */
+  addWaypoint(waypoint) {
+    // unpack and reassemble, because state content is immutable.
     const { id, lat, long, completed } = waypoint;
+    waypoint = { id, lat, long, completed };
 
-    // First we create a Leaflet icon, which is a div with custom size and CSS classes.
+    // Then we create a Leaflet icon, which is a div with custom size,
+    // CSS classes, and HTML content:
     const icon = L.divIcon({
       iconSize: [40, 40],
       iconAnchor: [20, 40],
       className: `waypoint-div`,
-      html: `<img class="${`waypoint-marker${completed ? ` completed` : ``}`}" src="css/images/marker-icon.png">`,
+      html: `<img class="${`waypoint-marker${
+        completed ? ` completed` : ``
+      }`}" src="css/images/marker-icon.png">`,
     });
 
-     // Then we create a Leaflet marker that uses that icon as its visualisation.
+    // And then we create a Leaflet marker using that icon:
     const marker = (waypoint.marker = L.marker(
       { lat, lng: long },
       { icon, draggable: true }
     ).addTo(this.map));
 
-    // Then we add event listeners: when we click on a marker, we should be able to set its
-    // altitude, and if we double-click a marker, it should get removed from the flight path.
-    //
-    // Leaflet has click and double click handle, but doesn't actually debounce clicks to see
-    // if something was a double click. It just fires off spurious clicks *as well*, which isn't
-    // great, so we need to run our own debounce code:
-    let dblClickTimer = false;
+    // Then we add a "show dialog on click" to our marker:
+    marker.on(`click`, () => this.showWaypointModal(waypoint));
 
-    marker.on(`dblclick`, () => {
-      clearTimeout(dblClickTimer);
-      dblClickTimer = false;
-      this.remove(waypoint);
-    });
-
-    marker.on(`click`, () => {
-      if (dblClickTimer) return;
-      dblClickTimer = setTimeout(() => {
-        dblClickTimer = false;
-        let value = prompt("Set waypoint altitude:", waypoint.alt);
-        this.elevate(waypoint, value);
-      }, 500);
-    });
-
-    // Next up: if we click-drag a marker, we want the server-side waypoint to update when we let go.
+    // Next, if we click-drag a marker, we want to send its new
+    // position to the server once we let go.
     marker.on(`drag`, (event) => (marker.__drag__latlng = event.latlng));
-    marker.on(`dragend`, () => this.move(waypoint));
+    marker.on(`dragend`, () => {
+      const { lat, lng: long } = marker.__drag__latlng;
+      marker.__drag__latlng = undefined;
+      this.server.autopilot.setWaypointPosition(id, lat, long);
+    });
 
-    // Then, because we want to see the path, not just individual markers, we
-    // also build trails between "the new marker" and the previous one.
-    const prev = this.waypoints.slice(-1)[0];
+    // Then, because we want to see the flight path, not just
+    // individual markers, we also build trails between "the new
+    // marker" and the previous one.
+    const prev = this.waypoints.at(-1);
     this.waypoints.push(waypoint);
     if (prev) {
       waypoint.prev = prev;
       prev.next = waypoint;
-      waypoint.trail = new Trail(this.map, [prev.lat, prev.long], `var(--flight-path-colour)`);
+      waypoint.trail = this.addNewTrail(prev.lat, prev.long);
       waypoint.trail.add(lat, long);
     }
   }
 
-  // A helper function for building waypoint-connecting trails
-  addNewTrail(lat, long) {
-    return new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
-  }
+  // Updating a known marker means checking if it moved,
+  // or changed active/completed status:
+  updateWaypoint(waypoint, fromServer) {
+    const { lat, long, alt, active, completed } = fromServer;
 
-  // Updating a known marker means checking if it moved, or changes active/completed states:
-  updateKnownWaypoint(known, { lat, long, active, completed }) {
     // First, are we currently dragging this point around? If so, don't
     // do anything to this point yet, because we're not done with it.
-    if (known.marker?.__drag__latlng) return;
+    if (waypoint.marker?.__drag__latlng) return;
 
     // Did its location change?
-    if (known.lat !== lat || known.long !== long) {
-      known.lat = lat;
-      known.long = long;
-      known.marker.setLatLng([lat, long]);
+    if (waypoint.lat !== lat || waypoint.long !== long) {
+      waypoint.lat = lat;
+      waypoint.long = long;
+      waypoint.marker.setLatLng([lat, long]);
 
       // if it did, we also need to update the trail(s) that connect to it.
-      const prev = known.prev;
+      const prev = waypoint.prev;
       if (prev) {
-        // we can do this by updating the existing trail, but it's just as easy to just create a new one.
-        known.trail?.remove();
-        known.trail = this.addNewTrail(prev.lat, prev.long);
-        known.trail.add(lat, long);
+        waypoint.trail?.remove?.();
+        waypoint.trail = this.addNewTrail(prev.lat, prev.long);
+        waypoint.trail.add(lat, long);
       }
-      const next = known.next;
+      const next = waypoint.next;
       if (next) {
-        next.trail.remove();
+        next.trail?.remove?.();
         next.trail = this.addNewTrail(lat, long);
         next.trail.add(next.lat, next.long);
       }
     }
 
     // Do we need to update its altitude information?
+    const div = waypoint.marker.getElement();
     if (alt) {
-      known.alt = alt;
-      const div = known.marker.getElement();
+      waypoint.alt = alt;
       if (div && div.dataset) div.dataset.alt = `${alt}'`;
     }
 
-    const css = known.marker._icon.classList;
+    // What about the waypoint "state" classes?
+    const classes = div.classList;
+    waypoint.active = active;
+    classes.toggle(`active`, !!active);
 
-    // Are we in the transition radius?
-    known.active = active;
-    if (active) { classes.add(`active`); } else { classes.remove(`active`); }
-
-    // Or did we complete this waypoint?
-    known.completed = completed;
-    if (completed) { classes.add(`completed`); } else { classes.remove(`completed`); }
+    waypoint.completed = completed;
+    classes.toggle(`completed`, !!completed);
   }
-
-  // the "add a marker" handler for map clicks
-  add({ latlng }) {
-    // remember, the server is the authority on waypoints, so when we click the map,
-    // instead of immediately creating a marker we instead tell the autopilot to create
-    // a waypoint. If it does, we'll find that new waypoint when manage() gets called.
-    const { lat, lng: long } = latlng;
-    callAutopilot(`waypoint`, { lat, long });
-  }
-
-  // the "move a marker" handler for marker click-drags
-  move({ id, marker }) {
-    const { lat, lng: long } = marker.__drag__latlng;
-    marker.__drag__latlng = undefined;
-    callAutopilot(`waypoint`, { update: true, id, lat, long });
-  }
-
-  // the "update the waypoint's elevation" call
-  elevate({ id }, alt) {
-    callAutopilot(`waypoint`, { elevate: true, id, alt });
-  }
-
-  // the "remove a marker" handler for marker clicks. Note that if this is a real
-  // map click, we should tell the server that we want it removed, but if this gets
-  // called from our own manage(waypoints) function, in response to the server having
-  // sent us waypoint information that does not include some waypoints we're still
-  // showing, then removing it from the map should *not* also come with a call to
-  // the server to remove it. It already doesn't exist!
-  remove(waypoint, withAPIcall = false) {
-    if (!waypoint.id) {
-      waypoint = this.waypoints.find((e) => e.id === waypoint);
-    }
-
-    const { id } = waypoint;
-
-    // Send a remove call to the autopilot only if this was a client-initiated removal
-    if (withAPIcall) callAutopilot(`waypoint`, { id, remove: true });
-
-    // Removing the mark from our map is pretty easy:
-    waypoint.marker.remove();
-    waypoint.trail?.remove();
-
-    // But this marker may have been in between to other markers, in which case
-    // we need to link up its previous and next marker with a new trail.
-    const prev = waypoint.prev;
-    const next = waypoint.next;
-    if (next) {
-      next.trail.remove();
-      if (prev) {
-        next.trail = this.newTrail(prev.lat, prev.long);
-        next.trail.add(next.lat, next.long);
-        prev.next = next;
-      }
-      next.prev = prev;
-    } else if (prev) {
-      prev.next = undefined;
-    }
-  }
-
-  // And finally, remember to remove the waypoint from the array:
-  const pos = this.waypoints.findIndex((e) => e.id === id);
-  this.waypoints.splice(pos, 1);
 }
 ```
 
@@ -5610,57 +5600,36 @@ And of course, the image we're using for waypoints:
 
 ![marker-icon](./images/page/marker-icon.png)
 
-With a smattering of CSS to make our markers look reasonable:
+With a smattering of CSS to make our markers look reasonable in `public/css/map-marker.css`:
 
 ```CSS
-:root {
-  --flight-path-colour: #0003;
+#map {
+  --flight-path-colour: grey;
 }
 
-.waypoint-div {
-  border: none;
-  background: transparent;
+div.waypoint-div img.waypoint-marker {
+  width: 100% !important;
+  height: 100% !important;
 }
 
-.waypoint-div::before {
-  content: attr(data-alt);
-  position: relative;
-  width: 40px;
-  display: inline-block;
-  text-align: center;
-  bottom: -40px;
-  text-shadow: 0px 0px 5px black, 0px 0px 10px black, 0px 0px 15px black;
-  color: white;
-  font-weight: bold;
-}
-
-.waypoint-div img.waypoint-marker {
-  z-index: 1 !important;
-  opacity: 1;
-  width: 100%;
-  height: 100%;
-  position: relative;
-  top: -20px;
-}
-
-.waypoint-div.active img.waypoint-marker {
-  filter: hue-rotate(145deg) brightness(2);
-}
-
-.waypoint-div.completed img.waypoint-marker {
+div.waypoint-div.completed img.waypoint-marker {
   filter: hue-rotate(-45deg);
   opacity: 1;
   width: 20px !important;
   height: 20px !important;
   position: relative;
-  top: 0px;
+  top: 20px;
   left: 10px;
+}
+
+div.waypoint-div.active img.waypoint-marker {
+  filter: hue-rotate(145deg) brightness(2);
 }
 ```
 
 We can now place a bunch of waypoints by clicking the map, which will send a waypoint creation message to the server, which creates the _actual_ waypoint, which we're then told about because the waypoints are now part of our autopilot information that we send to the client every time the autopilot updates.
 
-![image-20230607105644939](./images/page/waypoints-with-alt.png)
+![We're flying a flight path!](./images/waypoints/simple-flight-path.png)
 
 ### Flying and transitioning over waypoints
 

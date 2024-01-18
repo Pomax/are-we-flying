@@ -1,7 +1,7 @@
 import { root } from "./constants.js";
 import { win32, posix } from "node:path";
 
-const { asin, atan2, sin, cos, PI } = Math;
+const { asin, atan2, sin, cos, sqrt, PI } = Math;
 
 export function runLater(fn, timeoutInMS, notice, preCall) {
   // Do we have a "label" to print?
@@ -92,4 +92,26 @@ export function getPointAtDistance(lat1, long1, d, heading, R = 6371) {
 
 export function lerp(r, a, b) {
   return r * a + (1 - r) * b;
+}
+
+export function getDistanceBetweenPoints(lat1, long1, lat2, long2, R = 6371) {
+  `
+    https://stackoverflow.com/a/365853/740553
+  `;
+
+  lat1 = parseFloat(lat1);
+  long1 = parseFloat(long1);
+  lat2 = parseFloat(lat2); // do we still need parseFloat here?
+  long2 = parseFloat(long2);
+
+  const dLat = radians(lat2 - lat1);
+  const dLong = radians(long2 - long1);
+  lat1 = radians(lat1);
+  lat2 = radians(lat2);
+
+  const a =
+    sin(dLat / 2) * sin(dLat / 2) +
+    sin(dLong / 2) * sin(dLong / 2) * cos(lat1) * cos(lat2);
+  const c = 2 * atan2(sqrt(a), sqrt(1 - a));
+  return R * c;
 }

@@ -1,3 +1,4 @@
+import { getDistanceBetweenPoints } from "../../utils/utils.js";
 import { Waypoint } from "./waypoint.js";
 
 export class WayPointManager {
@@ -22,7 +23,10 @@ export class WayPointManager {
     const waypoint = new Waypoint(lat, long, alt);
     points.push(waypoint);
     // If we don't have a "current" point, this is now it.
-    this.currentWaypoint ??= waypoint;
+    if (!this.currentWaypoint) {
+      this.currentWaypoint = waypoint;
+      this.currentWaypoint.activate();
+    }
     this.resequence();
   }
 
@@ -41,6 +45,7 @@ export class WayPointManager {
       points.splice(pos, 1)[0];
       if (this.currentWaypoint?.id === id) {
         this.currentWaypoint = this.currentWaypoint.next;
+        this.currentWaypoint?.activate();
       }
       this.resequence();
     }
@@ -57,11 +62,23 @@ export class WayPointManager {
   resetWaypoints() {
     this.points.forEach((waypoint) => waypoint.reset());
     this.currentWaypoint = this.points[0];
+    this.currentWaypoint?.activate();
   }
 
-  // Move the currently active waypoint to "the next"
-  // waypoint (which might be undefined).
-  transition() {
-    this.currentWaypoint = this.currentWaypoint?.complete();
+  // Check whether we should transition to the next waypoint
+  // based on the plane's current GPS coordinate
+  transition(lat, long) {
+    console.log(`check transition`);
+    const { currentWaypoint } = this;
+    if (!currentWaypoint) return;
+    const { lat: lat2, long: long2 } = currentWaypoint;
+    const thresholdInKm = 1;
+    const d = getDistanceBetweenPoints(lat, long, lat2, long2);
+    console.log(d, thresholdInKm);
+    if (d < thresholdInKm) {
+      currentWaypoint.deactivate();
+      this.currentWaypoint = currentWaypoint?.complete();
+      this.currentWaypoint?.activate();
+    }
   }
 }
