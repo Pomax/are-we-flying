@@ -4858,8 +4858,7 @@ export class MockPlane {
     let callTime = Date.now();
     const ms = callTime - previousCallTime;
     if (ms > 10) {
-      const interval = ms / 1000;
-      this.update(interval);
+      this.update(ms);
     } else {
       callTime = previousCallTime;
     }
@@ -4873,7 +4872,15 @@ export class MockPlane {
    * though we're trying to work with a trim-based autopilot, we're
    * just going to constrainMap and interpolate our way to victory.
    */
-  update(interval) {
+  update(ms) {
+    // If the interval is too long, "do nothing",
+    // so we don't teleport around when the OS decides
+    // to throttle or suspend a process.
+    if (ms > 5 * UPDATE_FREQUENCY) return
+
+    // For math purposes, we need an interval in seconds.
+    const interval = ms / 1000;
+
     // First, use the code we already wrote to data-fy the flight.
     const { data } = this;
     const converted = Object.assign({}, data);
@@ -6276,7 +6283,7 @@ Let's start with the use case we already have: flying a flight path with a singl
 
 But what do we want to have happens when we add a second point?
 
-#### Flight path policies
+### Flight path policies
 
 Say we have a plane, and a bunch of waypoints, and our plane cannot magically change heading. If we naively fly towards "the next waypoint on the list", things... don't look great:
 
@@ -6287,8 +6294,6 @@ We see the plane getting wildly off-course depending on much it needs to turn, a
 <graphics-element title="a flight path tester" src="./graphics/flight-path-base.js">
   <source src="./graphics/intercepting.js" />
 </graphics-element>
-
-
 
 If we pretend that the circle is an aeroplane, with the little dot showing its current heading, the question is "what should happen over time?". In fact, let's answer that by starting simpler, with zero waypoints:
 

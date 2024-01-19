@@ -67,8 +67,7 @@ export class MockPlane {
     let callTime = Date.now();
     const ms = callTime - previousCallTime;
     if (ms > 10) {
-      const interval = ms / 1000;
-      this.update(interval);
+      this.update(ms);
     } else {
       callTime = previousCallTime;
     }
@@ -82,8 +81,14 @@ export class MockPlane {
    * work with a trim-based autopilot, we're just going to
    * constrainMap and interpolate our way to victory.
    */
-  update(interval) {
-    interval *= this.playbackRate;
+  update(ms) {
+    // If the interval is too long, "do nothing",
+    // so we don't teleport around when the OS decides
+    // to throttle or suspend a process.
+    if (ms > 5 * UPDATE_FREQUENCY) return
+
+    // allow "fast forward"
+    const interval = ms / 1000 * this.playbackRate;
     
     // First, use the code we already wrote to data-fy the flight.
     const { data } = this;

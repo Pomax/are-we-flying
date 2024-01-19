@@ -67,8 +67,7 @@ export class MockPlane {
     let callTime = Date.now();
     const ms = callTime - previousCallTime;
     if (ms > 10) {
-      const interval = ms / 1000;
-      this.update(interval);
+      this.update(ms);
     } else {
       callTime = previousCallTime;
     }
@@ -82,9 +81,15 @@ export class MockPlane {
    * work with a trim-based autopilot, we're just going to
    * constrainMap and interpolate our way to victory.
    */
-  update(interval) {
-    interval *= this.playbackRate;
-    
+  update(ms) {
+    // If the interval is too long, "do nothing",
+    // so we don't teleport around when the OS decides
+    // to throttle or suspend a process.
+    if (ms > 5 * UPDATE_FREQUENCY) return
+
+    // allow "fast forward"
+    const interval = ms / 1000 * this.playbackRate;
+
     // First, use the code we already wrote to data-fy the flight.
     const { data } = this;
     const converted = Object.assign({}, data);
@@ -150,6 +155,13 @@ export class MockPlane {
 
     // And update our GPS position.
     const d = data.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
+
+    // Why are we teleporting?
+    if (d > 1) {
+      console.log(interval, converted);
+      process.exit(-1);
+    }
+
     const h = degrees(data.PLANE_HEADING_DEGREES_TRUE);
     const { lat: lat2, long: long2 } = getPointAtDistance(lat, long, d, h);
     data.PLANE_LATITUDE = radians(lat2);
