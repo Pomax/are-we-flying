@@ -7,3 +7,4 @@ src/**/alos-index.json
 .env
 !parts/**/.env
 temp
+docs/index.html

@@ -129,25 +129,15 @@ export async function altitudeHold(autopilot, flightInformation) {
 // change almost immediate after we test this code, because we'll
 // discover that you can't really "hold an altitude" if you don't
 // actually write down what altitude you should be holding =)
-function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, cruiseSpeed) {
-  const { modes } = autopilot;
+function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed) {
   let targetVS = DEFAULT_TARGET_VS;
   let targetAlt = undefined;
   let altDiff = undefined;
 
   // Next feature!
   if (FEATURES.TARGET_TO_HOLD) {
-    // Do we have waypoints?
-    const { currentWaypoint } = autopilot.waypoints;
-    if (currentWaypoint) {
-      const { alt } = currentWaypoint;
-      if (alt && modes[ALTITUDE_HOLD] !== alt) {
-        autopilot.setParameters({ [ALTITUDE_HOLD]: alt });
-      }
-    }
-
     // Get our hold-altitude from our autopilot mode:
-    targetAlt = autopilot.waypoints.getAltitude(autopilot)
+    targetAlt = autopilot.waypoints.getAltitude(autopilot);
     const plateau = 200;
 
     if (targetAlt) {

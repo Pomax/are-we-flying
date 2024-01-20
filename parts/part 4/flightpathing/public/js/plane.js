@@ -30,7 +30,7 @@ export class Plane {
     // into the page that will do the relevant drawing for us:
     this.charts = initCharts();
     this.autopilot = new Autopilot(this);
-    this.waypointOverlay = new WaypointOverlay(server, map);
+    this.waypointOverlay = new WaypointOverlay(this);
     this.setupControls(map);
   }
 
@@ -45,26 +45,6 @@ export class Plane {
       if (btn.checked) btn.click();
     });
     if (!btn.checked) btn.click();
-
-    document
-      .querySelector(`#map-controls .patrol`)
-      .addEventListener(`click`, () => {
-        this.server.autopilot.toggleRepeating();
-      });
-    document
-      .querySelector(`#map-controls .reset`)
-      .addEventListener(`click`, () => {
-        if (confirm(`Are you sure you want to reset all waypoints?`)) {
-          this.server.autopilot.resetWaypoints();
-        }
-      });
-    document
-      .querySelector(`#map-controls .clear`)
-      .addEventListener(`click`, () => {
-        if (confirm(`Are you sure you want to clear all waypoints?`)) {
-          this.server.autopilot.clearWaypoints();
-        }
-      });
   }
 
   /**

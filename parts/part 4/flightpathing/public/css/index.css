@@ -33,8 +33,12 @@ div.modal {
   }
 }
 
-label[for="center-on-plane"] {
+label[for] {
   cursor: pointer;
+}
+
+body:has(#show-labels:not(:checked)) #map .waypoint-div .waypoint-marker .pre {
+  display: none;
 }
 
 button.active {

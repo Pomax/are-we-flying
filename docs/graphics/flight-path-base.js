@@ -1,146 +1,109 @@
+let playButton;
 let airplane;
-
-class Airplane extends Circle {
-  speed = 0.5;
-  heading = -0.9;
-  turnRate = (this.speed / 100) * 3.1415;
-
-  update({ x, y }) {
-    const angle = atan2(y - this.y, x - this.x);
-    this.setHeading(angle);
-    const { speed, heading } = this;
-    this.x += speed * cos(heading);
-    this.y += speed * sin(heading);
-  }
-
-  setHeading(target) {
-    const { heading, turnRate } = this;
-    let diff = (target - heading + TAU) % TAU;
-    if (diff > PI) diff -= TAU;
-    this.heading += constrain(diff, -turnRate, turnRate);
-  }
-
-  intersection(x1, y1, x2, y2) {
-    const { x, y, r } = this;
-    const dy = y2 - y1;
-    const dx = x2 - x1;
-    const c = new Point(this);
-
-    const A = dy * dy + dx * dx;
-    const B = 2 * (-c.x * dx - c.y * dy + x1 * dx + y1 * dy);
-    const C =
-      c.x * c.x +
-      c.y * c.y +
-      x1 * x1 +
-      y1 * y1 -
-      2 * c.x * x1 -
-      2 * c.y * y1 -
-      r * r;
-    const D = B * B - 4 * A * C;
-
-    const t1 = (-B + sqrt(D)) / (2 * A);
-    const t2 = (-B - sqrt(D)) / (2 * A);
-
-    if (isNaN(t1) && isNaN(t2)) {
-      const cx = x - x1;
-      const cy = y - y1;
-      const f = constrain((dx * cx + dy * cy) / (dx * dx + dy * dy), 0, 1);
-      return new Point(x1 + dx * f, y1 + dy * f);
-    }
-
-    if (isNaN(t1) || t1 < t2) t1 = t2;
-    const t = constrain(t1, 0, 1);
-    return new Point(x1 + dx * t, y1 + dy * t);
-  }
-
-  draw() {
-    const { x, y, r, heading: a } = this;
-    circle(x, y, r);
-    line(x, y, x + r * cos(a), y + r * sin(a));
-  }
-}
-
+let speed = 50;
+let radiusFromSpeed = true;
 let current = -1;
+let showPlaneRadius = false;
 const points = [];
 const trail = [];
 
-function addPoint(x, y) {
-  if (currentPoint) return;
-  const p = new Point(x, y);
-  setMovable(p);
-  points.push(p);
-  if (current === -1 && points.length === 1) {
-    current = 0;
-  }
-}
-
+/**
+ * Our program entry point.
+ */
 function setup() {
   setSize(650, 500);
-  addButton(`play`, (button) => {
+  noGrid();
+  playButton = addButton(`play`, (button) => {
     button.textContent = togglePlay() ? `pause` : `play`;
   });
-  addButton(`reset`, (button) => {
-    points.splice(0, points.length);
-    trail.splice(0, trail.length);
-    reset();
-  });
-  noGrid();
-  airplane = new Airplane(100, 100, 40);
+
+  // Set up an "airplane" and a few points that define its flight path:
+  airplane = new Airplane(100, 100, speed);
+  addPoint(100, 200);
   addPoint(476, 100);
   addPoint(482, 425);
   addPoint(319, 264);
   addPoint(146, 393);
+  current = 0;
 }
 
+/**
+ * The draw loop entry point.
+ */
 function draw() {
   clear(`#FFEFB0`);
 
   noFill();
+
+  // Draw the flight path
   setStroke(`lightgrey`);
   plotData(points, `x`, `y`);
 
-  setStroke(`blue`);
+  // And the "where we've been so far" trail
+  setStroke(`dodgerblue`);
   plotData(trail, `x`, `y`);
 
-  setStroke(`black`);
+  // And then draw each of the path points on top.
+  setStroke(`slate`);
   points.forEach((p) => point(p.x, p.y));
 
-  // figure out where to fly to
-  const target = getTarget();
-  if (target) {
-    setStroke(`green`);
-    line(airplane.x, airplane.y, target.x, target.y);
-    setStroke(`black`);
-    airplane.update(target);
+  // Then: figure out which heading to fly our plane:
+  let target;
+
+  // we will be adding different "getTarget" functions as we consider flight path policies
+  if (typeof getTarget !== `undefined`) {
+    target = getTarget(airplane);
   }
 
-  trail.push(new Point(airplane.x, airplane.y));
+  // but for now, it's the same naive "fly a waypoint, transition when we're close"
+  // logic that we stubbed out in our actual autopilot code already:
+  else {
+    target = points[current];
+    if (target && dist(airplane.x, airplane.y, target.x, target.y) < 10) {
+      current++;
+    }
+  }
 
+  // Show our flight target, if we have one:
+  if (target) {
+    setColor(`magenta`);
+    line(airplane.x, airplane.y, target.x, target.y);
+    circle(target.x, target.y, 3);
+    setStroke(`black`);
+    if (playing) {
+      airplane.update(target);
+      trail.push(new Point(airplane.x, airplane.y));
+    }
+  }
+
+  // And if we don't, we've run out of points, so: pause the graphic.
+  else {
+    playButton.click();
+  }
+
+  // And then finally, draw the airplane in its current location
   noFill();
   setStroke(`black`);
   airplane.draw();
 }
 
+
 /**
- * The meat and potatoes
+ * If we click on the graphic, place a new point.
  */
-function getTarget() {
-  if (current < 0) return;
-
-  let target = points[current];
-  if (!target) return;
-
-  if (dist(airplane.x, airplane.y, target.x, target.y) < airplane.r / 10) {
-    current++;
-  }
-
-  return target;
-}
-
 function pointerDown(x, y) {
   addPoint(x, y);
-  if (current === -1 && points.length === 1) {
-    current = 0;
-  }
   redraw();
+}
+
+/**
+ * Adding a point also means checking to see if
+ * we now "have points at all". If so, we mark
+ * the first point as our current target.
+ */
+function addPoint(x, y) {
+  if (currentPoint) return;
+  const p = new Point(x, y);
+  setMovable(p);
+  points.push(p);
 }

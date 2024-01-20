@@ -42,16 +42,7 @@ export async function flyLevel(autopilot, state) {
   const { data: flightData, model: flightModel } = state;
 
   // Get our current bank/roll information:
-  const {
-    lat,
-    long,
-    declination,
-    aileronTrim,
-    bank,
-    speed,
-    heading,
-    turnRate,
-  } = flightData;
+  const { lat, long, declination, bank, speed, heading } = flightData;
   const { bank: dBank } = flightData.d ?? { bank: 0 };
 
   // And our model data
@@ -82,7 +73,8 @@ export async function flyLevel(autopilot, state) {
       isAcrobatic,
       lat,
       long,
-      declination
+      declination,
+      speed
     );
   const aHeadingDiff = abs(headingDiff);
   const diff = targetBank - bank;
@@ -178,7 +170,8 @@ function getTargetBankAndTurnRate(
   isAcrobatic,
   lat,
   long,
-  declination
+  declination,
+  speed
 ) {
   const { modes } = autopilot;
 
@@ -193,7 +186,8 @@ function getTargetBankAndTurnRate(
     autopilot,
     lat,
     long,
-    declination
+    declination,
+    speed
   );
 
   let headingDiff;

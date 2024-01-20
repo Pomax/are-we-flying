@@ -7,8 +7,6 @@
 graphics-element {
   display: block;
   border: 1px solid grey;
-  touch-action: none;
-  user-select: none;
 
   /*
     We can use the :defined pseudo-class to check whether a particular
@@ -131,6 +129,7 @@ graphics-element {
     padding: 0 1em;
     font-family: sans-serif;
     font-style: normal;
+    user-select: text;
 
     & *.calm {
       -webkit-text-stroke: 0px transparent;

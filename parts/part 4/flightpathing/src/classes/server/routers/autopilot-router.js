@@ -13,12 +13,16 @@ export class AutopilotRouter {
     autopilot.setParameters(params);
   }
 
+  async resetTrim() {
+    autopilot.resetTrim();
+  }
+
   getWaypoints(client) {
     return autopilot.waypoints.getWaypoints();
   }
 
-  addWaypoint(client, lat, long) {
-    autopilot.waypoints.add(lat, long);
+  addWaypoint(client, lat, long, alt) {
+    autopilot.waypoints.add(lat, long, alt);
   }
 
   setWaypointPosition(client, id, lat, long) {
@@ -43,5 +47,9 @@ export class AutopilotRouter {
 
   toggleRepeating(client, value) {
     autopilot.waypoints.toggleRepeating(value);
+  }
+
+  revalidate(client) {
+    autopilot.waypoints.revalidate();
   }
 }

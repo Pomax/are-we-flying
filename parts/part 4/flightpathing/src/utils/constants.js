@@ -9,6 +9,7 @@ export const FPS_IN_KNOTS = 1 / KNOT_IN_FPS;
 export const ONE_KTS_IN_KMS = 0.000514444;
 export const FPS_PER_KNOT = 1.68781;
 export const KM_PER_NM = 1.852;
+export const KM_PER_ARC_DEGREE = 0.01; // note: on a great circle.
 
 // flight modes
 export const LEVEL_FLIGHT = `LVL`;

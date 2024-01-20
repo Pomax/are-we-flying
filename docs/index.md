@@ -1,31 +1,3 @@
-<!-- there's going to be interactive graphics here -->
-
-<script  type="module" src="./graphics/graphics-element/graphics-element.js" async></script>
-<link rel="stylesheet" href="./graphics/graphics-element/graphics-element.css" async>
-
-<style>
-  html, body {
-    width: 800px;
-    margin: 0 auto;
-  }
-  img {
-    margin: 0;
-    border: 1px solid black;
-  }
-  figure {
-    & img {
-      margin-bottom: -1.5em;
-    }
-    & figcaption {
-      margin: 0;
-      padding: 0;
-      size: 80%;
-      font-style: italic;
-      text-align: right;
-    }
-  }
-</style>
-
 # Flying planes with JavaScript
 
 ![masthead image of a cockpit with browsers loaded in the cockpit screens](./images/masthead.png)
@@ -48,12 +20,13 @@ If that sounds cool: you can check out the complete project over on the ["Are we
 
 ## The structure of this "tutorial"
 
-We'll be tackling this whole thing in four parts:
+We'll be tackling this whole thing in five parts:
 
 1. In the first part we'll cover the prep work we need to do in order to set up a working combination of MSFS, a SimConnect API server for communicating to and from MSFS, and a web server that hosts a webpage and takes care of communicating to and from the API server.
 2. In the the second part we'll cover the "web page pages", where we're going to visualize everything we can visualize relating to our flights in MSFS, including graphs that plot the various control values over time (altitude, speed, heading, trim values, etc.) to get a better insight into how our aeroplane(s) responds to control inputs.
 3. In the third part we'll cover the thing you came here for: writing our own autopilot (in several stages of complexity) and making our computer fly planes all on its own!
-4. In the fourth part, we're going to cover the thing you didn't even realize you came here for: taking everything we've done and turning it into a google maps style autopilot, where we just tap a few places we want to pass over in the browser, and then with the plane still sitting on the runway, click "take off" in the browser and have the plane just... start flying in MSFS with us along for the ride, not having to do anything. And then clicking "auto land" to make the game pick an airport near the last waypoint we placed and just have it land there. _Because we can_.
+4. n the fourth part, we're going to cover the "flight path" part of a modern autopilot, but rather than programming specific radio beacons and airports, we're going the google maps route, where you just place markers on the map and then the plane flies the path through those markers.
+5. In the fifth part, we're going to cover the thing you didn't even realize you came here for: literally making JavaScript fly our plane for us, where we spawn a plane on the runway, click "take off" in the browser and have the plane just... start flying in MSFS with us along for the ride, following our flight path with automatic elevation detection, and then when we click "land", having the autopilot find a nearby airport, figure out an approach, and then land the plane for us. _Because we can_.
 
 And along the way we're going to learn a few developer tricks like hot reloading ES modules, mocking SimConnect, and other such fun things.
 
@@ -73,9 +46,9 @@ If that sounds (and looks) good to you, then read on!
 
 # Table of Contents
 
-{{ ToC }}
+{:toc}
 
-# Part one: The prep work
+# Part 1: The prep work
 
 As mentioned, we're going to have to do a bit of prep work before we can start writing the fun stuff, so let's get this done. We're going to implement three things:
 
@@ -350,7 +323,7 @@ export class ServerClass {
       // And when it's online and we're connected, start polling for when we're "in game".
       (async function poll() {
         // We'll look at what actually goes here once we have everything in place.
-        // For now, we just schedule a poll 
+        // For now, we just schedule a poll
         runLater(poll, POLLING_INTERVAL);
       })();
     });
@@ -427,7 +400,7 @@ export function registerWithAPI(clients, api) {
 
 Which leaves the code that lets clients call API functions through the server
 
-### The API Router 
+### The API Router
 
 The `APIRouter` code lets clients interface "directly" with MSFS through the SimConnect driver, with five main functions that we can expose to clients:
 
@@ -451,7 +424,7 @@ import { createHash } from "node:crypto";
 
 const resultCache = {};
 
-// Since there is only one API instance, we can cache that 
+// Since there is only one API instance, we can cache that
 // at the module level, just like in the server class.
 let api;
 
@@ -493,7 +466,7 @@ export class APIRouter {
         .split(`_`)
         .map((v) => v[0].toUpperCase() + v.substring(1).toLowerCase())
         .join(``);
-  
+
     // So: ask the API to register for this event, with an appropriate
     // bit of code to handle "what to do when SimConnect flags this event".
     if (!tracker.off) {
@@ -542,7 +515,7 @@ export class APIRouter {
         }
       });
     }
-    // And then we await the cache entry's data before responding. If this is a 
+    // And then we await the cache entry's data before responding. If this is a
     // request for data that was previously cached already, then this will pretty
     // much resolve instantly. Otherwise, it'll resolve once we get data from the API.
     return await resultCache[key].data;
@@ -716,7 +689,7 @@ class BrowserClient {
   async update(prevState) {
     // set a class on the HTML body based on our connection state...
     document.body.classList.toggle(`connected`, this.state.serverConnection);
-    
+
     // And then, ather than "doing anything" here, we just pass the current
     // state on to the Plane. All we do in this file is wait for the next update.
     this.plane.updateState(this.state);
@@ -748,7 +721,7 @@ export class Plane {
     const now = Date.now();
 
     // ...nothing here yet, but we'll be filling this out in soon enough!
-    
+
     this.lastUpdate = { time: now, ...state };
   }
 }
@@ -783,7 +756,7 @@ const { FLIGHT_OWNER_KEY } = process.env;
 
 export class ServerClass {
   #authenticatedClients = [];
-  
+
   async init() {
     const { clients } = this;
 
@@ -801,7 +774,7 @@ export class ServerClass {
       ...
     });
   }
-                       
+
   ..
 
   /**
@@ -823,7 +796,7 @@ export class ServerClass {
 With that, we can now make clients (and by extension, browsers) authenticate by having them call `this.server.authenticate(...)`, so let's make that work by updating our `client.js` so it loads that key (if it has access to it) and calls the authentication function:
 
 ```js
-// Load in our environment variables now we have 
+// Load in our environment variables now we have
 import url from "node:url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 import dotenv from "dotenv";
@@ -851,7 +824,7 @@ export class ClientClass {
       authenticated: await this.server.authenticate(username, password),
       serverConnection: true,
     });
-    
+
     // Since API access is now restricted, make sure we only call it
     // when we know (or think we know) that we won't be rejected.
     if (this.state.authenticated) {
@@ -1110,7 +1083,7 @@ And while that's a bit more code, and requires an `await` (which is easy to forg
 Since objects don't have their type "baked in", but simply follow a chain of prototype objects, we can change one of those prototype objects and basically change the identity of the object itself. Normally, this would be a bad idea(tm) but in this specific case, it's exactly what we need to make sure that instances of any hot-reloadable classes we use get updated as part of the reload process:
 
 ```javascript
-// We can set up our reload watcher to update not just the 
+// We can set up our reload watcher to update not just the
 // variable for our class, but also instances of that class:
 let { Something } = await watch(__dirname, `some-module.js`, (lib) => {
   // Update our class binding:
@@ -1129,13 +1102,13 @@ let { Something } = await watch(__dirname, `some-module.js`, (lib) => {
 let instance = new Something();
 ```
 
-# Part two: visualizing flights
+# Part 2: visualizing flights
 
 Before we try to automate flight by writing an autopilot, it helps if we can know what "a flight" is. I mean, you and I know what a flight is, but computers not so much, especially when they can't even see your game, so let's figure out what information we need our code to know about before we can ask it to do the things we might want it to do.
 
 ## Checking the game data: what do we want to know?
 
-There are two kinds of information that we'll want our code to know about: "static" information like the name of the plane we're flying, whether it has a tail wheel, how much it weighs, etc. and "dynamic information" like what lat/long the plane is current at, how fast it's going, what its current pitch angle is, etc. 
+There are two kinds of information that we'll want our code to know about: "static" information like the name of the plane we're flying, whether it has a tail wheel, how much it weighs, etc. and "dynamic information" like what lat/long the plane is current at, how fast it's going, what its current pitch angle is, etc.
 
 We can compile a list of properties that we're likely going to need in order to write our autopilot, and then request all those values from MSFS at a regular interval using SimConnect, so that we can then forward that information to our autopilot code, as well as all clients, and consequently, any connected browser.
 
@@ -1389,7 +1362,7 @@ export function renameData(data) {
 }
 ```
 
-And that's us nearly here. However, SimConnect typically only serves up "values" and if we're going to write an autopilot, we generally also care the _change_ in certain values over time. For instance, just knowing our current vertical speed doesn't tell us whether we're ascending or descending, and just knowing that we're turning at 3 degrees per second  _right now_ doesn't tell us anything about whether we're about to spiral out of control or whether we're about to stop turning entirely. 
+And that's us nearly here. However, SimConnect typically only serves up "values" and if we're going to write an autopilot, we generally also care the _change_ in certain values over time. For instance, just knowing our current vertical speed doesn't tell us whether we're ascending or descending, and just knowing that we're turning at 3 degrees per second  _right now_ doesn't tell us anything about whether we're about to spiral out of control or whether we're about to stop turning entirely.
 
 So we need a little bit of extra code to track the "delta" values for some of the flight properties we listed earlier:
 
@@ -1602,7 +1575,7 @@ class Server {
     if (api?.connected) client.onMSFS(true);
     // When clients connect, immediately send them the most up to date
     // flight information, if the flightInformation object has been
-    // initialized, of course.    
+    // initialized, of course.
     if (flightInformation) {
       client.setFlightInformation(flightInformation);
     }
@@ -1710,7 +1683,7 @@ Excellent: boring, but serviceable, so let's add a parent for that in our `index
     <p>
       Let's see if we're currently flying around in Microsoft Flight Simulator 2020...
     </p>
-    <ul>    
+    <ul>
     <ul id="questions" data-description="Templated from questions.html"></ul>
   </body>
 </html>
@@ -2570,7 +2543,7 @@ export class Plane {
     this.state = state;
     const now = Date.now();
     Questions.update(state);
-    
+
     // Check if we started a new flight because that requires
     // immediately building a new flight trail:
     try {
@@ -2590,7 +2563,7 @@ export class Plane {
 
   async updateMap({ model: flightModel, data: flightData, general }) {
     if (!flightData) return;
-    
+
     const { map, marker, planeIcon } = this;
     const { lat, long } = flightData;
     if (lat === undefined || long === undefined) return;
@@ -2847,13 +2820,13 @@ export class Plane {
     const now = Date.now();
 
     ...
-    
+
     const flightData = state.flightInformation.data;
     if (flightData) {
       // Update the attitude indicator:
       const { pitch, bank } = state.flightInformation.data;
       Attitude.setPitchBank(pitch, bank);
-    
+
       // Update our science
       this.updateChart(flightData);
     }
@@ -2907,7 +2880,7 @@ And now we can see what our plane is doing over time, which means we're ready to
 
 _So let's finally do this._
 
-# Part three: writing an autopilot
+# Part 3: writing an autopilot
 
 It's time. Let's write that autopilot you came here for.
 
@@ -2956,7 +2929,7 @@ export class AutoPilot {
   get autoPilotEnabled() {
     return this.modes.MASTER;
   }
-  
+
   disable() {
     this.setParameters({ MASTER: false });
   }
@@ -2981,7 +2954,7 @@ export class AutoPilot {
 
     // Then, MSFS might not actually be running...
     if (!this.api.connected) return;
-    
+
     // but if it is, and we just turned our own autopilot on, then we'll
     // want to make sure to turn off the in-game autopilot (if it's on),
     // before we start to run our own code, so that it doesn't interfere:
@@ -2992,7 +2965,7 @@ export class AutoPilot {
       this.runAutopilot();
     }
   }
-  
+
   async setTarget(key, value) {
     const { modes } = this;
     // We'll be building this out as we implement more and
@@ -3019,7 +2992,7 @@ export class AutoPilot {
     // things work by then.
     runLater(() => this.runAutopilot(), this.AP_INTERVAL);
 
-    // If the game is paused, then don't run the autopilot code, but 
+    // If the game is paused, then don't run the autopilot code, but
     // only for "this call". Maybe by the next call the game won't be
     // paused anymore.
     if (paused) return;
@@ -3037,7 +3010,7 @@ export class AutoPilot {
     // This is where things will actually happen, rather than
     // putting that code inside `runAutopilot`, because this will
     // eventually be a substantial amount of code.
-    
+
     // For now, all we do is update the flight information. And
     // you might be thinking "well why not just update only the
     // flight data, the model isn't going to change mid-flight?"
@@ -3108,7 +3081,7 @@ export class ServerClass {
       })();
     });
   }
-  
+
   // When clients connect, we immediately send them the current autopilot
   // state. If the autopilot's been initialized, of course.
   async onConnect(client) {
@@ -3289,7 +3262,7 @@ export class Plane {
     ...
     const flightData = state.flightInformation.data;
     ...
-    
+
     // Super straight-forward:
     const { autopilot: params } = state;
     this.autopilot.update(flightData, params);
@@ -3455,7 +3428,7 @@ export async function flyLevel(autopilot, state) {
   // more than "max bank", correct based off the max bank value instead.
   // Also, we'll restrict how much that max bank is based on how fast we're
   // going. Because a hard bank at low speeds is a good way to crash a plane.
-  const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);  
+  const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
   update -= constrainMap(diff, -maxBank, maxBank, -step, step);
 
   // With our main correction determined, we may want to "undo" some of that
@@ -3526,18 +3499,18 @@ export class Autopilot {
       MASTER: false,
       [LEVEL_FLIGHT]: false,
     };
-    this.resetTrim();    
+    this.resetTrim();
     ...
   }
-    
+
   resetTrim() {
     this.trim = {
       pitch: 0,
       roll: 0,
       yaw: 0,
-    };      
+    };
   }
-    
+
   async setTarget(key, value) {
     ...
 
@@ -3560,7 +3533,7 @@ export class Autopilot {
 
     // Then run a single iteration of the wing leveler:
     if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
-  }  
+  }
 }
 ```
 
@@ -3633,7 +3606,7 @@ export class Autopilot {
     }
   }
 
-    
+
   // Now with two functions!
   async run() {
     const { modes, flightInformation } = this;
@@ -3756,7 +3729,7 @@ And we'll update our HTML partial to include the ALT switch:
   <link rel="stylesheet" href="/css/autopilot.css" />
   <button class="MASTER">AP</button>
   <button class="LVL">LVL</button>
-  <button class="ALT">ALT</button>  
+  <button class="ALT">ALT</button>
 </div>
 ```
 
@@ -3794,13 +3767,13 @@ const { abs } = Math;
 export async function altitudeHold(autopilot, flightInformation) {
   ...
   const { VS, alt } = flightData;
-  ... 
+  ...
   // we'll move this value up
-  const maxVS = DEFAULT_MAX_VS;  
+  const maxVS = DEFAULT_MAX_VS;
   const { targetVS } = await getTargetVS(maxVS, alt);
 
   ...
-  
+
   // And our first new feature! If we're close to our target, dampen
   // the corrections, so we don't over/undershoot the target too much.
   if (FEATURES.DAMPEN_CLOSE_TO_ZERO) {
@@ -3918,7 +3891,7 @@ export class Autopilot {
 }
 ```
 
-So let's save all that and then first set both our new `DAMPEN_CLOSE_TO_ZERO` and `TARGET_TO_HOLD` features to `false`,  so that we're still flying "the same way we did before". Then, after we've established that we're autopiloting just as aggressively (because nothing changed in terms of the code running yet), we change them to `true`, and save, to see the immediately result... 
+So let's save all that and then first set both our new `DAMPEN_CLOSE_TO_ZERO` and `TARGET_TO_HOLD` features to `false`,  so that we're still flying "the same way we did before". Then, after we've established that we're autopiloting just as aggressively (because nothing changed in terms of the code running yet), we change them to `true`, and save, to see the immediately result...
 
 ![With target altitude](./images/alt-hold/target-altitude.png)
 
@@ -4070,7 +4043,7 @@ export async function flyLevel(autopilot, state) {
   const { targetBank } = getTargetBankAndTurnRate(autopilot, heading);
   const diff = targetBank - bank;
   ...
-  
+
   // New feature! If we're close to our target, dampen the
   // corrections, so we don't over/undershoot the target too much.
   if (FEATURES.DAMPEN_CLOSE_TO_ZERO) {
@@ -4155,9 +4128,9 @@ export async function altitudeHold(autopilot, flightInformation) {
   ...
 
   // A slight update to our dVS logic: allow it to fully counteract the VS update
-  const maxdVS = constrainMap(abs(diff), 0, 100, 0, DEFAULT_MAX_dVS);  
+  const maxdVS = constrainMap(abs(diff), 0, 100, 0, DEFAULT_MAX_dVS);
   update += constrainMap(dVS, -maxdVS, maxdVS, trimStep, -trimStep);
-  
+
   ...
 
   // And the feature itself: an emergency trimming override for when we're
@@ -4252,10 +4225,10 @@ export async function flyLevel(autopilot, state) {
   }
 
   update -= bankDiff;
-  
+
   ...
 }
-  
+
 // And let's add 2 letters to our target finding function to help us out, too:
 function getTargetBankAndTurnRate(autopilot, heading, maxBank) {
   ...
@@ -4313,10 +4286,10 @@ export async function altitudeHold(autopilot, flightInformation) {
   const maxVS = DEFAULT_MAX_VS;
   // then we pass those on to the function that calculates our target VS
   const { targetVS, targetAlt, altDiff } = getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, cruiseSpeed);
-  
+
   ...
 }
-  
+
 function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, cruiseSpeed) {
   ...
 
@@ -4362,7 +4335,7 @@ Not all planes have aileron trim, instead relying on setting a rudder trim to ke
 ```javascript
 export class FlightInformation {
   ...
-  
+
   // Then our "update the model" code:
   async updateModel() {
     const data = await api.get(...FLIGHT_MODEL);
@@ -4371,7 +4344,7 @@ export class FlightInformation {
     // Make sure to run our quality-of-life functions:
     convertValues(data);
     renameData(data);
-    
+
     // Does this plane have aileron trim?
     const noAileron = [`Turbo Arrow`];
     data.hasAileronTrim = !noAileron.some(t =>
@@ -4398,7 +4371,7 @@ export async function flyLevel(autopilot, state) {
   // Flight data
   const { bank, speed, heading, turnRate } = flightData;
   const { bank: dBank } = flightData.d ?? { bank: 0 };
-  
+
   // Model data
   const { hasAileronTrim, weight } = flightModel;
   const useStickInstead = hasAileronTrim === false;
@@ -4419,8 +4392,8 @@ export async function flyLevel(autopilot, state) {
     // ...and we'll need this function to know whether we're on stick or not, too.
     getTargetBankAndTurnRate(autopilot, heading, maxBank, useStickInstead);
 
-  ... 
-  
+  ...
+
   // And of course, we now need to either update the aileron trim
   // or just "the aileron", so: which one are we working with?
   if (useStickInstead) {
@@ -4439,7 +4412,7 @@ export async function flyLevel(autopilot, state) {
 
 function getTargetBankAndTurnRate(autopilot, heading, maxBank, useStickInstead) {
   ...
-  
+
   if (targetHeading) {
     headingDiff = getCompassDiff(heading, targetHeading);
     // if we're flying on stick, we use a sliding target, where we always
@@ -4526,7 +4499,7 @@ export async function flyLevel(autopilot, state) {
   }
   ...
 }
-  
+
 // Remember how we made the heading a quadratic easing function?
 // We're going to undo that for acrobatic planes, otherwise it
 // will take them waaaay too long to cover the last few degrees
@@ -4567,7 +4540,7 @@ Going up: not a problem! With a cruise speed of 174 bit a minimum safe climb spe
 
 The first few thousand feet: not a problem!
 
-But all the while our speed is slowly creeping up, and after a little over 4000 feet of descent, at an altitude of 7860.7 feet, we're going too fast for the plane to handle and... 
+But all the while our speed is slowly creeping up, and after a little over 4000 feet of descent, at an altitude of 7860.7 feet, we're going too fast for the plane to handle and...
 
 ![we overstressed the plane, which is a polite way to say we died](./images/combined/throttle/overstressed.png)
 
@@ -4593,11 +4566,11 @@ const { abs } = Math;
 export function autoThrottle(autopilot, flightInformation) {
   const { api, modes } = autopilot;
 	const { data: flightData, model: flightModel } = flightInformation;
-  
+
   // We'll need to know our current altitude and speed...
   const { alt, speed } = flightData;
   const { speed: dV } = flightData.d;
-  
+
   // As well as knowing how many engines we're working with,
   // and what the plane's intended cruise speed is:
   const { engineCount, cruiseSpeed } = flightModel;
@@ -4605,23 +4578,23 @@ export function autoThrottle(autopilot, flightInformation) {
   const targetAlt = modes[ALTITUDE_HOLD];
   const targetSpeed = cruiseSpeed;
   const diff = abs(speed - targetSpeed);
-  
+
   // An accelleration threshold that we use to determine
   // if we should (still) speed up or down:
   const threshold = constrainMap(diff, 0, 10, 0.01, 0.2);
-  
+
   // A factor for "how much our altitude difference matters":
   const altFactor = constrainMap(targetAlt - alt, 0, 100, 0, 0.25);
-  
+
   // And our throttling step size, which is both dependent on
   // how far off our speed is from the target...
   let step = constrainMap(diff, 0, 50, 1, 5);
-  
+
   // As well as how light the plane is, because the amount of
   // throttle we need for a lumbering hulk will be way more
   // than we need for a little and nimble little plane.
   step = constrainMap(weight, 1000, 6000, step/5, step);
-  
+
   // Also we want to make sure that while we can throttle
   // up to 100%, we never throttle down past 25%. Because
   // we don't want the engines to cut out on us.
@@ -4693,7 +4666,7 @@ Effectively: "try to maintain cruise speed". And with that in place, what does o
 
 And once more: we live. You can see the auto-throttle keeping our speed around 174 knots (we go over a bit, we go under a bit) through pretty much the entire descent. And with that, we've exhausted the list of edge cases to look at. Which means our autopilot is done! Which means we can finally get down to writing the _real_ autopilot! ..._Wait, what?_
 
-# Part four: "Let's just have JavaScript fly the plane for us"
+# Part 4: Google maps for planes
 
 So far we've been looking at what we _call_ an autopilot, but is it? Can we just get in the plane, and then tell it to pilot itself? In the real world: no, absolutely not, for very good reasons. But we're not dealing with the real world, we're dealing with a video game that we have near enough full control over, so why would we stop at "what you can do in the real world" when we can make things _so_ much cooler by adding in the bits you won't get in real life? We now have the basics in place for making the plane go where we want it to go, so let's create a UI that lets use _tell it_ where we want it to go, starting _and ending_ on a runway. Because now we're ready to tackle the  _really_ interesting parts:
 
@@ -5120,7 +5093,7 @@ export class ServerClass {
     // clients can't directly access the API. However, we'll be setting
     // up some API routing to make that a non-issue in a bit.
     api = USE_MOCK ? new MOCK_API() : new MSFS_API();
-    
+
     ...
 
     if (USE_MOCK) {
@@ -5131,7 +5104,7 @@ export class ServerClass {
       // And allow clients to call this.server.mock.reset(),
       this.mock = { reset: () => api.reset(`Resetting the mock flight`) };
     }
-    
+
     connectServerToAPI(api, async () => {
       ...
     });
@@ -5186,7 +5159,7 @@ Sure, it's not as responsive as in-game planes, and the graphs look synthetic, b
 
 So that we have a fake plane that can fly on our autopilot, holding a specific heading and altitude, and able to switch to new headings and altitudes, the next logical step would be to tell the autopilot to just do that for us based on a flight path. We want to be able to give the autopilot a bunch of coordinates and then make it fly towards waypoints, and then when it gets close, transition to flying towards the next waypoint, and so on, until we run out of waypoints. Something like this:
 
-![image-20230529142215897](./images/page/map-with-waypoints.png)
+![Doing some waypoint flying](./images/page/map-with-waypoints.png)
 
 Flying towards a point is pretty easy, but transitioning in a way that "feels right" is a bit more work, so there might be a bit more code here than you'd expect. Plus, we want to place, move, and remove points using the map on our web page, but the actual waypoints themselves will live server-side, so there's a bit of work to be done there, too.
 
@@ -5534,7 +5507,7 @@ export class WaypointOverlay {
         `.pre`
       ).textContent = `waypoint ${number} (${waypoint.distance.toFixed(1)} NM)`;
   }
-  
+
   /**
    * Is this a new waypoint that we need to put on the map, or
    * is this a previously known waypoint that we need to update?I lik
@@ -5733,9 +5706,9 @@ If we rerun our server and client, we can now place a bunch of waypoints by clic
 
 And that works, but the map keeps snapping to the plane, which makes placing points harder than it needs to be because we need to zoom out so we can place  points, and then when we try to move them around the map keeps changing on us, not to mention that our plane doesn't actually _do_ anything with the flight path yet. So let's keep going:
 
-### Quality of life improvements
+## Quality of life improvements
 
-#### Don't snap the map
+### Don't snap the map
 
 When placing or moving waypoints, it would be _Extremely Useful <sup>(tm)</sup>_ if the map didn't constantly snap to our plane. If you recall, the reason it does that is because we have a `map.setView()` call in our `plane.js`, so let's add a checkbox on our page that maps to a boolean flag that tells the plane code whether or not to center the map on our plane. First, we'll edit our `index.html`:
 
@@ -5794,9 +5767,9 @@ export class Plane {
     // And if we load the page without checkbox checked (e.g. page reloads), check it.
     if (!btn.checked) btn.click();
   }
-  
+
   ...
-  
+
   async updateMap({ model: flightModel, data: flightData, general }) {
     ...
     // And of course: control the centering using our new flag!
@@ -5810,9 +5783,38 @@ export class Plane {
 
 And we're done, if we reload our page and drag the map around, we no longer auto-center on our plane until we tick that checkbox again (or click its associated label, which counts as ticking the checkbox).
 
-#### Control buttons
+### Toggle waypoint labels
 
-Next up: some buttons for "waypoint management" things: 
+Things can get a bit hard to see with a large flightpath with lots of labels, so let's add a tiny bit more HTML and CSS to toggle waypoint labels. We'll add a checkbox to our `index.html` similar to what we just did for centering the map on the plane:
+
+```html
+    <div id="map-controls">
+      <label for="center-on-plane">Center map on plane</label>
+      <input id="center-on-plane" type="checkbox" checked="checked" />
+      <label for="show-labels">Show waypoint labels</label>
+      <input id="show-labels" type="checkbox" checked />
+    </div>
+```
+
+And then we'll update our `index.css`, making the label rule kick in for anything with a `for` attribute, and then writing a bit of clever CSS that toggles visibility of our waypoint labels based on whether or not our checkbox is checked or unchecked:
+
+```css
+label[for] {
+  cursor: pointer;
+}
+
+body:has(#show-labels:not(:checked)) #map .waypoint-div .waypoint-marker .pre {
+  display: none;
+}
+```
+
+And presto, suddenly we can hide and reveal waypoint labels!
+
+![Hiding our waypoint labels](./images/waypoints/hide-labels.png)
+
+### Control buttons
+
+Next up: some buttons for "waypoint management" things:
 
 1. a "patrol" button for turning a flightpath into a closed path,
 2. a "reset" button to reset the flight path to "not flown yet".
@@ -5846,7 +5848,7 @@ And then we update our `plane.js` some more:
 ...
 export class Plane {
   ...
-  
+
   setupControls(map) {
     this.centerMapOnPlane = true;
     const btn = (this.centerButton = document.getElementById(`center-on-plane`));
@@ -5890,8 +5892,8 @@ And then we'll put in one more change, in our `waypoint-overlay.js`, because we 
 ...
 
 export class WaypointOverlay {
-  ... 
-  
+  ...
+
   manage(waypoints = [], repeating) {
     // Show whether this is a closed path or not by marking our button active or not:
     document
@@ -5919,7 +5921,7 @@ export class WaypointOverlay {
   }
 
   ...
-  
+
   /**
    * We extend the function signature to include the repeat flag:
    */
@@ -5927,7 +5929,7 @@ export class WaypointOverlay {
     ...
     // and then use that to call a new function:
     this.updateClosingTrail(repeating);
-  }  
+  }
 
   /**
    * Which makes sure that we have a trail connecting the first
@@ -5958,14 +5960,14 @@ export class WaypointOverlay {
   }
 
   ...
-  
+
   /**
    * Then we also call that function when a waypoint moves,
    * and that waypoint is either the first or last point
    * in our list:
    */
   updateWaypoint(waypoint, fromServer) {
-    ...   
+    ...
     if (waypoint.lat !== lat || waypoint.long !== long) {
       ...
       const pos = this.waypoints.findIndex((e) => e.id === id);
@@ -5974,11 +5976,15 @@ export class WaypointOverlay {
       }
     }
     ...
-  }  
+  }
 }
 ```
 
-#### A waypoint edit modal
+Very fancy indeed:
+
+![Fancy buttons](./images/waypoints/buttons.png)
+
+### Adding a waypoint edit modal
 
 And then let's make sure we can also edit and/or remove waypoints, by adding some code that gives us an edit modal when we click on waypoints. Let's edit `waypoint-overlay.js` some more:
 
@@ -6123,7 +6129,7 @@ And now when we click on a waypoint, we get this:
 
 And that's our quality of life improvements covered, let's make this plane fly our flight path already!
 
-### Hooking up heading and altitude hold
+## Hooking up heading and altitude hold
 
 The nice thing about our autopilot code is that this last step is actually very little work: we just need to make sure to set the "heading" and "alt hold" values based on what the current waypoint is (if there is one), and then the code that's already there just does what it needs to do without needing any changes. So, let's update our heading mode in `fly-level.js`:
 
@@ -6138,7 +6144,7 @@ function getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic, lat,
   if (!FEATURES.FLY_SPECIFIC_HEADING) {
     return { targetBank, maxDBank, heading, headingDiff: 0 };
   }
-  
+
   let targetHeading = autopilot.waypoints.getHeading(
     autopilot,
     lat,
@@ -6204,7 +6210,7 @@ export class WayPointManager {
 }
 ```
 
-And that's all we need: if we have waypoints, get the current waypoint, and set the autopilot heading so it points at that waypoint, and then check to see if we need to move on to our next waypoint. 
+And that's all we need: if we have waypoints, get the current waypoint, and set the autopilot heading so it points at that waypoint, and then check to see if we need to move on to our next waypoint.
 
 Though we do need a new function in our `utils.js`:
 
@@ -6230,7 +6236,7 @@ So that's heading mode, let's also update `altitude-hold.js`:
 ```javascript
 ...
 function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, cruiseSpeed) {
-  ...  
+  ...
   if (FEATURES.TARGET_TO_HOLD) {
     targetAlt = autopilot.waypoints.getAltitude();
     ...
@@ -6281,333 +6287,462 @@ Even though we have waypoints, it turns out that (probably unsurprisingly) we ne
 
 Let's start with the use case we already have: flying a flight path with a single waypoint. This is what we already implemented: if there's a single point, then that's our target, and that's what we fly towards. So far so good, our plane can already do this!
 
+![A single target](./images/waypoints/flightpath/single-point.png)
+
 But what do we want to have happens when we add a second point?
+
+![Various flight segments](./images/waypoints/flightpath/line-segment.png)
+
+Now we have conflicting priorities: on the one hand, the idea behind the flight path is that we fly from waypoint to waypoint, while sticking to the path, but we're not on the path yet: do we first fly towards the next waypoint, or do we first "get on the path"? And if we've figured that out, what if we have a third point, creating a "real" flight path with a transition from one leg of the journey to the next:
+
+![Three points form a real flight path](./images/waypoints/flightpath/three-point-path.png)
+
+When do we transition? If we transition "when we pass the waypoint" we'll be overshooting the next leg by a lot. If we transition too early, we might miss the waypoint we actually wanted to see.
 
 ### Flight path policies
 
-Say we have a plane, and a bunch of waypoints, and our plane cannot magically change heading. If we naively fly towards "the next waypoint on the list", things... don't look great:
+Let's investigate some options by writing a graphics program that flies a little plane around.
 
-<graphics-element title="a flight path tester" src="./graphics/flight-path-base.js"></graphics-element>
-
-We see the plane getting wildly off-course depending on much it needs to turn, and while it passes _through_ each waypoint, it really doesn't follow the flight path we gave it. Instead, we want it to get "onto the flight path" as quickly as possible even if it overshoots a waypoint:
-
-<graphics-element title="a flight path tester" src="./graphics/flight-path-base.js">
-  <source src="./graphics/intercepting.js" />
+<graphics-element title="A flight path tester" src="./graphics/flight-path-base.js">
+  <source title="our airplane class" src="./graphics/airplane.js" />
 </graphics-element>
 
-If we pretend that the circle is an aeroplane, with the little dot showing its current heading, the question is "what should happen over time?". In fact, let's answer that by starting simpler, with zero waypoints:
+This shows the policy we already implemented, with a reduced plane radius: we switch to the next waypoint when we're 10 pixels away from our current one, and as we know, that's a pretty terrible policy, and leads to the plane flying something that looks nothing like our intended flight path.
 
-[image removed pending graphics element code]
-
-Obviously, "what should happen over time?" here is "the plane should just fly in whatever heading it's already going". So far so good! But now we add a waypoint:
-
-[image removed pending graphics element code]
-
-What we probably want is for the plane to calculate the angle from itself to that waypoint, and then fly the associated heading, as indicated in green. That heading is going to change over time, because we can't just instantly change course, but it'll get us to our waypoint:
-
-[image removed pending graphics element code]
-
-And if the plane is flying quickly, or has a low turning rate, it takes it a bit longer, and will transition over the waypoint at a different angle:
-
-[image removed pending graphics element code]
-
-What if we add another waypoint? We probably want the aeroplane to target the first waypoint, and then once it gets there, target the next point. In pseudo-code
-
-```pseudocode
-current = 0
-target = waypoints[current]
-if dist(plane, target) < 20 -> curent = current + 1
-```
-
-This gives us the following behaviour:
-
-[image removed pending graphics element code]
-
-That might work, and if we try this with more points we get something that kinda feels like a flight path, although it's not great:
-
-[image removed pending graphics element code]
-
-We're never actually "on" the flight path, we're always kinda next to it at a different angle. But it gets really problematic with steeper angles and bigger turning circles:
-
-[image removed pending graphics element code]
-
-That's basically terrible, this is not flying a flight plan, this is a drunk pilot, and not something we'd want to use. So we're going to have to give up on purely looking at the waypoints themselves. Instead, let's look at the paths between them: we can project the plane's position onto a path, picking the first point if the projection would lie outside the path, and then use that as our target. In pseudocode:
-
-```pseudocode
-current = 0
-
-target = ???
-
-if target exists -> plane.target(target)
-
-plane.target = target:
-  a = angle to target
-  direction = sign of the angle difference between a and plane.heading;
-  plane.heading = direction * some value that scales with fast the plane can turn
-```
-
-to figure out what the target should be, let's draw some more things. First, if we're not near the flight path, we want the following:
-
-[image removed pending graphics element code: aproach from past the segment + approach from aside the segment]
-
-wever, when we get close to the flight path, we want to target the point where our circle intersects the line, nearest to the next waypoint:
-
-[image removed pending graphics element code: partial overlap at the start of the segment + partial overlap along the segment]
-
-So if we express that in pseudo-code:
-
-```pseudocode
-p1 = waypoints[current]
-
-p2 = waypoints[current + 1]
-if p2 exists -> i1 = projection for our plane onto line p1--p2
-
-p3 = waypoints[current + 2]
-if p3 exists -> i2 = projection for our plane onto line p2--p3
-
-target = i1
-if dist(plane, p2) < radius ->
-    current = current + 1
-    if i2 exists -> target = i2
-
-if target exists -> plane.target(target)
-```
-
-So what happens when we use _that_? Sure, we need to recompute that point every frame, but maths is cheap, so if it looks better, it's probably worth it:
-
-[image removed pending graphics element code]
-
-And it is: instead of never actually being on the flight path itself, we're now on the flight path _the majority of the time_. And a "switchback" style flight path is suddenly far less problematic:
-
-[image removed pending graphics element code]
-
-Although of course we still need to make sure our turns aren't unrealistically drastic. For instance, the same switch back path with a very-slow-to-turn plane wouldn't be great:
-
-[image removed pending graphics element code]
-
-And we also need to pick a good radius, because if it's too small, we'll overshoot (potentially so much that we need to circle back):
-
-[image removed pending graphics element code]
-
-And if it's too large, we'll basically smooth our path too much:
-
-[image removed pending graphics element code]
-
-So the trick is to pick a good radius based on how fast a plane can make a turn. The faster a plane can turn, the smaller we can make its transition radius, and the slower it turns, the bigger that radius will need to be. So let's switch from pseudo-code to actual code, and let's get to implementing!
+Clearly, what we want is at least _some_ form of "getting onto the line that joins waypoints", so let's see what we can do here: if the plane isn't on the flight path, we can calculate the projection of the airplane onto our flight path using some [basic linear algebra](https://stackoverflow.com/a/1079478/740553) and then fly towards that point. This will take us closer and closer to the flight path until we're less than our plane's radius away, at which point we stop targeting the plane's projection and instead target the intersection point between the flightpath, and the circle around our plane. This also takes care of transitions: if we're close enough to the next waypoint, the circle around our plane will also already be intersecting the next flight path, so we just keeping following the line/circle intersection":
 
 ```javascript
-import { pathIntersection } from "./utils.js";
+// Get our current waypoint
+const p1 = points[current];
+if (!p1) return;
+
+// Are we flying "a leg"?
+const p2 = points[current + 1];
+
+// If we're not...
+if (!p2) {
+  // ...and we're close enough to p1 to "transtion" (to nothing,
+  // since there's no next waypoint), switch...
+  if (dist(airplane.x, airplane.y, p1.x, p1.y) < airplane.r) {
+    current++;
+  }
+  // ...and return p1 as "this is our target"
+  return p1;
+}
+
+// If we *are*, project our plane onto the flightpath and
+// target that, or if our "circle" overlaps the flight path,
+// target the intersection of those two:
+const target = airplane.project(p1.x, p1.y, p2.x, p2.y, airplane.r);
+
+// And of course, if we're close enough to p2, transition.
+if (dist(airplane.x, airplane.y, p2.x, p2.y) < airplane.r) {
+  current++;
+}
+
+return target;
+```
+
+So let's see what that does when we slot this new targeting code in the above graphics:
+
+<graphics-element title="A flight path testing program" src="./graphics/flight-path-base.js">
+  <source title="our airplane class" src="./graphics/airplane.js" />
+  <source title="our new targeting policy" src="./graphics/project.js" />
+</graphics-element>
+
+This is better, but it takes a while for the plane to be properly aligned with the flight path, and it would be nicer if we got there sooner. We can sort of fake that by giving our plane a smaller radius: the smaller we make it, the closer our target point on the flight path will be to our plane, but then we also run the risk of overshooting our transitions again... play around with the radius slider in the following graphic to see what happens:
+
+<graphics-element title="Intercepting the flight path" src="./graphics/flight-path-base.js">
+  <source src="./graphics/airplane.js" />
+  <source src="./graphics/dynamic-project.js" />
+</graphics-element>
+
+Of course, we can be clever and  combine these two, so that we have an "outer circle" that we use for transition waypoints, and an "inner circle" that we use for flightpath targeting:
+
+```javascript
+...
+
+const target = airplane.project(p1.x, p1.y, p2.x, p2.y, innerRadius);
+
+if (dist(airplane.x, airplane.y, p2.x, p2.y) < airplane.r) {
+  current++;
+}
+
+return target;
+```
+
+Which has the following effect:
+
+<graphics-element title="Dynamic flight path interception" src="./graphics/flight-path-base.js">
+  <source src="./graphics/airplane.js" />
+  <source src="./graphics/dual-project.js" />
+</graphics-element>
+
+This is again better, but if you look at what happens at the transitions, our outer circle intersects the next leg of our flight path _before_ it reaches the next waypoint, so what if we transition early? Instead of just projecting our plane onto the current leg, we'll also project the plane onto the _next_ leg, and if the distance from our plane to that second projection is less than our plane's outer radius, we transition, while still using our inner radius for finding a point on the flight path to target:
+
+```javascript
+function checkTransition(p) {
+  if (dist(airplane.x, airplane.y, p.x, p.y) < airplane.r) {
+    current++;
+    return true;
+  }
+  return false;
+}
+
+let target, p1, p2, p3, intersection;
+
+p1 = points[current];
+if (!p1) return;
+
+p2 = points[current + 1];
+if (!p2) {
+  checkTransition(p1)
+  return p1;
+}
+
+// find our target based on the "inner radius"
+target = airplane.project(p1.x, p1.y, p2.x, p2.y, innerRadius);
+
+// But now let's also check whether we're close enough to the
+// next leg (if there is one) so that we can transition early:
+p3 = points[current + 2];
+
+if (p3) {
+  intersection = airplane.project(p2.x, p2.y, p3.x, p3.y);
+  if (intersection) {
+    if (checkTransition(intersection)) {
+      target = intersection;
+    }
+  }
+} else checkTransition(p2);
+
+return target;
+```
+
+Let's switch our targeting code to this, and see what happens:
+
+<graphics-element title="Early transitioning" src="./graphics/flight-path-base.js">
+  <source src="./graphics/airplane.js" />
+  <source src="./graphics/path-intersection.js" />
+</graphics-element>
+
+And that's... honestly, pretty good! Of course, the challenge is now to figure out which radii to use in order for this to work with "real" planes in MSFS, so let's change the way we determine what the inner radius is. Instead of hardcoding it, let's express it as a percentage of the outer circle, and then let's base our outer circle on the plane's speed:
+
+<graphics-element title="Early transitioning" src="./graphics/flight-path-base.js">
+  <source src="./graphics/airplane.js" />
+  <source src="./graphics/controlled.js" />
+</graphics-element>
+
+But can we do better? What if we instead borrow a page out of our autopilot book so far, and treat the intersection on the flightpath as an initial target that we then "move a little" so that it's past the flightpath, so that if we're far away from the flight path, it's also far away (on the other side of the path), and if we're on the flight path, it's also on the flight path. Does that notably improve things?
+
+```javascript
+...
+
+// Our initial target is based on our outer circle stays the same...
+target = airplane.project(p1.x, p1.y, p2.x, p2.y, airplane.r * ratio_r);
+
+// ...but let's also get the projection of our plane "if our
+// circle radius was zero", i.e. get the point projection:
+const fp = airplane.project(p1.x, p1.y, p2.x, p2.y, 0);
+  
+// And then let's get the vector from our plane to that projection...
+const dx = fp.x - airplane.x;
+const dy = fp.y - airplane.y;
+line(airplane.x, airplane.y, airplane.x + dx, airplane.y + dy);
+
+// ...and move our target by that vector:
+line(target.x, target.y, target.x + dx, target.y + dy);
+point(target.x + dx, target.y + dy); 
+target = new Point(target.x + dx, target.y + dy);
+  
+...
+```
+
+How did we do?
+
+<graphics-element title="Early transitioning" src="./graphics/flight-path-base.js">
+  <source src="./graphics/airplane.js" />
+  <source src="./graphics/bumped.js" />
+</graphics-element>
+
+It's actually hard to tell: this looks pretty much the same as before, but things change if we increase the plane's speed and reduce the inner radius. Pick a speed of 100 and a radius of 1: comparing the two graphics, we see that our latest update keeps the plane much closer to the flight path itself. In fact, let's keep the speed at 50, and set the ratio to 1, so that we're effectively _only_ working with our outer circle: that's actually good enough that we can just dispense with our inner radius entirely, and simply pick an outer radius based on our speed without having to guess at what a workable inner ratio would be. 
+
+So... let's just remove the inner radius and update our `getHeading` in our `waypoint-manager.js` file:
+
+```javascript
+import {
+  getDistanceBetweenPoints,
+  getHeadingFromTo,
+  pathIntersection,
+} from "../../utils/utils.js";
 
 ...
 
-export class WayPoints {
+export class WayPointManager {
   ...
+  getHeading(autopilot, lat, long, declination, speed) {
+    const { modes } = autopilot;
+    const { points, currentWaypoint } = this;
+    const p1 = currentWaypoint;
+    let target;
 
-  getHeading(state) {
-    const { modes } = this.autopilot;
-    let heading = modes[HEADING_MODE] || degrees(state.heading);
+    // Do we need to do anything?
+    if (!p1) return;
 
-    const { latitude: cy, longitude: cx, speed, declination } = state;
-    const { currentWaypoint: p1 } = this;
+    // we'll go with a radius based on X seconds at our current speed:
+    const seconds = 30;
+    const radiusInKM = speed * ONE_KTS_IN_KMS * seconds;
+    const radiusInArcDeg = radiusInKM * KM_PER_ARC_DEGREE;
 
-    // If there's no current waypoint, don't change the heading.
-    if (!p1) return heading;
-
-    // If there is, make sure it'll show as active on the client-side map
-    const { lat: p1y, long: p1x } = p1;
-    const p2 = p1.next;
-    p1.activate();
-
-    // Is there a next waypoint? If not, and we're coming up to the current waypoint,
-    // complete the flight path by calling the transition() function
+    // Do we only have a single point?
+    const p2 = p1.next
     if (!p2) {
-      const d1 = getDistanceBetweenPoints(cy, cx, p1y, p1x);
-      if (d1 < 0.5) {
-        this.transition();
-        return;
+      this.checkTransition(lat, long, p1.lat, p1.long, radiusInKM);
+      target = p1;
+    }
+
+    // We have two or more points, so let's keep going!
+    else {
+      target = projectCircleOnLine(long, lat, radiusInArcDeg, p1.long, p1.lat, p2.long, p2.lat);
+
+      // Did this projection technically fall outside of the
+      // line segment p1--p2, and we constrained it to p1?
+      const { constrained } = target;
+
+      // Because projectCircleOnLine works with x and y values,
+      // we need to turn those back into lat/long:
+      target = { lat: target.y, long: target.x };
+
+      // If this was an unconstrained projection, let's apply our "vector offset":
+      if (!constrained) {
+        let fp = projectCircleOnLine(long, lat, 0, p1.long, p1.lat, p2.long, p2.lat);
+        fp = { lat: fp.y, long: fp.x };
+        target.lat += fp.lat - lat;
+        target.long += fp.long - long;
       }
-      // If we did not transition, return the heading that points at p1, corrected for
-      // magnetic declination, because otherwise we'll fly in the wrong direction!
-      heading = getHeadingFromTo(cy, cx, p1y, p1x);
-      return (heading - declination + 360) % 360;
+
+      // Then, do we have three or more points?
+      const p3 = p2.next;
+      if (!p3) {
+        this.checkTransition(lat, long, p2.lat, p2.long, radiusInKM);
+      }
+
+      // We do: let's keep going!
+      else {
+        const intersection = projectCircleOnLine(long, lat, radiusInArcDeg, p2.long, p2.lat, p3.long, p3.lat);
+        if (this.checkTransition(lat, long, intersection.y, intersection.x, radiusInKM)) {
+          target = { lat: intersection.y, long: intersection.x };
+        }
+      }
     }
 
-    // If there is a next point, we have a path we can work with.
-    const { lat: p2y, long: p2x, next: p3 } = p2;
-    p2.activate();
-
-    // our initial target is simply going to be "the current waypoint"
-    let target = p1;
-
-    // And then we do some maths: we base our transition radius on how fast the aeroplane's going,
-    // under the generally true rule that the faster the plane, the bigger the turning circle.
-    const transition_time = 30;
-    const transitionRadius = 0.01 * speed * KMS_PER_KNOT * transition_time;
-
-    // Find the intersection point of our "circle" with the path segment between current and next.
-    // Note that if that intersection lies outside the segment, it'll return the closes endpoint.
-    const i1 = pathIntersection(p1x, p1y, p2x, p2y, cx, cy, transitionRadius);
-
-    // Is there a path segment from the next point to the point after that?
-    let i2 = undefined;
-    if (p3) {
-      const { lat: p3y, long: p3x } = p3;
-      i2 = pathIntersection(p2x, p2y, p3x, p3y, cx, cy, transitionRadius);
+    // We now know which GPS coordinate to target, so let's compute
+    // which heading that equates to, and whether that means we need
+    // to update our autopilot heading parameter:
+    const newHeading = getHeadingFromTo(lat, long, target.lat, target.long);
+    const hdg = parseFloat(((360 + newHeading - declination) % 360).toFixed(2));
+    if (modes[HEADING_MODE] !== hdg) {
+      autopilot.setParameters({
+        [HEADING_MODE]: hdg,
+      });
     }
 
-    // First guess: our target is that first intersection
-    if (i1) target = i1;
-
-    // If we're close enough to p2, update our target to i2 and switch the current point to the next one:
-    const contained = (p) => {
-      if (!p) return false;
-      const { x, y } = p;
-      return dist(p1.x, p1.y, x, y) <= transitionRadius;
-    };
-
-    if (dist(cx, cy, p2x, p2y) < transitionRadius || (contained(i1) && contained(i2))) {
-      this.transition();
-      if (i2) target = i2;
-    }
-
-    // We can now determine what the true heading towards this target is based on GPS coordinates,
-    heading = getHeadingFromTo(cy, cx, target.y, target.x);
-    // and then return it, corrected for magnetic declination, so it's a proper compass heading.
-    return (heading - declination + 360) % 360;
+    // And then return this heading to fly-level.
+    return modes[HEADING_MODE];
   }
+
+  /**
+   * After updating getHeading, we also need to update our "check
+   * transition" function, based on radial distance:
+   */
+  checkTransition(lat, long, lat2, long2, radiusInKM) {
+    const { currentWaypoint } = this;
+    const d = getDistanceBetweenPoints(lat, long, lat2, long2);
+    // Are we close enough to transition to the next point?
+    if (d < radiusInKM) {
+      currentWaypoint.deactivate();
+      this.currentWaypoint = currentWaypoint?.complete();
+      // Do we need to wrap-around after transitioning?
+      if (!this.currentWaypoint && this.repeating) {
+        this.resetWaypoints();
+      }
+      this.currentWaypoint?.activate();
+      return true;
+    }
+    return false;
+  }
+
+  ...
 }
 ```
 
-And then with the code for `pathIntersection`, we should be done:
+Of course, we do need to add that new constant to our `constants.js`:
 
 ```javascript
-// Find a circle/line intersection, given a line segment, capping the intersection to the segment end points.
-function pathIntersection(x1, y1, x2, y2, cx, cy, r) {
+...
+export const KM_PER_ARC_DEGREE = 0.01; // note: on a great circle.
+```
+
+And update our `utils.js` to include that new `pathIntersection` function, too:
+
+```javascript
+...
+
+// Find a circle/line intersection, given a line segment,
+// and constraining the intersection to the segment.
+export function projectCircleOnLine(px, py, r, x1, y1, x2, y2) {
   const dx = x2 - x1;
   const dy = y2 - y1;
-  const c = { x: cx, y: cy, r };
 
   const A = dy ** 2 + dx ** 2;
   const A2 = 1 / (2 * A);
-  const B = 2 * (-c.x * dx - c.y * dy + x1 * dx + y1 * dy);
+  const B = 2 * (-px * dx - py * dy + x1 * dx + y1 * dy);
   const C =
-    c.x ** 2 +
-    c.y ** 2 +
+    px ** 2 +
+    py ** 2 +
     x1 ** 2 +
     y1 ** 2 -
-    2 * c.x * x1 -
-    2 * c.y * y1 -
-    c.r ** 2;
+    2 * px * x1 -
+    2 * py * y1 -
+    r ** 2;
   const D = B * B - 4 * A * C;
+  
+  // At this point, we've computed the intersection of a circle
+  // and an (infinitely long) line, so there will be (at most)
+  // two intersection points.
   const t1 = (-B + sqrt(D)) * A2;
   const t2 = (-B - sqrt(D)) * A2;
 
   // You may have noticed that the above code is just solving the
   // quadratic formula, so t1 and/or t2 might be "nothing". If there
-  // are no roots, there there's no intersection between the circle
-  // and the line *segment*, only the circle and the *line*.
+  // are no roots, then there's no intersection between the circle
+  // and the line, and we perform a plain point projection:
   if (isNaN(t1) && isNaN(t2)) {
-    const cx = c.x - x1;
-    const cy = c.y - y1;
+    const cx = px - x1;
+    const cy = py - y1;
     let f = constrain((dx * cx + dy * cy) / (dx ** 2 + dy ** 2), 0, 1);
     return { x: x1 + dx * f, y: y1 + dy * f };
   }
 
-  // If we have one root, then that's going to be our solution.
+  // If we have one root, then that is, by definition, our only
+  // solution, and if there are two solutions, then we want the
+  // one that is closest to the start of the line segment:
   if (isNaN(t1) || t1 < t2) t1 = t2;
 
-  // cap the interesction if we have to:
-  t = constrain(t1, 0, 1);
+  // However, we're *still* working with the intersection of our
+  // circle and an infinitely long line, so now we get to force
+  // the projection to lie on our line segment:
+  const t = constrain(t1, 0, 1);
 
-  // and return the actual intersection as {x,y} point
-  return { x: x + dx * t, y: y + dy * t };
+  // And finally, we can return the intersection as {x,y} point.
+  return { x: x1 + dx * t, y: y1 + dy * t, constrained: t !== t1 };
 }
 ```
 
-That's a lot of code to do what we sketched out before, so... does this work? Does this let us fly a flight plan?
+That's a lot of code to do what we sketched out before, so... does this work?
 
-<img src="./images/page/full-map.png" alt="image-20230604142254975" style="zoom: 67%;" />
+![Following our flight path](./images/waypoints/flightpath/basic-flightpath.png)
 
-You bet it does.
+Well enough to even see our plane's flightpath on top of the path polygon... What if we use a slightly more aggressive flight path?
 
-### Saving and loading flight paths
+![A more aggressive flight path](./images/waypoints/flightpath/aggressive-flightpath.png)
+
+Not quite as good... Because our mock plane is pretty terrible at turning compared to the in-game planes, we're seeing it overshoot a bit, as well as have difficulties with the short initial leg of the journey, but what we're seeing by running our mock is promising, which means we can swap over to testing this "for real", or rather, "in game" =)
+
+But before we do, let's make sure we can fly the same flight path with lots of different planes...
+
+## Saving and loading flight paths
 
 Before we move on to testing, let's make sure we can _repeat_ flights, otherwise testing is going to be quite the challenge. Thankfully, this is going to be super simple. First, we add some web page UI:
 
 ```html
 <div id="maps-selectors">
+  ...
   flight plan:
-  <button name="clear">clear</button>
-  <button name="reset">reset</button>
   <button name="save">save</button>
   load: <input type="file" name="load" />
 </div>
 ```
 
-With some extra JS added to our waypoint overlay:
+With some extra JS added to our waypoint overlay event handling function:
 
 ```javascript
+...
 export class WaypointOverlay {
-  ...
+  constructor(server, map) {
+    this.server = server;
+    this.map = map;
+    this.waypoints = [];
+    this.addEventHandling(map);
+  }
 
-  setupMapHandling() {
-    this.map.on(`click`, (e) => this.add(e));
+  addEventHandling(map) {
+    map.on(`click`, ({ latlng }) => {
+      const { lat, lng } = latlng;
+      server.autopilot.addWaypoint(lat, lng);
+    });
 
-    // Clearing the waypoints is a matter of just clicking each waypoint in reverse order:
     document
-      .querySelector(`button[name="clear"]`)
+      .querySelector(`#map-controls .patrol`)
       .addEventListener(`click`, () => {
-        this.waypoints.reverse().forEach((waypoint) => waypoint.marker.fire(`dblclick`));
-        this.waypoints = [];
+        this.server.autopilot.toggleRepeating();
       });
 
-    // Resetting the path is a matter of telling the autopilot to do that for us:
     document
-      .querySelector(`button[name="reset"]`)
+      .querySelector(`#map-controls .reset`)
       .addEventListener(`click`, () => {
-        callAutopilot(`waypoint`, { reset: true });
+        if (confirm(`Are you sure you want to reset all waypoints?`)) {
+          this.server.autopilot.resetWaypoints();
+        }
+      });
+
+    document
+      .querySelector(`#map-controls .clear`)
+      .addEventListener(`click`, () => {
+        if (confirm(`Are you sure you want to clear all waypoints?`)) {
+          this.server.autopilot.clearWaypoints();
+        }
       });
 
     // Saving our waypoints is actually fairly easy: we throw everything except the lat/long/alt
     // information away, and then we generate an `<a>` that triggers a file download for that
     // data in JSON format:
-    document
-      .querySelector(`button[name="save"]`)
-      .addEventListener(`click`, () => {
-        // Form our "purely lat/long/alt" data:
-        const stripped = this.waypoints.map(({ lat, long }) => ({ lat, long }));
-        const data = JSON.stringify(stripped, null, 2);
+    document.querySelector(`button.save`).addEventListener(`click`, () => {
+      // Form our "purely lat/long/alt" data:
+      const strip = ({ lat, long, alt }) => ({ lat, long, alt });
+      const stripped = this.waypoints.map(strip);
+      const data = JSON.stringify(stripped, null, 2);
 
-        // Then create our download link:
-        const downloadLink = document.createElement(`a`);
-        downloadLink.textContent = `download this flightplan`;
-        downloadLink.href = `data:text/plain;base64,${btoa(data)}`;
-        downloadLink.download = `flightplan.txt`;
+      // Then create our download link:
+      const downloadLink = document.createElement(`a`);
+      downloadLink.textContent = `download this flightplan`;
+      downloadLink.href = `data:text/plain;base64,${btoa(data)}`;
+      downloadLink.download = `flightplan.txt`;
 
-        // And then automatically click it to trigger the download.
-        console.log(`Saving current flight path.`);
-        downloadLink.click();
-      });
+      // And then automatically click it to trigger the download.
+      console.log(`Saving current flight path.`);
+      downloadLink.click();
+    });
 
     // Loading data is even easier: we load the file using the file picker that is built
     // into the browser, then we parse the JSON and tell the autopilot to make waypoints:
-    document
-      .querySelector(`input[name="load"]`)
-      .addEventListener(`change`, (evt) => {
-        const file = evt.target.files[0];
-        const reader = new FileReader();
-        reader.onload = function () {
-          try {
-            // parse and then run through the list, sending autopilot "create waypoint" calls.
-            const data = JSON.parse(reader.result);
-            data.forEach(({ lat, long, alt }) => callAutopilot(`waypoint`, { lat, long, alt }));
-            console.log(`Loaded flight path from file.`);
-          } catch (e) {
-            console.error(`Could not parse flight path.`);
-          }
-        };
-        reader.readAsText(file);
-      });
+    document.querySelector(`input.load`).addEventListener(`change`, (evt) => {
+      const file = evt.target.files[0];
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          this.server.autopilot.clearWaypoints();
+          data.forEach(({ lat, long, alt }) =>
+            this.server.autopilot.addWaypoint(lat, long, alt)
+          );
+          console.log(`Loaded flight path from file.`);
+        } catch (e) {
+          console.error(`Could not parse flight path.`);
+        }
+      };
+      reader.readAsText(file);
+    });
   }
 
   ...
@@ -6616,90 +6751,109 @@ export class WaypointOverlay {
 
 ### Picking the right waypoint
 
-Of course, with saving and loading, we run the risk of loading a flight path that we're "in the middle of", with the plane nowhere near the start of the flight path. Right now, doing so would make the plane turn around so it can start all the way back at the start, which would be a bit silly. In order to deal with this, we update our loading code just a tiny bit, to trigger a new function on the autopilot side:
+Of course, with saving and loading, we run the risk of loading a flight path that we're "in the middle of", with the plane nowhere near the start of the flight path. Right now, doing so would make the plane turn around so it can start all the way back at the start, which would be a bit silly. In order to deal with this, we can update our flight path loading code so that it asks the server to revalidate the flight path, to see which waypoint we should "start" at.
+
+First, we'll update our `plane.js` to change how we create our waypoint overlay:
+
+```javascript
+...
+export class Plane {
+  constructor(server, map = defaultMap, location = DUNCAN_AIRPORT, heading = 135) {
+    ...
+    this.waypointOverlay = new WaypointOverlay(this);
+    this.setupControls(map);
+  }
+  ...
+}
+```
+
+Then, we update our `waypoint-overlay.js`, updating the constructor and the file load handling:
 
 ```javascript
 export class WaypointOverlay {
-  ...
-  setupMapHandling() {
+  // we'll swap our constructor arguments over to just "plane":
+  constructor(plane) {
+    this.plane = plane;
+    this.server = plane.server;
+    this.map = plane.map;
+    this.waypoints = [];
+    this.addEventHandling(this.map);
+  }
+
+  // then we add a revalidation call to our load event handler:
+  addEventHandling(map) {
+    const { server } = this;
+    
     ...
-    document
-      .querySelector(`input[name="load"]`)
-      .addEventListener(`change`, (evt) => {
-        const file = evt.target.files[0];
-        const reader = new FileReader();
-        reader.onload = function () {
-          try {
-            const data = JSON.parse(reader.result);
-            data.forEach(({ lat, long }) => callAutopilot(`waypoint`, { lat, long }));
 
-            // We add this one extra call:
-            callAutopilot(`waypoint`, { revalidate: true })
+    document.querySelector(`input.load`).addEventListener(`change`, (evt) => {
+      const file = evt.target.files[0];
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          this.server.autopilot.clearWaypoints();
+          data.forEach(({ lat, long, alt }) =>
+            this.server.autopilot.addWaypoint(lat, long, alt)
+          );
 
-            console.log(`Loaded flight path from file.`);
-          } catch (e) {
-            console.error(`Could not parse flight path.`);
-          }
-        };
-        reader.readAsText(file);
-      });
+          // Get the plane's current position and ask the server to
+          // revalidate the flight path against that GPS coordinate:
+          const { lat, long } = this.plane?.state.flightInformation?.data || {};
+          server.autopilot.revalidate(lat, long);
+
+          console.log(`Loaded flight path from file.`);
+        } catch (e) {
+          console.error(`Could not parse flight path:`, e);
+        }
+      };
+      reader.readAsText(file);
+    });
   }
 }
 ```
 
-And then we implement that `revalidate` instruction by first making the api server aware of it:
+And then we implement the `revalidate` route in our `autopilot-router.js`:
 
 ```javascript
-if (action === `waypoint`) {
-  const { lat, long, alt, move, elevate, id, remove, reset, revalidate } =
-    data.params;
-  if (revalidate) {
-    autopilot.revalidate();
-  } else if (reset) {
-    autopilot.resetFlight();
-  } else if (move) {
-    autopilot.moveWaypoint(id, lat, long);
-  } else if (elevate) {
-    autopilot.elevateWaypoint(id, alt);
-  } else if (remove) {
-    autopilot.removeWaypoint(id);
-  } else {
-    autopilot.addWaypoint(lat, long, alt);
+...
+export class AutopilotRouter {
+  ...
+  revalidate(client) {
+    autopilot.waypoints.revalidate();
   }
 }
 ```
 
-With a pass-through in our `autopilot.js`:
+And the actual `revalidate` function in our `waypoint-manager.js`:
 
 ```javascript
-  async revalidateFlight() {
-    const { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } = await this.get(`PLANE_LATITUDE`, `PLANE_LONGITUDE`);
-    this.waypoints.revalidate(degrees(lat), degrees(long));
-  }
-```
-
-And then the actual code in our waypoint manager:
-
-```javascript
-export class WayPoints {
+...
+export class WayPointManager {
   ...
 
-  // revalidate the flight path based on the current plane position, marking the nearest waypoint
-  // as "the currently active point", and any points prior to it as already completed.
+  /**
+   * revalidate the flight path based on the current plane position,
+   * marking the nearest waypoint as "the currently active point", and
+   * any points prior to it as already completed.
+   */
   revalidate(lat, long) {
-    // which point are we closest to?
     const { points } = this;
-    const nearest = { distance: Number.MAX_SAFE_INTEGER, pos: -1 };
-    points.forEach((p, pos) => {
-      // reset each waypoint so that it doesn't count as active, nor as compeleted.
-      p.reset();
-      // then, is our plane closer to this point than any other point we saw so far?
-      const d = getDistanceBetweenPoints(lat, long, p.lat, p.long);
-      if (d < nearest.distance) {
-        nearest.distance = d;
-        nearest.pos = pos;
-      }
-    });
+
+    // Which point are we currently closest to? (and if no lat/long
+    // was passed, just assume the first point in the flight path).
+    let nearest = { pos: 0 };
+    if (lat !== undefined && long !== undefined) {
+      nearest = { distance: Number.MAX_SAFE_INTEGER, pos: -1 };
+      points.forEach((p, pos) => {
+        p.reset();
+        const d = getDistanceBetweenPoints(lat, long, p.lat, p.long);
+        if (d < nearest.distance) {
+          nearest.distance = d;
+          nearest.pos = pos;
+        }
+      });
+    }
 
     // Mark all points before the one we're closest to as complete:
     for (let i = 0; i < nearest.pos; i++) points[i].complete();
@@ -6708,23 +6862,70 @@ export class WayPoints {
     // and mark the one that we're closest to as our current waypoint.
     this.resequence();
     this.currentWaypoint = points[nearest.pos];
+    this.currentWaypoint.activate();
   }
+}
+```
 
+And now if we load a flight path, we won't be sent all the way to the start.
+
+## Safety first: don't crash into a mountain
+
+We just need to make sure we don't slam into a mountain side. Right now our altitude hold is such that it just picks "the next waypoint's altitude" and that might be fairly disastrous, so let's update our `getAltitude` function in the `waypoint-manager.js` to give us altitudes based on both waypoints that are involved in the current leg:
+
+```javascript
+...
+export class WayPointManager {
+  ...
+  /**
+   * Check if we need to set the autopilot's altitude hold
+   * value to something new, and then return our hold alt:
+   */
+  getAltitude(autopilot) {
+    const { modes } = autopilot;
+    const { currentWaypoint: p1 } = this;
+    if (p1) {
+      let { alt } = p1;
+
+      // Do we have a next waypoint, and is its
+      // altitude higher than the current waypoint?
+      const p2 = p1.next;
+      if (p2 && !!p2.alt && p2.alt > p1.alt) {
+        // If so, target that higher number.
+        alt = p2.alt;
+      }
+
+      if (alt && modes[ALTITUDE_HOLD] !== alt) {
+        autopilot.setParameters({ [ALTITUDE_HOLD]: alt });
+      }
+    }
+    return modes[ALTITUDE_HOLD];
+  }
   ...
 }
 ```
 
-### Testing our code
+And that was the last bit of waypoint related code: let's fly some planes!
 
-Now that we can load a flight path, we can load up [this one](https://gist.githubusercontent.com/Pomax/4bee1457ff3f33fdb1bb314908ac271b/raw/537b01ebdc0d3264ae7bfdf357b94bd963d20b3f/vancouver-island-loop.txt), which expects us to start on [runway 27 at Victoria Airport on Vancouver Island](https://www.google.com/maps/place/48%C2%B038'48.0%22N+123%C2%B024'44.4%22W/@48.6466197,-123.4125952,202m/data=!3m1!1e3!4m4!3m3!8m2!3d48.646658!4d-123.41234?entry=ttu), and does a round trip over [Shawnigan Lake](https://www.tourismcowichan.com/explore/about-cowichan/shawnigan-lake/) and [Sooke Lake](https://www.canoevancouverisland.com/canoe-kayak-vancouver-island-directory/sooke-lake/), turns right into the mountains at [Kapoor regional park](https://www.crd.bc.ca/parks-recreation-culture/parks-trails/find-park-trail/kapoor), follows the valley down to the coast, turns over [Port Renfrew](https://www.portrenfrew.com/) into the [San Juan river](<https://en.wikipedia.org/wiki/San_Juan_River_(Vancouver_Island)>) valley and then follows that all the way west to the [Kinsol Tressle](https://www.cvrd.ca/1379/Kinsol-Trestle), where we take a quick detour north towards [Cowichan Station](https://vancouverisland.com/plan-your-trip/regions-and-towns/vancouver-island-bc-islands/cowichan-station/), then back to Victoria Airport, which is in [Sidney](http://www.sidney.ca/), a good hour north of BC's capital of [Victoria](https://www.tourismvictoria.com/).
+## Testing our code
 
-![image-20230607191256878](./images/ghost-dog.png)
+Now that we can load a flight path, we can load up [this one](https://gist.githubusercontent.com/Pomax/4bee1457ff3f33fdb1bb314908ac271b/raw/537b01ebdc0d3264ae7bfdf357b94bd963d20b3f/vancouver-island-loop.txt), which expects us to start on [runway 27 at Victoria Airport on Vancouver Island](https://www.google.com/maps/place/48%C2%B038'48.0%22N+123%C2%B024'44.4%22W/@48.6466197,-123.4125952,202m/data=!3m1!1e3!4m4!3m3!8m2!3d48.646658!4d-123.41234?entry=ttu), taking us on a round trip of East Vancouver Island by flying us over [Shawnigan Lake](https://www.tourismcowichan.com/explore/about-cowichan/shawnigan-lake/) and [Sooke Lake](https://www.canoevancouverisland.com/canoe-kayak-vancouver-island-directory/sooke-lake/), turning right into the mountains at [Kapoor regional park](https://www.crd.bc.ca/parks-recreation-culture/parks-trails/find-park-trail/kapoor), following the valley down to the coast, turning over [Port Renfrew](https://www.portrenfrew.com/) into the [San Juan river](<https://en.wikipedia.org/wiki/San_Juan_River_(Vancouver_Island)>) valley and then following that all the way west to the [Kinsol Tressle](https://www.cvrd.ca/1379/Kinsol-Trestle), where we take a quick detour north towards [Cowichan Station](https://vancouverisland.com/plan-your-trip/regions-and-towns/vancouver-island-bc-islands/cowichan-station/), then back to Victoria Airport (which is actually in [Sidney](http://www.sidney.ca/), a good hour north of BC's capital of [Victoria](https://www.tourismvictoria.com/)):
+
+![It's Zero, the ghost dog!](./images/ghost-dog.png)
+
+And I don't know about you, but that looks a lot like "Zero", the ghost dog from "The Nightmare Before Christmas" to me, so this is now the ghost dog tour. Let's fly some planes!
 
 #### De Havilland DHC-2 "Beaver"
 
-No problems with the Beaver, it turns like a champ.
+![image-20240119180054615](./images/waypoints/tests/beaver/beaver-start.png)
 
-MAP IMAGE GOES HERE
+We start the beaver mid-flight, at 1500 feet (because we have no control over that, thanks MSFS) and then load up our ghost dog tour, and turn on the autopilot with all of our features turned on:
+
+![image-20240119180337212](./images/waypoints/tests/beaver/ghost-dog-beaver.png)
+
+And then we just enjoy the flight and wait for the result!
+
+
 
 And comparing the ground profile to the flown altitudes, that's looking pretty tidy.
 
@@ -6759,6 +6960,8 @@ MAP IMAGE GOES HERE
 We do see that the DC-3 is considerably more bouncy than even the twin Beech, but for its size and weight, we'll take it.
 
 SCIENCE IMAGES GO HERE
+
+# Part 5: "Let's just have JavaScript fly the plane for us"
 
 ## Terrain follow mode
 
@@ -8288,3 +8491,33 @@ So you might be wondering what else we can do. Here are some thoughts:
 I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you see me flying, I might just be testing more code to add to this tutorial! =D
 
 — [Pomax](https://mastodon.social/@TheRealPomax)
+
+
+
+<!-- there's going to be interactive graphics here -->
+<script  type="module" src="./graphics/graphics-element/graphics-element.js" async></script>
+<link rel="stylesheet" href="./graphics/graphics-element/graphics-element.css" async>
+
+<style>
+  html, body {
+    width: 800px;
+    margin: 0 auto;
+  }
+  img {
+    max-width: 100%;
+    margin: 0;
+    border: 1px solid black;
+  }
+  figure {
+    & img {
+      margin-bottom: -1.5em;
+    }
+    & figcaption {
+      margin: 0;
+      padding: 0;
+      size: 80%;
+      font-style: italic;
+      text-align: right;
+    }
+  }
+</style>

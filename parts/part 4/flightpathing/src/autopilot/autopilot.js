@@ -1,7 +1,6 @@
 const dirname = import.meta.dirname;
 import { watch } from "../utils/reload-watcher.js";
 import { runLater } from "../utils/utils.js";
-import { WayPointManager } from "./waypoints/waypoint-manager.js";
 
 // Import our new constants
 import {
@@ -31,6 +30,8 @@ let { altitudeHold } = await watch(
   (lib) => (altitudeHold = lib.altitudeHold)
 );
 
+let { WayPointManager } = await import(`./waypoints/waypoint-manager.js`);
+
 const AUTOPILOT_INTERVAL = 500;
 
 export class AutoPilot {
@@ -39,7 +40,13 @@ export class AutoPilot {
     this.onChange = async (update) => {
       onChange(update ?? (await this.getParameters()));
     };
+
     this.waypoints = new WayPointManager(this);
+    watch(dirname, `./waypoints/waypoint-manager.js`, (lib) => {
+      WayPointManager = lib.WayPointManager;
+      Object.setPrototypeOf(this.waypoints, WayPointManager.prototype);
+    });
+
     this.reset();
   }
 

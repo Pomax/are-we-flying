@@ -1,0 +1,48 @@
+function setup() {
+  showPlaneRadius = true;
+  addSlider(`innerRadius`, { min: 10, max: 100, value: 35, step: 1 });
+}
+
+function checkTransition(p) {
+  if (dist(airplane.x, airplane.y, p.x, p.y) < airplane.r) {
+    current++;
+    return true;
+  }
+  return false;
+}
+
+function getTarget(airplane) {
+  if (current < 0) return;
+
+  let target, p1, p2, p3, intersection;
+
+  p1 = points[current];
+  if (!p1) return;
+
+  p2 = points[current + 1];
+  if (!p2) {
+    checkTransition(p1);
+    return p1;
+  }
+
+  // find our target based on the "inner radius"
+  target = airplane.project(p1.x, p1.y, p2.x, p2.y, innerRadius);
+
+  // But now let's also check whether we're close enough to the
+  // next leg (if there is one) so that we can transition early:
+  p3 = points[current + 2];
+  if (p3) {
+    intersection = airplane.project(p2.x, p2.y, p3.x, p3.y);
+    setColor(`red`);
+    point(intersection.x, intersection.y);
+    setLineDash(4);
+    line(airplane.x, airplane.y, intersection.x, intersection.y);
+    noLineDash();
+
+    if (checkTransition(intersection)) {
+      target = intersection;
+    }
+  } else checkTransition(p2);
+
+  return target;
+}
