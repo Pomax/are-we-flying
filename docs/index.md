@@ -6444,7 +6444,7 @@ target = airplane.project(p1.x, p1.y, p2.x, p2.y, airplane.r * ratio_r);
 // ...but let's also get the projection of our plane "if our
 // circle radius was zero", i.e. get the point projection:
 const fp = airplane.project(p1.x, p1.y, p2.x, p2.y, 0);
-  
+
 // And then let's get the vector from our plane to that projection...
 const dx = fp.x - airplane.x;
 const dy = fp.y - airplane.y;
@@ -6452,9 +6452,9 @@ line(airplane.x, airplane.y, airplane.x + dx, airplane.y + dy);
 
 // ...and move our target by that vector:
 line(target.x, target.y, target.x + dx, target.y + dy);
-point(target.x + dx, target.y + dy); 
+point(target.x + dx, target.y + dy);
 target = new Point(target.x + dx, target.y + dy);
-  
+
 ...
 ```
 
@@ -6465,7 +6465,7 @@ How did we do?
   <source src="./graphics/bumped.js" />
 </graphics-element>
 
-It's actually hard to tell: this looks pretty much the same as before, but things change if we increase the plane's speed and reduce the inner radius. Pick a speed of 100 and a radius of 1: comparing the two graphics, we see that our latest update keeps the plane much closer to the flight path itself. In fact, let's keep the speed at 50, and set the ratio to 1, so that we're effectively _only_ working with our outer circle: that's actually good enough that we can just dispense with our inner radius entirely, and simply pick an outer radius based on our speed without having to guess at what a workable inner ratio would be. 
+It's actually hard to tell: this looks pretty much the same as before, but things change if we increase the plane's speed and reduce the inner radius. Pick a speed of 100 and a radius of 1: comparing the two graphics, we see that our latest update keeps the plane much closer to the flight path itself. In fact, let's keep the speed at 50, and set the ratio to 1, so that we're effectively _only_ working with our outer circle: that's actually good enough that we can just dispense with our inner radius entirely, and simply pick an outer radius based on our speed without having to guess at what a workable inner ratio would be.
 
 So... let's just remove the inner radius and update our `getHeading` in our `waypoint-manager.js` file:
 
@@ -6606,7 +6606,7 @@ export function projectCircleOnLine(px, py, r, x1, y1, x2, y2) {
     2 * py * y1 -
     r ** 2;
   const D = B * B - 4 * A * C;
-  
+
   // At this point, we've computed the intersection of a circle
   // and an (infinitely long) line, so there will be (at most)
   // two intersection points.
@@ -6783,7 +6783,7 @@ export class WaypointOverlay {
   // then we add a revalidation call to our load event handler:
   addEventHandling(map) {
     const { server } = this;
-    
+
     ...
 
     document.querySelector(`input.load`).addEventListener(`change`, (evt) => {
@@ -6925,11 +6925,9 @@ We start the beaver mid-flight, at 1500 feet (because we have no control over th
 
 And then we just enjoy the flight and wait for the result!
 
+![The ghost dog tour](./images/waypoints/tests/beaver/ghost-dog-tour.png)
 
 
-And comparing the ground profile to the flown altitudes, that's looking pretty tidy.
-
-SCIENCE IMAGES GO HERE
 
 #### Cessna 310R
 
