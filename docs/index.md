@@ -6490,7 +6490,7 @@ export class WayPointManager {
     if (!p1) return;
 
     // we'll go with a radius based on X seconds at our current speed:
-    const seconds = 30;
+    const seconds = 60;
     const radiusInKM = speed * ONE_KTS_IN_KMS * seconds;
     const radiusInArcDeg = radiusInKM * KM_PER_ARC_DEGREE;
 
@@ -6925,9 +6925,9 @@ We start the beaver mid-flight, at 1500 feet (because we have no control over th
 
 And then we just enjoy the flight and wait for the result!
 
-![The ghost dog tour](./images/waypoints/tests/beaver/ghost-dog-tour.png)
+<a href="./images/waypoints/tests/beaver/ghost-dog-tour.png" target="_blank"><img alt="The ghost dog tour" src="./images/waypoints/tests/beaver/ghost-dog-tour.png"></a>
 
-
+So, what did we learn? With a transition distance of "however much distance we cover in one minute of flight", some of the legs are not quite long enough to align on, but for the most part we had quite a pleasant flight! That said, this bodes... interesting... for flights with faster planes, which might need the transition time dialed down to 30 seconds. Or... less? We'll find out soon enough, let's fire up the 310!
 
 #### Cessna 310R
 
