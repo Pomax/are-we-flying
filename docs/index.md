@@ -5783,7 +5783,7 @@ export class Plane {
 
 And we're done, if we reload our page and drag the map around, we no longer auto-center on our plane until we tick that checkbox again (or click its associated label, which counts as ticking the checkbox).
 
-### Toggle waypoint labels
+### Toggle waypoint visualization
 
 Things can get a bit hard to see with a large flightpath with lots of labels, so let's add a tiny bit more HTML and CSS to toggle waypoint labels. We'll add a checkbox to our `index.html` similar to what we just did for centering the map on the plane:
 
@@ -5803,14 +5803,47 @@ label[for] {
   cursor: pointer;
 }
 
-body:has(#show-labels:not(:checked)) #map .waypoint-div .waypoint-marker .pre {
-  display: none;
+body:has(#show-labels:not(:checked)) {
+  #map .waypoint-div .waypoint-marker {
+    & .pre, & .post {
+      display: none;
+    }
+  }
 }
 ```
 
 And presto, suddenly we can hide and reveal waypoint labels!
 
 ![Hiding our waypoint labels](./images/waypoints/hide-labels.png)
+
+In fact, let's take that one step further:
+
+```html
+    <div id="map-controls">
+      <label for="center-on-plane">Center map on plane</label>
+      <input id="center-on-plane" type="checkbox" checked="checked" />
+      <label for="show-labels">Show waypoint labels</label>
+      <input id="show-labels" type="checkbox" checked />
+      <label for="tiny-waypoints">Tiny waypoints</label>
+      <input id="tiny-waypoints" type="checkbox" />      
+    </div>
+```
+
+And an extra CSS rule for waypoint images:
+
+```css
+body:has(#tiny-waypoints:checked) {
+  #map .waypoint-div .waypoint-marker {
+    & img {
+      transform: translate(0, 10px) scale(0.4);
+    }
+  }    
+}
+```
+
+![image-20240120115225767](./image-20240120115225767.png)
+
+Because sometimes you just want to see your flight, rather than your flight plan.
 
 ### Control buttons
 
@@ -6927,31 +6960,156 @@ And then we just enjoy the flight and wait for the result!
 
 ![The ghost dog tour](./images/waypoints/tests/beaver/ghost-dog-tour.png)
 
-
+This might _look_ good, but it actually isn't. This is one of the slowest planes, and it's already overshooting some turns even with a full minute of transition time, so anything going faster may have serious problems flying our flight path. So let's test with a faster aircraft.
 
 #### Cessna 310R
 
-The 310R is considerably faster than the Beaver and you can see that for tight turns, like the one over Shawnigan lake, it needs more time to get onto the right path, causing it to kind of "weave between" the waypoints there. However, it's still able to complete the flight, and the flight is still pretty spot on for most of the path.
+The 310R is considerably faster than the Beaver, with a cruise speed that's almost double that of the Beaver, so those aggressive short turns should be interesting...
 
-MAP IMAGE GOES HERE
+![image-20240120130749555](./image-20240120130749555.png)
 
-The altitude profile shows we could probably tighten up our vertical damping but this is entirely acceptable. (The track is shorter, mostly because the 310R flies a lot faster than then Beaver!)
+Or, okay, we can't even make the first real turn. What happened?
 
-SCIENCE IMAGES GO HERE
+![image-20240120104424564](./image-20240120104424564.png)
+
+Ah. We plotted a course around a little 1200' hill, and thanks to our transition logic and turn behaviour, rather than going _around_ it, we tried to go _through_ it. Earth vs. Plane: Earth wins. One obvious thing we can change is the transition time: a full minute is far too long when we're going fast, but let's also have a look at our banking behaviour:
+
+![{B85CE689-324B-4E11-A15F-6D075C1FA7D8}](./{B85CE689-324B-4E11-A15F-6D075C1FA7D8}.png)
+
+This shows a max bank that's only half of what what planes are generally capable of, so it might be time to tweak some values in `fly-level.js`:
+
+```javascript
+// First off, the counter-steering that we've got going on will
+// effectively ensure we never actually get the speed we list here.
+// As such, we can bump this from 30 to 40, to increase the max
+// bank that planes exhibit:
+const DEFAULT_MAX_BANK = 40;
+
+// Next, in order to allow planes to change their rate of turn
+// faster, we bump this up from 3 to 5. This might introduce some
+// oscillation when we get hit from the side by a good old gust
+// of wind, but we'll take "being wibbly" over "being dead":
+const DEFAULT_MAX_D_BANK = 5;
+
+...
+
+// Then, we change the trim step size based on the plane's
+// own flight model: 
+export async function flyLevel(autopilot, state) {
+  ...
+  const { hasAileronTrim, weight, isAcrobatic, vs1, cruiseSpeed} = flightModel;
+  ...
+  // If we're near stall speed, any amount of turn may kill us...
+  // And if we're near cruise speed, we can turn quite a bit:
+  let step = constrainMap(speed, vs1, cruiseSpeed, radians(0.1), radians(5));
+  ...
+  // And then we'll want the same kind of logic for getting
+  // a target heading, which means passing vs1 and cruiseSpeed
+  // on to the waypoint manager's getHeading function:
+  const { targetBank, maxDBank, targetHeading, headingDiff } =
+    getTargetBankAndTurnRate(..., vs1, cruiseSpeed);  
+  ...
+}
+
+// New function arguments: stall and cruise speed.
+function getTargetBankAndTurnRate(..., vs1, cruiseSpeed) {
+  ...
+  // Which we forward to the waypoint manager:  
+  let targetHeading = autopilot.waypoints.getHeading(..., vs1, cruiseSpeed);
+  let headingDiff;
+  if (targetHeading) {
+    ...
+    // And then let's not restrict our rate of bank until we're 2 degrees,
+    // from our target heading, rather than 10 degrees. And let's also make
+    // sure to allow for *some* change in rate of bank at 0.
+    maxDBank = constrainMap(abs(headingDiff), 0, 2, maxDBank/10, maxDBank);
+  }
+
+  return { targetBank, targetHeading, headingDiff };
+}
+```
+
+Which leaves the fix in our `waypoint-manager.js` for the `getHeading` function, where we want the transition distance to be based on time, but the _amount_ of time we need should be based on what speed we're currently flying at, because that determines how fast we can turn:
+
+```javascript
+...
+
+export class WayPointManager {
+  ...
+  // In order to set a "sensible" transition distance, we need to know our
+  // stall and cruise speeds, since those determine how fast we can turn.
+  getHeading(autopilot, lat, long, declination, speed, vs1, cruiseSpeed) {
+    ...
+    // Let's set our transtion to a full minute if we're near stall
+    // speed, but half that if we're going at cruise speed:
+    const seconds = constrainMap(speed, vs1, cruiseSpeed, 60, 30);
+    ...
+  }
+  ...
+}
+```
+
+Right, let's see how we do now:![image-20240120162923173](./image-20240120162923173.png)
+
+_So_ much better. Which means we'll have to rerun the Beaver with these new settings, because we need to make sure we didn't add "fixes" that _only_ fix the 310R...
+
+#### De Havilland DHC-2 "Beaver", take 2
+
+Let's rerun the entire flight and see how we do...
+
+![image-20240120135231797](./image-20240120135231797.png)
+
+Night and day, compared to the previous flight. By taking our speed into account, we can far more accurately follow our flight plan.
+
+#### Top Rudder Solo 103
+
+So... if the Beaver works, what about an _even slower_ aircraft? Let's see if our flight plan works for the Top Rudder!
+
+![image-20240120135731554](./image-20240120135731554.png)
+
+Although of course, with a cruise speed of 47 knots, _this is going to take a while_... I'll see you back here after I do shop grocery shopping.
+
+...and I'm not kidding, groceries took about an hour, and when I came back, this is how much progress we'd made:
+
+![image-20240120150216759](./image-20240120150216759.png)
+
+And I'd love to say it took another hour to get back to the start, but as we were flying the "back of the head" of ghost dog....
+
+![image-20240120154952707](./image-20240120154952707.png)
+
+We didn't make it. But we mostly didn't make it because we walked away. I had intervened twice during this flight; once because Windows decided to sort-of-sleep, and waking it added a million to the trim values:
+
+![image-20240120153303094](./image-20240120153303094.png)
+
+Which isn't great (and it's interesting that MSFS doesn't consider "rotating like a rotisserie chicken at 100 kilometers per hour" a game-over condition) but by tactically resetting the trim to all-zeroes and taking control of the stick and rudders, it was relatively easy to get us back on track. The second time we had to intervene, we _probably_ didn't need to, because the Top Rudder did what we already knew was going to happen: 
+
+![image-20240120153102253](./image-20240120153102253.png)
+
+On the long climb up from 1500 to 3000 feet, the Top Rudder started to lose enough speed that it couldn't comfortably hold its course. Still fast enough to keep going at around 35 knnots, and it _would_ have made it all the way up to 3000 feet because we already saw it do that before, but it would have been _incredibly scary and uncomfortable_, so, again: we quickly grabbed the stick, and manually kept the Top Rudder level until it'd finished its climb to 3000 feet, which took about 2 minutes. Not too terrible for "flying an ultralight on autopilot"!
+
+But the last one was simply me not being near the computer: we got slammed by side wind, the autopilot was not able to recover, and I wasn't there to regain control in what would have probably been a few seconds. That said, based on where we were when this happened, I'm still calling this a success:
+
+![image-20240120155233826](./image-20240120155233826.png)
+
+Asking an ultralight to fly this route is _kind of_ ridiculous, but if we'd been at the computer even just a little more, we'd have made it back to the start.  So let's try another "real" airplane.
 
 #### Beechcraft Model 18
 
-Quite a bit slower on the turn than the 310R or the Beaver, we can see the twin Beech having the same problems as the 310R. But again, nothing that stops it from flying this plan to completion.
+The Twin Beech is a lumbering beauty, but it responds to trim really well, and with our fixes in place, it flies this route spectacularly:
 
-MAP IMAGE GOES HERE
+![image-20240120170829688](./image-20240120170829688.png)
 
-And the altitude graph. A bit more bouncy, but perfectly serviceable.
+#### Piper Turbo Arrow III
 
-SCIENCE IMAGES GO HERE
+So what about a plane that doesn't have aileron trim? Do we need to fix anything, or will this work "out of the box"?
 
-#### Douglas DC-3
+![image-20240120172920473](./image-20240120172920473.png)
 
-Same story with the DC-3: looks like our waypoint algorithm works just fine!
+Yeah.. so... I'm gonna go with "no, it doesn't". Clearly, this is not going to work, and our elevator-specific code changes are going to need some... well... more changes.
+
+[LET'S FIX SOME CODE MAYBE!]
+
+
 
 MAP IMAGE GOES HERE
 

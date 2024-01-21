@@ -26,11 +26,16 @@ export class WaypointOverlay {
       });
 
     document
+      .querySelector(`#map-controls .revalidate`)
+      .addEventListener(`click`, () => {
+        const { lat, long } = this.plane?.state.flightInformation?.data || {};
+        server.autopilot.revalidate(lat, long);
+      });
+
+    document
       .querySelector(`#map-controls .reset`)
       .addEventListener(`click`, () => {
-        if (confirm(`Are you sure you want to reset all waypoints?`)) {
-          server.autopilot.resetWaypoints();
-        }
+        server.autopilot.resetWaypoints();
       });
 
     document

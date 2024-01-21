@@ -90,8 +90,8 @@ export class AutoPilot {
   async getParameters() {
     return {
       ...this.modes,
-      waypoints: this.waypoints.getWaypoints(),
-      waypointsRepeat: this.waypoints.repeating,
+      waypoints: this.waypoints?.getWaypoints(),
+      waypointsRepeat: this.waypoints?.repeating,
     };
   }
 

@@ -37,8 +37,25 @@ label[for] {
   cursor: pointer;
 }
 
-body:has(#show-labels:not(:checked)) #map .waypoint-div .waypoint-marker .pre {
-  display: none;
+#map-controls {
+  margin: 0.5em 0;
+}
+
+body:has(#show-labels:not(:checked)) {
+  #map .waypoint-div .waypoint-marker {
+    & .pre,
+    & .post {
+      display: none;
+    }
+  }
+}
+
+body:has(#tiny-waypoints:checked) {
+  #map .waypoint-div .waypoint-marker {
+    & img {
+      transform: translate(0, 10px) scale(0.4);
+    }
+  }
 }
 
 button.active {

@@ -49,7 +49,7 @@ export class AutopilotRouter {
     autopilot.waypoints.toggleRepeating(value);
   }
 
-  revalidate(client) {
-    autopilot.waypoints.revalidate();
+  revalidate(client, lat, long) {
+    autopilot.waypoints.revalidate(lat, long);
   }
 }

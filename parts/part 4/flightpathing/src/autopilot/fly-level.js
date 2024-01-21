@@ -8,12 +8,12 @@ const DEFAULT_TARGET_BANK = 0;
 
 // And we want to make sure not to turn more than 30 degrees (the
 // universal "safe bank angle") when we're correcting the plane.
-const DEFAULT_MAX_BANK = 30;
+const DEFAULT_MAX_BANK = 40;
 
 // And, importantly, we also don't want our bank to change by
 // more than 3 degrees per second, or we might accelerate past
 // zero or our max bank angle too fast.
-const DEFAULT_MAX_D_BANK = 3;
+const DEFAULT_MAX_D_BANK = 5;
 
 // Now, we have no "additional features" yet, since this is going
 // to be our first pass at writing the wing leveler, but we'll be
@@ -46,13 +46,13 @@ export async function flyLevel(autopilot, state) {
   const { bank: dBank } = flightData.d ?? { bank: 0 };
 
   // And our model data
-  const { hasAileronTrim, weight, isAcrobatic } = flightModel;
+  const { hasAileronTrim, weight, isAcrobatic, vs1, cruiseSpeed } = flightModel;
   const useStickInstead = hasAileronTrim === false;
 
   // Then, since we're running this over and over, how big should
   // our corrections be at most this iteration? The faster we're going,
   // the bigger a correction we're going to allow:
-  let step = constrainMap(speed, 20, 150, radians(0.1), radians(5));
+  let step = constrainMap(speed, vs1, cruiseSpeed, radians(0.1), radians(5));
 
   // Are we "trimming" on the stick?
   let aileron = 0;
@@ -74,7 +74,9 @@ export async function flyLevel(autopilot, state) {
       lat,
       long,
       declination,
-      speed
+      speed,
+      vs1,
+      cruiseSpeed
     );
   const aHeadingDiff = abs(headingDiff);
   const diff = targetBank - bank;
@@ -171,7 +173,9 @@ function getTargetBankAndTurnRate(
   lat,
   long,
   declination,
-  speed
+  speed,
+  vs1,
+  cruiseSpeed
 ) {
   const { modes } = autopilot;
 
@@ -187,15 +191,23 @@ function getTargetBankAndTurnRate(
     lat,
     long,
     declination,
-    speed
+    speed,
+    vs1,
+    cruiseSpeed
   );
 
   let headingDiff;
   if (targetHeading) {
     headingDiff = getCompassDiff(heading, targetHeading);
-    if (!isAcrobatic) headingDiff /= 2;
+    headingDiff = constrainMap(
+      speed,
+      vs1,
+      cruiseSpeed,
+      headingDiff / 2,
+      headingDiff
+    );
     targetBank = constrainMap(headingDiff, -30, 30, maxBank, -maxBank);
-    maxDBank = constrainMap(abs(headingDiff), 0, 10, 0, maxDBank);
+    maxDBank = constrainMap(abs(headingDiff), 0, 2, maxDBank / 10, maxDBank);
   }
 
   return { targetBank, maxDBank, targetHeading, headingDiff };

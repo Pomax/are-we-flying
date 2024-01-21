@@ -1,4 +1,5 @@
 import {
+  constrainMap,
   getDistanceBetweenPoints,
   getHeadingFromTo,
   lerp,
@@ -22,10 +23,12 @@ export class WayPointManager {
     this.points = [];
     this.currentWaypoint = undefined;
     this.repeating = false;
+    this.autopilot.onChange();
   }
 
   toggleRepeating() {
     this.repeating = !this.repeating;
+    this.autopilot.onChange();
   }
 
   getWaypoints() {
@@ -73,6 +76,8 @@ export class WayPointManager {
   resequence() {
     const { points } = this;
     points.forEach((p, i) => p.setNext(points[i + 1]));
+    // push the update to clients
+    this.autopilot.onChange();
   }
 
   /**
@@ -91,7 +96,7 @@ export class WayPointManager {
    * heading mode, if we're not flying in the right
    * direction at the moment, then return our heading.
    */
-  getHeading(autopilot, lat, long, declination, speed) {
+  getHeading(autopilot, lat, long, declination, speed, vs1, cruiseSpeed) {
     const { modes } = autopilot;
     const { points, currentWaypoint } = this;
     const p1 = currentWaypoint;
@@ -100,8 +105,10 @@ export class WayPointManager {
     // Do we need to do anything?
     if (!p1) return;
 
-    // we'll go with a radius based on X seconds at our current speed:
-    const seconds = 60;
+    // We'll go with a radius based on X seconds at our current speed,
+    // where X is a full minute if we're near stall speed, or only 30
+    // seconds if we're going at cruise speed.
+    const seconds = constrainMap(speed, vs1, cruiseSpeed, 60, 30);
     const radiusInKM = speed * ONE_KTS_IN_KMS * seconds;
 
     // Do we only have a single point?
@@ -262,8 +269,11 @@ export class WayPointManager {
 
     // And then make sure every point knows what the next point is,
     // and mark the one that we're closest to as our current waypoint.
-    this.resequence();
     this.currentWaypoint = points[nearest.pos];
     this.currentWaypoint.activate();
+    this.resequence();
+
+    // and push the update to clients
+    this.autopilot.onChange();
   }
 }
