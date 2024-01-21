@@ -5825,7 +5825,7 @@ In fact, let's take that one step further:
       <label for="show-labels">Show waypoint labels</label>
       <input id="show-labels" type="checkbox" checked />
       <label for="tiny-waypoints">Tiny waypoints</label>
-      <input id="tiny-waypoints" type="checkbox" />      
+      <input id="tiny-waypoints" type="checkbox" />
     </div>
 ```
 
@@ -5837,7 +5837,7 @@ body:has(#tiny-waypoints:checked) {
     & img {
       transform: translate(0, 10px) scale(0.4);
     }
-  }    
+  }
 }
 ```
 
@@ -6523,7 +6523,7 @@ export class WayPointManager {
     if (!p1) return;
 
     // we'll go with a radius based on X seconds at our current speed:
-    const seconds = 30;
+    const seconds = 60;
     const radiusInKM = speed * ONE_KTS_IN_KMS * seconds;
     const radiusInArcDeg = radiusInKM * KM_PER_ARC_DEGREE;
 
@@ -6994,7 +6994,7 @@ const DEFAULT_MAX_D_BANK = 5;
 ...
 
 // Then, we change the trim step size based on the plane's
-// own flight model: 
+// own flight model:
 export async function flyLevel(autopilot, state) {
   ...
   const { hasAileronTrim, weight, isAcrobatic, vs1, cruiseSpeed} = flightModel;
@@ -7007,14 +7007,14 @@ export async function flyLevel(autopilot, state) {
   // a target heading, which means passing vs1 and cruiseSpeed
   // on to the waypoint manager's getHeading function:
   const { targetBank, maxDBank, targetHeading, headingDiff } =
-    getTargetBankAndTurnRate(..., vs1, cruiseSpeed);  
+    getTargetBankAndTurnRate(..., vs1, cruiseSpeed);
   ...
 }
 
 // New function arguments: stall and cruise speed.
 function getTargetBankAndTurnRate(..., vs1, cruiseSpeed) {
   ...
-  // Which we forward to the waypoint manager:  
+  // Which we forward to the waypoint manager:
   let targetHeading = autopilot.waypoints.getHeading(..., vs1, cruiseSpeed);
   let headingDiff;
   if (targetHeading) {
@@ -7081,7 +7081,7 @@ We didn't make it. But we mostly didn't make it because we walked away. I had in
 
 ![image-20240120153303094](./image-20240120153303094.png)
 
-Which isn't great (and it's interesting that MSFS doesn't consider "rotating like a rotisserie chicken at 100 kilometers per hour" a game-over condition) but by tactically resetting the trim to all-zeroes and taking control of the stick and rudders, it was relatively easy to get us back on track. The second time we had to intervene, we _probably_ didn't need to, because the Top Rudder did what we already knew was going to happen: 
+Which isn't great (and it's interesting that MSFS doesn't consider "rotating like a rotisserie chicken at 100 kilometers per hour" a game-over condition) but by tactically resetting the trim to all-zeroes and taking control of the stick and rudders, it was relatively easy to get us back on track. The second time we had to intervene, we _probably_ didn't need to, because the Top Rudder did what we already knew was going to happen:
 
 ![image-20240120153102253](./image-20240120153102253.png)
 
