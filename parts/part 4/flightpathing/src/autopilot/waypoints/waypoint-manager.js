@@ -96,7 +96,16 @@ export class WayPointManager {
    * heading mode, if we're not flying in the right
    * direction at the moment, then return our heading.
    */
-  getHeading(autopilot, lat, long, declination, speed, vs1, cruiseSpeed) {
+  getHeading({
+    autopilot,
+    heading,
+    lat,
+    long,
+    declination,
+    speed,
+    vs1,
+    cruiseSpeed
+  }) {
     const { modes } = autopilot;
     const { points, currentWaypoint } = this;
     const p1 = currentWaypoint;

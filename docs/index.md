@@ -6948,7 +6948,7 @@ Now that we can load a flight path, we can load up [this one](https://gist.githu
 
 And I don't know about you, but that looks a lot like "Zero", the ghost dog from "The Nightmare Before Christmas" to me, so this is now the ghost dog tour. Let's fly some planes!
 
-#### De Havilland DHC-2 "Beaver"
+### De Havilland DHC-2 "Beaver"
 
 ![image-20240119180054615](./images/waypoints/tests/beaver/beaver-start.png)
 
@@ -6962,7 +6962,7 @@ And then we just enjoy the flight and wait for the result!
 
 This might _look_ good, but it actually isn't. This is one of the slowest planes, and it's already overshooting some turns even with a full minute of transition time, so anything going faster may have serious problems flying our flight path. So let's test with a faster aircraft.
 
-#### Cessna 310R
+### Cessna 310R
 
 The 310R is considerably faster than the Beaver, with a cruise speed that's almost double that of the Beaver, so those aggressive short turns should be interesting...
 
@@ -7053,7 +7053,7 @@ Right, let's see how we do now:![image-20240120162923173](./image-20240120162923
 
 _So_ much better. Which means we'll have to rerun the Beaver with these new settings, because we need to make sure we didn't add "fixes" that _only_ fix the 310R...
 
-#### De Havilland DHC-2 "Beaver", take 2
+### De Havilland DHC-2 "Beaver", take 2
 
 Let's rerun the entire flight and see how we do...
 
@@ -7061,7 +7061,7 @@ Let's rerun the entire flight and see how we do...
 
 Night and day, compared to the previous flight. By taking our speed into account, we can far more accurately follow our flight plan.
 
-#### Top Rudder Solo 103
+### Top Rudder Solo 103
 
 So... if the Beaver works, what about an _even slower_ aircraft? Let's see if our flight plan works for the Top Rudder!
 
@@ -7093,13 +7093,13 @@ But the last one was simply me not being near the computer: we got slammed by si
 
 Asking an ultralight to fly this route is _kind of_ ridiculous, but if we'd been at the computer even just a little more, we'd have made it back to the start.  So let's try another "real" airplane.
 
-#### Beechcraft Model 18
+### Beechcraft Model 18
 
 The Twin Beech is a lumbering beauty, but it responds to trim really well, and with our fixes in place, it flies this route spectacularly:
 
 ![image-20240120170829688](./image-20240120170829688.png)
 
-#### Piper Turbo Arrow III
+### Piper Turbo Arrow III
 
 So what about a plane that doesn't have aileron trim? Do we need to fix anything, or will this work "out of the box"?
 
@@ -7107,15 +7107,115 @@ So what about a plane that doesn't have aileron trim? Do we need to fix anything
 
 Yeah.. so... I'm gonna go with "no, it doesn't". Clearly, this is not going to work, and our elevator-specific code changes are going to need some... well... more changes.
 
-[LET'S FIX SOME CODE MAYBE!]
+The map shows us that we're both allowed to turn way more than we should be, with a rate of change that's way faster than should be allowed. So let's write some code that turns the plane directly based on rate of turn...
+
+```javascript
+export async function flyLevel(autopilot, state) {
+  ...
+  // we'll be updating our code to target turnRate
+  const { lat, long, declination, bank, speed, heading, turnRate } = flightData;
+  ... 
+  const aHeadingDiff = abs(headingDiff);
+  const diff = targetBank - bank;
+
+  // Then, if we're flying on the stick, we target a turn rate that lets
+  // cover the heading difference at a resonable speed.
+  if (useStickInstead) {
+    const targetTurnRate = constrainMap(headingDiff, -20, 20, -3, 3);
+    const turnDiff = targetTurnRate - turnRate;
+    // But we do need ot boost stick changes the closer to zero
+    // we get, because otherwise ramp-up and ramp-down takes too long:
+    let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
+    proportion = sign(proportion) * abs(proportion) ** 0.5;
+    // And we may want to base the "max stick deflection" value on
+    // flight model properties, but for now this will do:
+    const maxStick = -16384 / 5;
+    const newAileron = proportion * maxStick;
+    // "eary exit" when we're flying on stick.
+    return api.trigger("AILERON_SET", newAileron | 0);
+  }
+  
+  ...
+}
+```
+
+How did we do?
+
+![image-20240121115422685](./image-20240121115422685.png)
+
+Hot diggity daffodil, that looks perfect.
+
+### De Havilland DHC-2 "Beaver", take 3
+
+So, remember all that code we wrote for aileron trim? What happens if we just... don't use that, and instead use the less-than-10-lines-of-code we just wrote to fix the Turbo Arrow for all planes? Because throwing away a ton of code while still having things work would be _fantastic_!
+
+![image-20240121125332710](./image-20240121125332710.png)
+
+That's... really good actually. Let's try the 310R, hopefully that one is just as good.
+
+### Cessna 310R, take 2
+
+![image-20240121132852115](./image-20240121132852115.png)
+
+Aaaaand I guess we're swapping our code because this just works great. Time to delete all the stuff we no longer need!
+
+```javascript
+import { constrainMap, getCompassDiff } from "../utils/utils.js";
+
+const { abs, sign } = Math;
+const FEATURES = {
+  FLY_SPECIFIC_HEADING: true,
+};
+
+export async function flyLevel(autopilot, state) {
+  const { trim, api } = autopilot;
+  const { data: flightData, model: flightModel } = state;
+  const { vs1, cruiseSpeed } = flightModel;
+  const { lat, long, declination, speed, heading, turnRate } = flightData;
+  const parameters = { autopilot, heading, lat, long, declination, speed, vs1, cruiseSpeed };
+  const { headingDiff } = getTargetHeading(parameters);
+
+  // Use trim vector as a deflection bias instead
+  if (abs(headingDiff) < 5) trim.roll -= constrainMap(headingDiff, -3, 3, -10, 10);
+  const offset = trim.roll;
+  const targetTurnRate = constrainMap(headingDiff, -20, 20, -3, 3);
+  const turnDiff = targetTurnRate - turnRate;
+
+  // Boost how much the stick changes near zero (sqrt boost), but dampen
+  // the overall stick deflection the closer we are to our target heading.
+  let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
+  proportion = sign(proportion) * abs(proportion) ** 0.5;
+  proportion = constrainMap(abs(headingDiff), 0, 20, proportion/10, proportion);
+
+  // We may want to base this value on flight model properties:
+  const maxStick = -16384 / constrainMap(speed, 100, 200, 5, 8);
+  const newAileron = offset + proportion * maxStick;
+  return api.trigger("AILERON_SET", newAileron | 0);
+}
+
+// And our updated heading function
+function getTargetHeading(parameters) {
+  const { autopilot, heading, speed, vs1, cruiseSpeed } = parameters;
+  let targetHeading = heading;
+  let headingDiff = 0;
+  if (FEATURES.FLY_SPECIFIC_HEADING) {
+    targetHeading = autopilot.waypoints.getHeading(parameters);
+    headingDiff = getCompassDiff(heading, targetHeading);
+    const half = headingDiff / 2;
+    headingDiff = constrainMap(speed, vs1, cruiseSpeed, half, headingDiff);
+  }
+  return { targetHeading, headingDiff };
+}
+
+```
+
+...heck let's try this on the Top Rudder again, and see if we still need to intervene or not.
+
+### Top Rudder Solo 103, take 2
 
 
 
-MAP IMAGE GOES HERE
 
-We do see that the DC-3 is considerably more bouncy than even the twin Beech, but for its size and weight, we'll take it.
-
-SCIENCE IMAGES GO HERE
 
 # Part 5: "Let's just have JavaScript fly the plane for us"
 
