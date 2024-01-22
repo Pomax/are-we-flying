@@ -7213,7 +7213,11 @@ function getTargetHeading(parameters) {
 
 ### Top Rudder Solo 103, take 2
 
+![image-20240121174841487](./image-20240121174841487.png)
 
+Even the previously problematic climb works "almost perfectly" now:
+
+![image-20240121174907420](./image-20240121174907420.png)
 
 
 
