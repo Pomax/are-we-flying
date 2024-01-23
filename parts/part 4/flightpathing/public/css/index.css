@@ -1,3 +1,20 @@
+fieldset {
+  border: 1px solid black;
+  border-radius: 0.5em;
+  margin: 0;
+  padding: 0.25em 0.5em;
+  display: inline-block;
+
+  & + fieldset {
+    margin-top: 1em;
+  }
+
+  input[type="file"] {
+    color: transparent;
+    width: 6em;
+  }
+}
+
 div.modal {
   width: 100%;
   position: fixed;
@@ -21,20 +38,17 @@ div.modal {
       font-family: sans-serif;
     }
 
-    fieldset {
+    & fieldset {
       border: none;
-      margin: 0;
       padding: 0;
-
-      & + fieldset {
-        margin-top: 1em;
-      }
+      display: block;
     }
   }
 }
 
 label[for] {
   cursor: pointer;
+  user-select: none;
 }
 
 #map-controls {

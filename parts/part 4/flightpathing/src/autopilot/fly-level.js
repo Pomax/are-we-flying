@@ -1,11 +1,35 @@
-import { HEADING_MODE } from "../utils/constants.js";
-import { constrainMap, getCompassDiff } from "../utils/utils.js";
+import { radians, constrainMap, getCompassDiff } from "../utils/utils.js";
 
 const { abs, sign } = Math;
 
+// Some initial constants: we want to level the wings, so we
+// want a bank angle of zero degrees:
+const DEFAULT_TARGET_BANK = 0;
+
+// And we want to make sure not to turn more than 30 degrees (the
+// universal "safe bank angle") when we're correcting the plane.
+const DEFAULT_MAX_BANK = 40;
+
+// And, importantly, we also don't want our bank to change by
+// more than 3 degrees per second, or we might accelerate past
+// zero or our max bank angle too fast.
+const DEFAULT_MAX_D_BANK = 5;
+
+// Now, we have no "additional features" yet, since this is going
+// to be our first pass at writing the wing leveler, but we'll be
+// adding a bunch of refinements later on, as we revisit this code,
+// so we're going to tie those to "feature flags" that we can easily
+// turn on or off to see the difference in-flight.
 const FEATURES = {
+  // initial feature
   FLY_SPECIFIC_HEADING: true,
+  // additional features
+  DAMPEN_CLOSE_TO_ZERO: true,
+  SNAP_TO_HEADING: true,
 };
+
+// "snap to heading" settings
+const BUMP_FACTOR = 1.8;
 
 // Then, our actual "fly level" function, which  we're going to keep very "dumb":
 // each time we call it, it gets to make a recommendation, without any kind of
@@ -16,66 +40,175 @@ export async function flyLevel(autopilot, state) {
   // that lets us update pitch, roll, and yaw trim values on an ongoing basis.
   const { trim, api } = autopilot;
   const { data: flightData, model: flightModel } = state;
-  const { vs1, cruiseSpeed } = flightModel;
-  const { lat, long, declination, speed, heading, turnRate } = flightData;
-  const parameters = {
+
+  // Get our current bank/roll information:
+  const { lat, long, declination, bank, speed, heading } = flightData;
+  const { bank: dBank } = flightData.d ?? { bank: 0 };
+
+  // And our model data
+  const { hasAileronTrim, weight, isAcrobatic, vs1, cruiseSpeed } = flightModel;
+  const useStickInstead = hasAileronTrim === false;
+
+  // Then, since we're running this over and over, how big should
+  // our corrections be at most this iteration? The faster we're going,
+  // the bigger a correction we're going to allow:
+  let step = constrainMap(speed, vs1, cruiseSpeed, radians(0.1), radians(5));
+
+  // Are we "trimming" on the stick?
+  let aileron = 0;
+  if (useStickInstead) {
+    step = constrainMap(weight, 1000, 6000, 1, 3);
+    aileron = flightData.aileron / 100; // make sure aileron is in the range [-1,1]
+  }
+
+  // Then, let's figure out "how much are we off by". Right now our
+  // target bank angle is zero, but eventually that value is going to
+  // be a number that may change every iteration.
+  const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
+  const { targetBank, maxDBank, targetHeading, headingDiff } =
+    getTargetBankAndTurnRate({
+      autopilot,
+      heading,
+      maxBank,
+      isAcrobatic,
+      lat,
+      long,
+      declination,
+      speed,
+      vs1,
+      cruiseSpeed,
+    });
+  const aHeadingDiff = abs(headingDiff);
+  const diff = targetBank - bank;
+
+  if (isAcrobatic) {
+    step = constrainMap(aHeadingDiff, 0, 10, step / 5, step / 20);
+  }
+
+  // Then, we determine a trim update, based on how much we're off by.
+  // Negative updates will correct us to the left, positive updates
+  // will correct us to the right.
+  let update = 0;
+
+  // As our main correction, we're looking directly at our bank difference:
+  // the more we're banking, the more we correct, although if we're banking
+  // more than "max bank", correct based off the max bank value instead.
+  // Also, we'll restrict how much that max bank is based on how fast we're
+  // going. Because a hard bank at low speeds is a good way to crash a plane.
+  let bankDiff = constrainMap(diff, -maxBank, maxBank, -step, step);
+
+  // boost the heck out of "slowing down" as we reach our target heading.
+  if (FEATURES.SNAP_TO_HEADING) {
+    if (aHeadingDiff > 0.5 && aHeadingDiff < 5) {
+      const bump = BUMP_FACTOR;
+      bankDiff *= bump;
+      if (aHeadingDiff < 2) {
+        bankDiff *= bump;
+        if (aHeadingDiff < 1) {
+          bankDiff *= bump;
+        }
+      }
+    }
+  }
+
+  update -= bankDiff;
+
+  // With our main correction determined, we may want to
+  // "undo" some of that correction in order not to jerk
+  // the plane around. We are, after all, technically still
+  // in that plane and we'd like to not get sick =)
+  update += constrainMap(dBank, -maxDBank, maxDBank, -step / 2, step / 2);
+
+  // New feature! If we're close to our target, dampen the
+  // corrections, so we don't over/undershoot the target too much.
+  if (FEATURES.DAMPEN_CLOSE_TO_ZERO) {
+    const aDiff = abs(diff);
+    if (aDiff < 2) update /= 2;
+  }
+
+  // console.log({
+  //   aileronTrim,
+  //   speed,
+  //   heading,
+  //   targetHeading,
+  //   headingDiff,
+  //   bank,
+  //   maxBank,
+  //   dBank,
+  //   maxDBank,
+  //   targetBank,
+  //   diff,
+  //   turnRate,
+  //   step,
+  //   update,
+  // });
+
+  // If we're banking too hard, counter trim by "a lot".
+  if (FEATURES.EMERGENCY_PROTECTION) {
+    if (bank < -maxBank || bank > maxBank) {
+      console.log(`Bank emergency!`);
+      const cap = 10 * maxBank;
+      const emergencyStep = radians(maxBank);
+      update = constrainMap(bank, -cap, cap, -emergencyStep, emergencyStep);
+    }
+  }
+
+  if (useStickInstead) {
+    // add the update, scaled to [-1, 1], then trigger an aileron set
+    // action, scaled to the sim's [-16k, 16k] range
+    const position = aileron + update / 100;
+    api.trigger("AILERON_SET", (-16384 * position) | 0);
+  } else {
+    trim.roll += update;
+    api.set("AILERON_TRIM_PCT", trim.roll);
+  }
+}
+
+// And our new function:
+function getTargetBankAndTurnRate({
+  autopilot,
+  heading,
+  maxBank,
+  isAcrobatic,
+  lat,
+  long,
+  declination,
+  speed,
+  vs1,
+  cruiseSpeed,
+}) {
+  const { modes } = autopilot;
+
+  let targetBank = DEFAULT_TARGET_BANK;
+  let maxDBank = DEFAULT_MAX_D_BANK;
+
+  if (!FEATURES.FLY_SPECIFIC_HEADING) {
+    return { targetBank, maxDBank, heading, headingDiff: 0 };
+  }
+
+  let targetHeading = autopilot.waypoints.getHeading({
     autopilot,
-    heading,
     lat,
     long,
     declination,
     speed,
     vs1,
     cruiseSpeed,
-  };
-  let { headingDiff } = getTargetHeading(parameters);
+  });
 
-  console.log(
-    `--- flying on stick, heading diff = ${headingDiff}, bias = ${trim.roll}`
-  );
-
-  // Use trim vector as a deflection bias instead
-  if (abs(headingDiff) < 5) {
-    trim.roll -= constrainMap(headingDiff, -3, 3, -10, 10);
-  }
-  const offset = trim.roll;
-  const targetTurnRate = constrainMap(headingDiff, -20, 20, -3, 3);
-  const turnDiff = targetTurnRate - turnRate;
-
-  // Boost how much the stick changes near zero (sqrt boost), but dampen
-  // the overall stick deflection the closer we are to our target heading.
-  let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
-  proportion = sign(proportion) * abs(proportion) ** 0.5;
-  proportion = constrainMap(
-    abs(headingDiff),
-    0,
-    20,
-    proportion / 10,
-    proportion
-  );
-
-  // We may want to base this value on flight model properties:
-  const maxStick = -16384 / constrainMap(speed, 100, 200, 5, 8);
-  const newAileron = offset + proportion * maxStick;
-  return api.trigger("AILERON_SET", newAileron | 0);
-}
-
-// And our updated heading function
-function getTargetHeading(parameters) {
-  const { autopilot, heading, speed, vs1, cruiseSpeed } = parameters;
-  let targetHeading = heading;
-  let headingDiff = 0;
-  if (FEATURES.FLY_SPECIFIC_HEADING) {
-    // Check waypoints:
-    targetHeading = autopilot.waypoints.getHeading(parameters);
-    // If that fails, check AP heading mode:
-    if (!targetHeading) targetHeading = autopilot.modes[HEADING_MODE];
-    // If *that* fails, use current heading:
-    if (!targetHeading) targetHeading = heading;
+  let headingDiff;
+  if (targetHeading) {
     headingDiff = getCompassDiff(heading, targetHeading);
-    console.log(targetHeading, headingDiff);
-    const half = headingDiff / 2;
-    headingDiff = constrainMap(speed, vs1, cruiseSpeed, half, headingDiff);
+    headingDiff = constrainMap(
+      speed,
+      vs1,
+      cruiseSpeed,
+      headingDiff / 2,
+      headingDiff
+    );
+    targetBank = constrainMap(headingDiff, -30, 30, maxBank, -maxBank);
+    maxDBank = constrainMap(abs(headingDiff), 0, 2, maxDBank / 10, maxDBank);
   }
-  return { targetHeading, headingDiff };
+
+  return { targetBank, maxDBank, targetHeading, headingDiff };
 }

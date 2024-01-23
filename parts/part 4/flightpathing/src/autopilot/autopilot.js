@@ -11,11 +11,24 @@ import {
 } from "../utils/constants.js";
 
 // and import the "fly level" code using our hot-reloading technique
-let { flyLevel } = await watch(
-  dirname,
-  `fly-level.js`,
-  (lib) => (flyLevel = lib.flyLevel)
-);
+const USE_NEW_HEADING = true;
+
+let flyLevel;
+if (USE_NEW_HEADING) {
+  const lib = await watch(
+    dirname,
+    `heading-mode.js`,
+    (lib) => (flyLevel = lib.flyLevel)
+  );
+  flyLevel = lib.flyLevel;
+} else {
+  const lib = await watch(
+    dirname,
+    `fly-level.js`,
+    (lib) => (flyLevel = lib.flyLevel)
+  );
+  flyLevel = lib.flyLevel;
+}
 
 // and import the "fly level" code using our hot-reloading technique
 let { autoThrottle } = await watch(
@@ -70,8 +83,11 @@ export class AutoPilot {
   resetTrim() {
     this.trim = {
       pitch: 0,
+      elevatorOffset: 0,
       roll: 0,
+      aileronOffset: 0,
       yaw: 0,
+      rudderOffset: 0,
     };
   }
 
@@ -196,8 +212,12 @@ export class AutoPilot {
     this.flightInfoUpdateHandler(await flightInformation.update());
 
     // Then run a single iteration of the wing leveler and altitude holder:
-    if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
-    if (modes[ALTITUDE_HOLD]) altitudeHold(this, flightInformation);
-    if (modes[AUTO_THROTTLE]) autoThrottle(this, flightInformation);
+    try {
+      if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
+      if (modes[ALTITUDE_HOLD]) altitudeHold(this, flightInformation);
+      if (modes[AUTO_THROTTLE]) autoThrottle(this, flightInformation);
+    } catch (e) {
+      console.warn(e);
+    }
   }
 }

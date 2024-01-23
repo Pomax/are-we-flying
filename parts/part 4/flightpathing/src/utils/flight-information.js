@@ -52,8 +52,13 @@ export class FlightInformation {
       data.title.toLowerCase().includes(t.toLowerCase())
     );
 
-    const acrobatic = ['Pitts'];
+    const acrobatic = ["Pitts", "Gee Bee R3"];
     data.isAcrobatic = acrobatic.some((t) =>
+      data.title.toLowerCase().includes(t.toLowerCase())
+    );
+
+    const stubborn = [`Kodiak`, `King Air`];
+    data.isStubborn = stubborn.some((t) =>
       data.title.toLowerCase().includes(t.toLowerCase())
     );
 

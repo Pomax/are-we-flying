@@ -40,23 +40,30 @@ export class Autopilot {
       });
     });
 
+    const domAP = document.getElementById(`autopilot`);
+
     // And then we also add an onchange handler to our number
     // field so that if that changes, we let the server know:
-    document
-      .querySelector(`#autopilot .altitude`)
-      ?.addEventListener(`change`, (evt) => {
-        server.autopilot.update({ ALT: evt.target.value });
-        evt.target.blur();
-      });
+    domAP.querySelector(`.altitude`)?.addEventListener(`change`, (evt) => {
+      server.autopilot.update({ ALT: evt.target.value });
+      evt.target.blur();
+    });
 
     // And then again just like for altitude, we add an onchange handler for heading.
-    document
-      .querySelector(`#autopilot .heading`)
-      ?.addEventListener(`change`, (evt) => {
-        const { value } = evt.target;
-        server.autopilot.update({ HDG: value });
-        evt.target.blur();
+    domAP.querySelector(`.heading`)?.addEventListener(`change`, (evt) => {
+      const { value } = evt.target;
+      server.autopilot.update({ HDG: value });
+      evt.target.blur();
+    });
+
+    domAP.querySelector(`.arm-all`).addEventListener(`click`, () => {
+      Object.entries(AP_OPTIONS).forEach(([key, value]) => {
+        if (key === `MASTER`) return;
+        if (!value) {
+          domAP.querySelector(`.${key}`).click();
+        }
       });
+    });
   }
 
   // And then we also add some ALT-specific code to our update function:

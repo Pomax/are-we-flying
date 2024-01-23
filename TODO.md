@@ -21,4 +21,9 @@
   - waypoint control buttons
   - waypoint updates -> autopilot onChange
   - CSS changes for button bars
+  - the heading mode code =_=
+  - try/catch the autopilot run() function
 
+[ UPDATE CODE]
+
+- teleport detection doesn't work

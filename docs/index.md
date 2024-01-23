@@ -7219,6 +7219,22 @@ Even the previously problematic climb works "almost perfectly" now:
 
 ![image-20240121174907420](./image-20240121174907420.png)
 
+In fact, let's try some more of our edge cases. What about acrobatic planes?
+
+### Pitts Specal S1
+
+While it works, sharp turns are not great. It would be nice to have the old code available to switch back to.
+
+### Piper Turbo Arrow III
+
+Works just fine.
+
+### Daher Kodiak 100
+
+I fucking hate this plane so much. So we're going to keep our old plane, but now we're definitely going to add a toggle that defaults to the new code, but lets us switch back to the old code if the new code doesn't work well enough (and ideally, in a way where the autopilot can detect that our new code is not having the effect it should be, and automatically falls back to the original code we wrote.
+
+
+
 
 
 # Part 5: "Let's just have JavaScript fly the plane for us"

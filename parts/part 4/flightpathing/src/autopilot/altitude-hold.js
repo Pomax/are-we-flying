@@ -41,7 +41,7 @@ export async function altitudeHold(autopilot, flightInformation) {
   // What are our vertical speed values?
   const { VS, alt, pitch, speed } = flightData;
   const { VS: dVS, pitch: dPitch } = flightData.d ?? { VS: 0, pitch: 0 };
-  const { pitchTrimLimit, climbSpeed, cruiseSpeed } = flightModel;
+  const { pitchTrimLimit, climbSpeed, cruiseSpeed, isStubborn } = flightModel;
 
   // How big should our trim steps be?
   let trimLimit = pitchTrimLimit[0];
@@ -60,6 +60,11 @@ export async function altitudeHold(autopilot, flightInformation) {
     cruiseSpeed
   );
   const diff = targetVS - VS;
+
+  // Thanks kodiak! ...and King Air, I guess
+  if (isStubborn) {
+    trimStep *= constrainMap(abs(diff), 0, 100, 1, 3);
+  }
 
   // console.log({
   //   alt,
@@ -100,18 +105,22 @@ export async function altitudeHold(autopilot, flightInformation) {
     // Do we need to intervene? If so, throw away the update we just computed.
     const VS_EMERGENCY = VS < -DEFAULT_MAX_VS || VS > DEFAULT_MAX_VS;
     const DVS_EMERGENCY = dVS < -DEFAULT_MAX_dVS || dVS > DEFAULT_MAX_dVS;
+
     if (VS_EMERGENCY || DVS_EMERGENCY) {
       update = 0;
     }
+
     const f = 4;
     const fMaxVS = f * maxVS;
     const fMaxdVS = f * maxdVS;
     const fStep = f * trimStep;
+
     // Are we exceeding our "permissible" vertical speed?
     if (VS_EMERGENCY) {
       console.log(`VS emergency! (${VS}/${maxVS})`);
       update += constrainMap(VS, -fMaxVS, fMaxVS, fStep, -fStep);
     }
+
     // What about the rate of change of our vertical speed?
     if (DVS_EMERGENCY) {
       console.log(`VS delta emergency! (${dVS}/${maxdVS})`);
