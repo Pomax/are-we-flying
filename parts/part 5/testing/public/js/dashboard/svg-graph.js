@@ -21,7 +21,8 @@ class Graph {
     const graph = (this.graph = template.content.cloneNode(true).children[0]);
     parent.append(graph);
     this.style = graph.style;
-    this.data = graph.querySelector(`.data`);
+    this.data = graph.querySelector(`.plot-region .data`);
+    this.dataLimit = graph.querySelector(`.plot-region .limit`);
     this.label = graph.querySelector(`.graph-label`);
     this.parseOptions(graph, opts);
     graph.querySelector(`.bottom-marker`).textContent = `${this.miny.toFixed(
@@ -83,7 +84,12 @@ class Graph {
     }
   }
 
-  addValue(x, y) {
+  addValue(x, y, options = {}) {
+    if (typeof y === `object`) {
+      options = y;
+      y = undefined;
+    }
+
     // make up an `x` if we were only passed one value
     if (!exists(y)) {
       if (!exists(x)) return;
@@ -91,8 +97,9 @@ class Graph {
       x = (Date.now() - this.startTime) / 1000;
     }
 
-    const { data } = this;
-    let d = data.getAttribute(`d`).trim();
+    const { data, dataLimit } = this;
+    const target = options.limit ? dataLimit : data;
+    let d = target.getAttribute(`d`).trim();
     const jump =
       Math.abs(y - this.y) > 10 ** -(this.opts.fixed - 2) &&
       this.opts.discontinuous;
@@ -106,12 +113,14 @@ class Graph {
     if (this.opts.filled) {
       d += `L ${x} 0 z`;
     }
-    data.setAttribute(`d`, d);
+    target.setAttribute(`d`, d);
     this.updateBounds(y);
     this.updateOffset(x);
-    this.currentValue.textContent = `${y.toFixed(this.opts.fixed)} ${
-      this.opts.unit
-    }`;
+    if (!options.limit) {
+      this.currentValue.textContent = `${y.toFixed(this.opts.fixed)} ${
+        this.opts.unit
+      }`;
+    }
     this.y = y;
   }
 }
@@ -311,7 +320,10 @@ const templateCode = `
     <line class="top-line" x1="-100%" x2="100%" y1="-49.5%" y2="-49.5%" />
     <line class="hidden limit" x1="-100%" x2="100%" y1="100%" y2="100%" />
     <!-- data plot, scaling handled on the JS side -->
-    <g class="plot-region"><path class="data"  vector-effect="non-scaling-stroke" d=""/></g>
+    <g class="plot-region">
+      <path class="data" vector-effect="non-scaling-stroke" d=""/>
+      <path class="limit" vector-effect="non-scaling-stroke" d=""/>
+    </g>
     <!-- main axis is on top of everything -->
     <line class="main x-axis" x1="-100%" x2="100%" y1="50%" y2="50%" />
     <!-- labels go on top of everything -->
@@ -358,7 +370,10 @@ const templateCode = `
     <line class="hidden limit" x1="-100%" x2="100%" y1="100%" y2="100%" />
     <line class="hidden limit" x1="-100%" x2="100%" y1="100%" y2="100%" />
     <!-- data plot, scaling handled on the JS side -->
-    <g class="plot-region"><path class="data" vector-effect="non-scaling-stroke" d=""/></g>
+    <g class="plot-region">
+      <path class="data" vector-effect="non-scaling-stroke" d=""/>
+      <path class="limit" vector-effect="non-scaling-stroke" d=""/>
+    </g>
     <!-- labels go on top of everything -->
     <text class="top-marker" x="0" y="0">+0</text>
     <text class="bottom-marker">-0</text>

@@ -7,11 +7,11 @@ export class WaypointOverlay {
     this.server = plane.server;
     this.map = plane.map;
     this.waypoints = [];
-    this.addEventHandling(this.map);
+    this.addEventHandling();
   }
 
-  addEventHandling(map) {
-    const { server } = this;
+  addEventHandling() {
+    const { map, server } = this;
 
     // Set up the event handling for the map:
     map.on(`click`, ({ latlng }) => {
@@ -206,9 +206,11 @@ export class WaypointOverlay {
    * Create a local waypoint based on a remote waypoint at the server
    */
   addWaypoint(waypoint, number) {
-    // unpack and reassemble, because state content is immutable.
-    const { id, lat, long, active, completed, distance } = waypoint;
-    waypoint = { id, lat, long, active, completed, distance };
+    // Unpack and reassemble, because state content is immutable,
+    // but we want to tack new properties onto waypoints here.
+    // If we forget to do this, we'll get runtime errors!
+    waypoint = Object.assign({}, waypoint);
+    const { id, lat, long, completed, active } = waypoint;
 
     const waypointClass = `waypoint-marker${completed ? ` completed` : ``}${
       active ? ` active` : ``

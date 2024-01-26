@@ -56,6 +56,7 @@ export class Waypoint {
   }
 
   complete() {
+    this.deactivate();
     this.completed = true;
     return this.next;
   }

@@ -39,7 +39,7 @@ export async function altitudeHold(autopilot, flightInformation) {
   const { data: flightData, model: flightModel } = flightInformation;
 
   // What are our vertical speed values?
-  const { VS, alt, pitch, speed } = flightData;
+  const { VS, alt, pitch, speed, bank, upsideDown } = flightData;
   const { VS: dVS, pitch: dPitch } = flightData.d ?? { VS: 0, pitch: 0 };
   const { pitchTrimLimit, climbSpeed, cruiseSpeed, isStubborn } = flightModel;
 
@@ -47,6 +47,11 @@ export async function altitudeHold(autopilot, flightInformation) {
   let trimLimit = pitchTrimLimit[0];
   trimLimit = trimLimit === 0 ? 10 : trimLimit;
   let trimStep = trimLimit / 10_000;
+
+  // are we upside down?
+  if (upsideDown) {
+    trimStep = -trimStep;
+  }
 
   // And what should those parameters be instead, if we want to
   // maintain our specific altitude?
@@ -57,7 +62,8 @@ export async function altitudeHold(autopilot, flightInformation) {
     alt,
     speed,
     climbSpeed,
-    cruiseSpeed
+    cruiseSpeed,
+    upsideDown
   );
   const diff = targetVS - VS;
 

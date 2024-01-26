@@ -2,7 +2,6 @@ import {
   constrainMap,
   getDistanceBetweenPoints,
   getHeadingFromTo,
-  lerp,
   projectCircleOnLine,
 } from "../../utils/utils.js";
 import { Waypoint } from "./waypoint.js";
@@ -12,6 +11,9 @@ import {
   KM_PER_ARC_DEGREE,
   ONE_KTS_IN_KMS,
 } from "../../utils/constants.js";
+
+const { min } = Math;
+const innerRadiusRatio = 1;
 
 export class WayPointManager {
   constructor(autopilot) {
@@ -70,12 +72,28 @@ export class WayPointManager {
     }
   }
 
+  split(id) {
+    const { points } = this;
+    const pos = points.findIndex((e) => e.id === id);
+    if (pos > -1) {
+      // create a copy right next to the original point
+      const waypoint = points[pos];
+      const { lat, long, alt } = waypoint;
+      const copy = new Waypoint(lat, long, alt);
+      points.splice(pos, 0, copy);
+      this.resequence();
+    }
+  }
+
   /**
    * Make sure each waypoint knows what "the next waypoint" is.
    */
   resequence() {
     const { points } = this;
-    points.forEach((p, i) => p.setNext(points[i + 1]));
+    points.forEach((p, i) => {
+      p.id = i + 1;
+      p.setNext(points[i + 1]);
+    });
     // push the update to clients
     this.autopilot.onChange();
   }
@@ -104,15 +122,15 @@ export class WayPointManager {
     declination,
     speed,
     vs1,
-    cruiseSpeed
+    cruiseSpeed,
   }) {
     const { modes } = autopilot;
     const { points, currentWaypoint } = this;
     const p1 = currentWaypoint;
     let target;
 
-    // Do we need to do anything?
-    if (!p1) return;
+    // Do we need to even do anything?
+    if (!p1) return modes[HEADING_MODE] ?? heading;
 
     // We'll go with a radius based on X seconds at our current speed,
     // where X is a full minute if we're near stall speed, or only 30
@@ -132,7 +150,7 @@ export class WayPointManager {
       target = projectCircleOnLine(
         long,
         lat,
-        radiusInKM * KM_PER_ARC_DEGREE,
+        radiusInKM * KM_PER_ARC_DEGREE * innerRadiusRatio,
         p1.long,
         p1.lat,
         p2.long,
@@ -214,11 +232,17 @@ export class WayPointManager {
    */
   checkTransition(lat, long, lat2, long2, radiusInKM) {
     const { currentWaypoint } = this;
+
+    // Some planes are *very* zoomy, and we don't want them
+    // to transition so early that they slam into a mountain
+    // they're supposed to go around, instead.
+    radiusInKM = min(radiusInKM, 2.5);
+
     const d = getDistanceBetweenPoints(lat, long, lat2, long2);
     // Are we close enough to transition to the next point?
     if (d < radiusInKM) {
       currentWaypoint.deactivate();
-      this.currentWaypoint = currentWaypoint?.complete();
+      this.currentWaypoint = currentWaypoint.complete();
       // Do we need to wrap-around after transitioning?
       if (!this.currentWaypoint && this.repeating) {
         this.resetWaypoints();
@@ -226,6 +250,25 @@ export class WayPointManager {
       this.currentWaypoint?.activate();
       return true;
     }
+
+    // If we're not, we may have missed the previous waypoint, so
+    // let's check if we're at the next one already, just to be sure:
+    const next = currentWaypoint.next;
+    if (next) {
+      const { lat: lat2, long: long2 } = next;
+      const d = getDistanceBetweenPoints(lat, long, lat2, long2);
+      if (d < radiusInKM) {
+        currentWaypoint.deactivate();
+        this.currentWaypoint = currentWaypoint.complete();
+        // Do we need to wrap-around after transitioning?
+        if (!this.currentWaypoint && this.repeating) {
+          this.resetWaypoints();
+        }
+        this.currentWaypoint?.activate();
+        return true;
+      }
+    }
+
     return false;
   }
 

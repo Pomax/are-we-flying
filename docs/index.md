@@ -5076,7 +5076,7 @@ export function runLater(fn, timeoutInMS, notice, preCall) {
 }
 ```
 
-And now we just tie that into our server class:
+Which we tie that into our server class:
 
 ```javascript
 ...
@@ -5145,7 +5145,7 @@ Engaging wing leveler. Initial trim: 0
 Engaging altitude hold at 1500 feet. Initial trim: 0
 ```
 
-And our client is none the wiser: as far as it knows it's still just connecting to a regular api server:
+And our client is none the wiser, either. As far as it knows it's still just connecting to a regular api server:
 
 ![A mocked flight](./images/page/mocked-flight.png)
 
@@ -5157,7 +5157,7 @@ Sure, it's not as responsive as in-game planes, and the graphs look synthetic, b
 
 ## Waypoint navigation
 
-So that we have a fake plane that can fly on our autopilot, holding a specific heading and altitude, and able to switch to new headings and altitudes, the next logical step would be to tell the autopilot to just do that for us based on a flight path. We want to be able to give the autopilot a bunch of coordinates and then make it fly towards waypoints, and then when it gets close, transition to flying towards the next waypoint, and so on, until we run out of waypoints. Something like this:
+So now that we have a fake plane that can fly on our autopilot, holding a specific heading and altitude, and is able to switch to new headings and altitudes, the next logical step would be to tell the autopilot to just do that for us based on a flight path. We want to be able to give the autopilot a bunch of coordinates and then make it fly our plane (whether it's mocked or "real") towards waypoints, and then when it gets close, transition to flying towards the next waypoint, and so on, until we run out of waypoints. Something like this:
 
 ![Doing some waypoint flying](./images/page/map-with-waypoints.png)
 
@@ -5235,6 +5235,7 @@ export class Waypoint {
   }
 
   complete() {
+    this.deactivate();
     this.completed = true;
     return this.next;
   }
@@ -5289,6 +5290,25 @@ export class WayPointManager {
     this.points.find((e) => e.id === id)?.setElevation(alt);
   }
 
+  
+  /**
+   * Turn one waypoint into two waypoints, so that you can
+   * relatively easily add waypoints in between existing ones:
+   */
+  split(id) {
+    const { points } = this;
+    const pos = points.findIndex((e) => e.id === id);
+    if (pos > -1) {
+      const waypoint = points[pos];
+      const { lat, long, alt } = waypoint;
+      points.splice(pos, 0, new Waypoint(lat, long, alt));
+      this.resequence();
+    }
+  }
+  
+  /**
+   * Remove a waypoint from the set of waypoints.
+   */
   remove(id) {
     const { points } = this;
     const pos = points.findIndex((e) => e.id === id);
@@ -5303,11 +5323,18 @@ export class WayPointManager {
   }
 
   /**
-   * Make sure each waypoint knows what "the next waypoint" is.
+   * Make sure each waypoint knows what "the next waypoint" is,
+   * with the last waypoint getting a "next" that is undefined.
    */
   resequence() {
     const { points } = this;
-    points.forEach((p, i) => p.setNext(points[i + 1]));
+    points.forEach((p, i) => {
+      p.id = i + 1;
+      p.setNext(points[i + 1]);
+    });
+    // Also let clients know that we have a (maybe) new
+    // sequence of waypoints now.
+    this.autopilot.onChange();
   }
 
   /**
@@ -5320,30 +5347,70 @@ export class WayPointManager {
     this.currentWaypoint?.activate();
     this.resequence();
   }
+  
+  /**
+   * We'll be implementing this after we figure out how to
+   * determine a "current heading" based on which waypoints
+   * the plane is currently between, and where the plane is
+   * relative to the flight path. For now, let's be dumb:
+   */
+  getHeading({ autopilot, heading, lat, long, declination }) {
+    const { currentWaypoint } = this;
+    const { modes } = autopilot;
+
+    // are we already done?
+    if (!currentWaypoint) return modes[HEADING_MODE] ?? heading;
+    
+    // if not, check if we need to transition to the next waypoint,
+    // and then return the heading for the current waypoint (if
+    // we transitioned, that'll get picked up on the next "tick").
+    const { lat: lat2, long: long2 } = currentWaypoint;
+		this.checkTransition(lat, long, lat2, long2);
+
+    // Compute the heading we should be flying:
+    const newHeading = getHeadingFromTo(lat, long, lat2, long2);   
+    autopilot.setParameters({
+      [HEADING_MODE]: parseFloat(((360 + newHeading - declination) % 360).toFixed(2))
+    });
+
+    return modes[HEADING_MODE];
+  } 
 
   /**
    * Check whether we should transition to the next waypoint
    * based on the plane's current GPS coordinate. Note that
    * this is not a good transition policy, but we'll revisit
-   * this code in the next subsection to make it better.
+   * this code and improve it later.
    */
-  transition(lat, long) {
-    const { currentWaypoint } = this;
-    if (!currentWaypoint) return;
-
-    const { lat: lat2, long: long2 } = currentWaypoint;
-    const thresholdInKm = 1;
+  checkTransition(lat, long, lat2, long2, radiusInKM = 1) {
     const d = getDistanceBetweenPoints(lat, long, lat2, long2);
+    if (d <= radiusInKM) {
+      this.currentWaypoint = this.currentWaypoint.complete();
+    }
+  }
+  
+  /**
+   * Much like for heading, waypoints can have an altitude. so we
+   * want a way to check what altitude we should be flying at.
+   */
+  getAltitude({ autopilot, alt }) {
+    const { modes } = autopilot;
+    const { currentWaypoint } = this;
+    if (!currentWaypoint) return modes[ALTITUDE_HOLD] ?? alt;
+    alt = currentWaypoint.alt
 
-    if (d < thresholdInKm) {
-      currentWaypoint.deactivate();
-      this.currentWaypoint = currentWaypoint?.complete();
-      this.currentWaypoint?.activate();
+    // Is there next waypoint?
+    const next = currentWaypoint.next;
+
+    // And if so, does it specify an altitude, and is that
+    // altitude higher than the current waypoint's altitude?
+    if (next && !!next.alt && next.alt > next.alt) {
+      alt = next.alt;
     }
 
-    if (!this.currentWaypoint && this.repeating) {
-      this.resetWaypoints();
-    }
+    // Update the AP heading and return
+    autopilot.setParameters({ [ALTITUDE_HOLD]: alt });
+    return modes[ALTITUDE_HOLD];
   }
 }
 ```
@@ -5379,14 +5446,18 @@ let autopilot;
 
 export class AutopilotRouter {
   constructor(_autopilot) { autopilot = _autopilot; }
-  async update(client, params) { autopilot.setParameters(params); }
+  resetTrim(client) { autopilot.resetTrim(); }  
+  update(client, params) { autopilot.setParameters(params); }
   // Our new "routes":
-  getWaypoints() { return autopilot.waypoints.getWaypoints(); }
-  addWaypoint(lat, long) { autopilot.waypoints.addWaypoint(lat, long); }
-  setWaypointPosition(id, lat, long) { autopilot.waypoints.setWaypointPosition(id, lat, long); }
-  setWaypointElevation(id, alt) { autopilot.waypoints.setWaypointElevation(id, alt); }
-  removeWaypoint(id) { autopilot.waypoints.removeWaypoint(id); }
-  resetFlight() { autopilot.waypoints.resetFlight(); }
+  getWaypoints(client) { return autopilot.waypoints.getWaypoints(); }
+  addWaypoint(client, lat, long) { autopilot.waypoints.addWaypoint(lat, long); }
+  setWaypointPosition(client, id, lat, long) { autopilot.waypoints.setWaypointPosition(id, lat, long); }
+  setWaypointElevation(client, id, alt) { autopilot.waypoints.setWaypointElevation(id, alt); }
+  toggleRepeating(client, value) { autopilot.waypoints.toggleRepeating(value); }
+  removeWaypoint(client, id) { autopilot.waypoints.remove(id); }
+  splitWaypoint(client, id) { autopilot.waypoints.split(id); }
+  resetWaypoints(client) { autopilot.waypoints.resetWaypoints(); }
+  clearWaypoints(client) { autopilot.waypoints.reset(); }
 }
 ```
 
@@ -5404,16 +5475,16 @@ import { WaypointOverlay } from "./waypoint-overlay.js";
 export class Plane {
   constructor(server, map = defaultMap, location = DUNCAN_AIRPORT, heading = 135) {
     ...
-    // Step 1: a client-side waypoint manager
-    this.waypointOverlay = new WaypointOverlay(server, map);
+    // Step 1: bind a client-side waypoint manager
+    this.waypointOverlay = new WaypointOverlay(this);
   }
 
   async updateState(state) {
     ...
-
     const { autopilot: params } = state;
     this.autopilot.update(flightData, params);
-    // Step 2: giving it the waypoint data and letting it sort out the rest!
+
+    // Step 2: give it the waypoint data and let it sort out the rest!
     this.waypointOverlay.manage(params.waypoints);
 
     this.lastUpdate = { time: now, ...state };
@@ -5427,16 +5498,23 @@ And then it would help if we had an implementation for that waypoint overlay in 
 import { Trail } from "./trail.js";
 
 export class WaypointOverlay {
-  constructor(server, map) {
-    this.server = server;
-    this.map = map;
+  constructor(plane) {
+    this.plane = plane;
+    this.server = plane.server;
+    this.map = plane.map;
     this.waypoints = [];
-    // Set up the event handling for the map:
-    this.map.on(`click`, ({ latlng }) => {
+    this.addEventHandling();
+  }
+
+  addEventHandling() {
+    const { map, server } = this;
+    // Set up the event handling for clicking the map:
+    map.on(`click`, ({ latlng }) => {
       const { lat, lng } = latlng;
       server.autopilot.addWaypoint(lat, lng);
     });
   }
+
 
   /**
    * A little helper for "drawing lines" between waypoints
@@ -5448,8 +5526,9 @@ export class WaypointOverlay {
   }
 
   /**
-   * Run through the list of server-side waypoints and
-   * update our local page UI to reflect that state.
+   * This will be our "main entry point": run through the list of
+   * server-side waypoints and update our local page UI to reflect
+   * that state.
    */
   manage(waypoints = [], repeating) {
     // Look at each waypoint and determine whether it's
@@ -5485,7 +5564,7 @@ export class WaypointOverlay {
    * as waypoint 1, the next is waypoint 2, etc, irrespective of
    * the waypoint's internal id number.
    */
-  resequence() {
+  resequence(repeating) {
     this.waypoints.forEach((waypoint, pos) => {
       if (pos > 0) {
         const { lat, long } = waypoint;
@@ -5495,8 +5574,37 @@ export class WaypointOverlay {
       }
       this.setWaypointLabel(waypoint, pos + 1);
     });
+    this.updateClosingTrail(repeating);
   }
 
+  /**
+   * make sure we have a trail connecting the first and last
+   * waypoint, if we need to repeat the flightpath. Note that
+   * we also call this when we *move* the first or last point,
+   * so we indiscriminantly remove the trail first, then
+   * selectively add it back in.
+   */
+  updateClosingTrail(repeating) {
+    const { waypoints } = this;
+    if (waypoints.length < 2) return;
+
+    if (this.closingTrail) {
+      this.closingTrail.remove();
+      this.closingTrail = undefined;
+    }
+
+    if (repeating && !this.closingTrail) {
+      const first = waypoints[0];
+      const last = waypoints.at(-1);
+      this.closingTrail = this.addNewTrail(
+        first.lat,
+        first.long,
+        last.lat,
+        last.long
+      );
+    }
+  }
+  
   /**
    * Set a human-friendly label on a waypoint
    */
@@ -5523,7 +5631,7 @@ export class WaypointOverlay {
   /**
    * If this is a new waypoint, we need to add it to our local list
    * of waypoints, build a UI element for it, and link it up (visually)
-   * to its previous and/or next waypoint.
+   * to its previous and/or next waypoint(s).
    */
   addWaypoint(waypoint) {
     // Unpack and reassemble, because state content is immutable,
@@ -6676,7 +6784,7 @@ That's a lot of code to do what we sketched out before, so... does this work?
 
 ![Following our flight path](./images/waypoints/flightpath/basic-flightpath.png)
 
-Well enough to even see our plane's flightpath on top of the path polygon... What if we use a slightly more aggressive flight path?
+Well enough to barely even see our plane's flightpath on top of the path polygon... What if we use a slightly more aggressive flight path?
 
 ![A more aggressive flight path](./images/waypoints/flightpath/aggressive-flightpath.png)
 
@@ -6900,47 +7008,11 @@ export class WayPointManager {
 }
 ```
 
-And now if we load a flight path, we won't be sent all the way to the start.
+Now if we load a flight path, we won't be sent all the way back to the start.
 
-## Safety first: don't crash into a mountain
+And: that was the last bit of waypoint related code: let's fly some planes!
 
-We just need to make sure we don't slam into a mountain side. Right now our altitude hold is such that it just picks "the next waypoint's altitude" and that might be fairly disastrous, so let's update our `getAltitude` function in the `waypoint-manager.js` to give us altitudes based on both waypoints that are involved in the current leg:
-
-```javascript
-...
-export class WayPointManager {
-  ...
-  /**
-   * Check if we need to set the autopilot's altitude hold
-   * value to something new, and then return our hold alt:
-   */
-  getAltitude(autopilot) {
-    const { modes } = autopilot;
-    const { currentWaypoint: p1 } = this;
-    if (p1) {
-      let { alt } = p1;
-
-      // Do we have a next waypoint, and is its
-      // altitude higher than the current waypoint?
-      const p2 = p1.next;
-      if (p2 && !!p2.alt && p2.alt > p1.alt) {
-        // If so, target that higher number.
-        alt = p2.alt;
-      }
-
-      if (alt && modes[ALTITUDE_HOLD] !== alt) {
-        autopilot.setParameters({ [ALTITUDE_HOLD]: alt });
-      }
-    }
-    return modes[ALTITUDE_HOLD];
-  }
-  ...
-}
-```
-
-And that was the last bit of waypoint related code: let's fly some planes!
-
-## Testing our code
+# Part 5: Testing and refining our code
 
 Now that we can load a flight path, we can load up [this one](https://gist.githubusercontent.com/Pomax/4bee1457ff3f33fdb1bb314908ac271b/raw/537b01ebdc0d3264ae7bfdf357b94bd963d20b3f/vancouver-island-loop.txt), which expects us to start on [runway 27 at Victoria Airport on Vancouver Island](https://www.google.com/maps/place/48%C2%B038'48.0%22N+123%C2%B024'44.4%22W/@48.6466197,-123.4125952,202m/data=!3m1!1e3!4m4!3m3!8m2!3d48.646658!4d-123.41234?entry=ttu), taking us on a round trip of East Vancouver Island by flying us over [Shawnigan Lake](https://www.tourismcowichan.com/explore/about-cowichan/shawnigan-lake/) and [Sooke Lake](https://www.canoevancouverisland.com/canoe-kayak-vancouver-island-directory/sooke-lake/), turning right into the mountains at [Kapoor regional park](https://www.crd.bc.ca/parks-recreation-culture/parks-trails/find-park-trail/kapoor), following the valley down to the coast, turning over [Port Renfrew](https://www.portrenfrew.com/) into the [San Juan river](<https://en.wikipedia.org/wiki/San_Juan_River_(Vancouver_Island)>) valley and then following that all the way west to the [Kinsol Tressle](https://www.cvrd.ca/1379/Kinsol-Trestle), where we take a quick detour north towards [Cowichan Station](https://vancouverisland.com/plan-your-trip/regions-and-towns/vancouver-island-bc-islands/cowichan-station/), then back to Victoria Airport (which is actually in [Sidney](http://www.sidney.ca/), a good hour north of BC's capital of [Victoria](https://www.tourismvictoria.com/)):
 
@@ -6948,7 +7020,7 @@ Now that we can load a flight path, we can load up [this one](https://gist.githu
 
 And I don't know about you, but that looks a lot like "Zero", the ghost dog from "The Nightmare Before Christmas" to me, so this is now the ghost dog tour. Let's fly some planes!
 
-### De Havilland DHC-2 "Beaver"
+## De Havilland DHC-2 "Beaver"
 
 ![image-20240119180054615](./images/waypoints/tests/beaver/beaver-start.png)
 
@@ -6962,7 +7034,7 @@ And then we just enjoy the flight and wait for the result!
 
 This might _look_ good, but it actually isn't. This is one of the slowest planes, and it's already overshooting some turns even with a full minute of transition time, so anything going faster may have serious problems flying our flight path. So let's test with a faster aircraft.
 
-### Cessna 310R
+## Cessna 310R
 
 The 310R is considerably faster than the Beaver, with a cruise speed that's almost double that of the Beaver, so those aggressive short turns should be interesting...
 
@@ -7053,7 +7125,7 @@ Right, let's see how we do now:![image-20240120162923173](./image-20240120162923
 
 _So_ much better. Which means we'll have to rerun the Beaver with these new settings, because we need to make sure we didn't add "fixes" that _only_ fix the 310R...
 
-### De Havilland DHC-2 "Beaver", take 2
+## De Havilland DHC-2 "Beaver", take 2
 
 Let's rerun the entire flight and see how we do...
 
@@ -7061,7 +7133,7 @@ Let's rerun the entire flight and see how we do...
 
 Night and day, compared to the previous flight. By taking our speed into account, we can far more accurately follow our flight plan.
 
-### Top Rudder Solo 103
+## Top Rudder Solo 103
 
 So... if the Beaver works, what about an _even slower_ aircraft? Let's see if our flight plan works for the Top Rudder!
 
@@ -7093,13 +7165,13 @@ But the last one was simply me not being near the computer: we got slammed by si
 
 Asking an ultralight to fly this route is _kind of_ ridiculous, but if we'd been at the computer even just a little more, we'd have made it back to the start.  So let's try another "real" airplane.
 
-### Beechcraft Model 18
+## Beechcraft Model 18
 
 The Twin Beech is a lumbering beauty, but it responds to trim really well, and with our fixes in place, it flies this route spectacularly:
 
 ![image-20240120170829688](./image-20240120170829688.png)
 
-### Piper Turbo Arrow III
+## Piper Turbo Arrow III
 
 So what about a plane that doesn't have aileron trim? Do we need to fix anything, or will this work "out of the box"?
 
@@ -7107,14 +7179,14 @@ So what about a plane that doesn't have aileron trim? Do we need to fix anything
 
 Yeah.. so... I'm gonna go with "no, it doesn't". Clearly, this is not going to work, and our elevator-specific code changes are going to need some... well... more changes.
 
-The map shows us that we're both allowed to turn way more than we should be, with a rate of change that's way faster than should be allowed. So let's write some code that turns the plane directly based on rate of turn...
+The map shows us that we're both allowed to turn way more than we should be, with a rate of change that's way faster than should be allowed. So let's write some code that turns the plane directly, based on rate of turn...
 
 ```javascript
 export async function flyLevel(autopilot, state) {
   ...
   // we'll be updating our code to target turnRate
   const { lat, long, declination, bank, speed, heading, turnRate } = flightData;
-  ... 
+  ...
   const aHeadingDiff = abs(headingDiff);
   const diff = targetBank - bank;
 
@@ -7134,7 +7206,7 @@ export async function flyLevel(autopilot, state) {
     // "eary exit" when we're flying on stick.
     return api.trigger("AILERON_SET", newAileron | 0);
   }
-  
+
   ...
 }
 ```
@@ -7145,7 +7217,7 @@ How did we do?
 
 Hot diggity daffodil, that looks perfect.
 
-### De Havilland DHC-2 "Beaver", take 3
+## De Havilland DHC-2 "Beaver", take 3
 
 So, remember all that code we wrote for aileron trim? What happens if we just... don't use that, and instead use the less-than-10-lines-of-code we just wrote to fix the Turbo Arrow for all planes? Because throwing away a ton of code while still having things work would be _fantastic_!
 
@@ -7153,11 +7225,13 @@ So, remember all that code we wrote for aileron trim? What happens if we just...
 
 That's... really good actually. Let's try the 310R, hopefully that one is just as good.
 
-### Cessna 310R, take 2
+## Cessna 310R, take 2
 
 ![image-20240121132852115](./image-20240121132852115.png)
 
 Aaaaand I guess we're swapping our code because this just works great. Time to delete all the stuff we no longer need!
+
+## Updating our heading mode
 
 ```javascript
 import { constrainMap, getCompassDiff } from "../utils/utils.js";
@@ -7211,7 +7285,7 @@ function getTargetHeading(parameters) {
 
 ...heck let's try this on the Top Rudder again, and see if we still need to intervene or not.
 
-### Top Rudder Solo 103, take 2
+## Top Rudder Solo 103, take 2
 
 ![image-20240121174841487](./image-20240121174841487.png)
 
@@ -7221,23 +7295,30 @@ Even the previously problematic climb works "almost perfectly" now:
 
 In fact, let's try some more of our edge cases. What about acrobatic planes?
 
-### Pitts Specal S1
+## Pitts Special S1
 
 While it works, sharp turns are not great. It would be nice to have the old code available to switch back to.
 
-### Piper Turbo Arrow III
+## Piper Turbo Arrow III
 
 Works just fine.
 
-### Daher Kodiak 100
+## Daher Kodiak 100
 
 I fucking hate this plane so much. So we're going to keep our old plane, but now we're definitely going to add a toggle that defaults to the new code, but lets us switch back to the old code if the new code doesn't work well enough (and ideally, in a way where the autopilot can detect that our new code is not having the effect it should be, and automatically falls back to the original code we wrote.
 
+That said, the King Air needs the same correction so let's figure out how to do that automatically.
+
+## Gee Bee R3 Special
+
+It can fly the route just fine. 
+
+## Flying upside down
+
+Amazing
 
 
-
-
-# Part 5: "Let's just have JavaScript fly the plane for us"
+# Part 6: "Let's just have JavaScript fly the plane for us"
 
 ## Terrain follow mode
 

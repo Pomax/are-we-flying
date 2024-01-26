@@ -5,9 +5,10 @@ export function showWaypointModal(server, waypoint) {
   const { id, alt } = waypoint;
 
   // Our modal HTML:
-  const div = document.createElement(`div`);
-  div.classList.add(`modal`);
-  div.innerHTML = `
+  const modal = document.createElement(`div`);
+  modal.close = () => modal.remove();
+  modal.classList.add(`modal`);
+  modal.innerHTML = `
       <div class="content">
         <h3>Waypoint ${id}</h3>
         <fieldset>
@@ -17,20 +18,24 @@ export function showWaypointModal(server, waypoint) {
           }" placeholder="feet above sea level"/>
         </fieldset>
         <fieldset>
-          <label>remove waypoint?</label>
+          <label>remove waypoint: </label>
 					<button class="remove">remove</button>
+        </fieldset>
+        <fieldset>
+          <label>split waypoint: </label>
+					<button class="split">split</button>
         </fieldset>
       </div>
     `;
 
   // Input handling for our elevation input element:
-  const input = div.querySelector(`input.altitude`);
-  div.addEventListener(`click`, (evt) => {
+  const input = modal.querySelector(`input.altitude`);
+  modal.addEventListener(`click`, (evt) => {
     const { target } = evt;
-    if (target === div) {
+    if (target === modal) {
       evt.preventDefault();
       evt.stopPropagation();
-      div.remove();
+      modal.close();
       const alt = parseFloat(input.value);
       if (!isNaN(alt) && alt > 0) {
         server.autopilot.setWaypointElevation(id, alt);
@@ -46,17 +51,17 @@ export function showWaypointModal(server, waypoint) {
     `keydown`,
     ({ key }) => {
       if (key === `Escape`) {
-        div.remove();
+        modal.close();
         controller.abort();
       }
       if (key === `Enter`) {
-        div.click();
+        modal.click();
         controller.abort();
       }
     },
     { signal: controller.signal }
   );
-  document.body.appendChild(div);
+  document.body.appendChild(modal);
   input.addEventListener(`focus`, ({ target }) => {
     const v = target.value;
     target.value = ``;
@@ -64,12 +69,17 @@ export function showWaypointModal(server, waypoint) {
   });
   input.focus();
 
-  // And finally, our much easier "remove waypoint" button:
-  const remove = div.querySelector(`button.remove`);
+  // Then, our much easier "remove waypoint" button:
+  const remove = modal.querySelector(`button.remove`);
   remove.addEventListener(`click`, () => {
-    if (confirm(`Are you sure you want to remove this waypoint?`)) {
-      server.autopilot.removeWaypoint(id);
-      div.remove();
-    }
+    server.autopilot.removeWaypoint(id);
+    modal.close();
+  });
+
+  // And then our "split" button:
+  const split = modal.querySelector(`button.split`);
+  split.addEventListener(`click`, () => {
+    server.autopilot.splitWaypoint(id);
+    modal.close();
   });
 }

@@ -23,7 +23,10 @@
   - CSS changes for button bars
   - the heading mode code =_=
   - try/catch the autopilot run() function
+  - charts: dual plotting
 
 [ UPDATE CODE]
 
 - teleport detection doesn't work
+- trim update based on weight/wingarea
+-

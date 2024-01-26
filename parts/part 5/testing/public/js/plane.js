@@ -240,5 +240,8 @@ export class Plane {
       aileronTrim,
       rudderTrim,
     });
+
+    // and a special call to dual-plot the ground in the altitude graph
+    this.charts.updateChart(`altitude`, groundAlt, { limit: true });
   }
 }

@@ -1,6 +1,6 @@
 const dirname = import.meta.dirname;
 import { watch } from "../utils/reload-watcher.js";
-import { runLater } from "../utils/utils.js";
+import { constrainMap, runLater } from "../utils/utils.js";
 
 // Import our new constants
 import {
@@ -81,13 +81,27 @@ export class AutoPilot {
   }
 
   resetTrim() {
+    // Figure out a sensible "start value" for working
+    // the aileron, based on the plane's weight/wingArea
+    const { weight, wingArea } = this.flightInformation?.model ?? {
+      weight: 0,
+      wingArea: 1,
+    };
+    const wpa = weight / wingArea;
+    const defaultAileronMaxStick =
+      wpa === 0 ? 300 : constrainMap(wpa, 4, 20, 300, 1500);
+
+    // zero out the trim vector, except for the aileron stick value.
     this.trim = {
       pitch: 0,
       elevatorOffset: 0,
+      elevatorMaxStick: 0,
       roll: 0,
       aileronOffset: 0,
+      aileronMaxStick: defaultAileronMaxStick,
       yaw: 0,
       rudderOffset: 0,
+      rudderMaxPedal: 0,
     };
   }
 
@@ -164,16 +178,16 @@ export class AutoPilot {
         "ELEVATOR_TRIM_POSITION"
       );
       trim.pitch = pitch;
-      console.log(
-        `Engaging altitude hold at ${value} feet. Initial trim:`,
-        trim.pitch
-      );
+      // console.log(
+      //   `Engaging altitude hold at ${value} feet. Initial trim:`,
+      //   trim.pitch
+      // );
     }
 
     if (key === HEADING_MODE && value !== false) {
-      console.log(`Engaging heading hold at ${value} degrees`);
       // When we set a heading, update the "heading bug" in-game:
       api.set(`AUTOPILOT_HEADING_LOCK_DIR`, value);
+      // console.log(`Engaging heading hold at ${value} degrees`);
     }
   }
 

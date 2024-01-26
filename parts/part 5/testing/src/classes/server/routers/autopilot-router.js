@@ -37,6 +37,10 @@ export class AutopilotRouter {
     autopilot.waypoints.remove(id);
   }
 
+  splitWaypoint(client, id) {
+    autopilot.waypoints.split(id);
+  }
+
   resetWaypoints(client) {
     autopilot.waypoints.resetWaypoints();
   }

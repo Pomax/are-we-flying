@@ -5,6 +5,8 @@ import {
   renameData,
 } from "./flight-values.js";
 
+const { abs } = Math;
+
 let api;
 
 export class FlightInformation {
@@ -52,7 +54,7 @@ export class FlightInformation {
       data.title.toLowerCase().includes(t.toLowerCase())
     );
 
-    const acrobatic = ["Pitts", "Gee Bee R3"];
+    const acrobatic = ["Pitts", "Gee Bee R3", "Top Rudder"];
     data.isAcrobatic = acrobatic.some((t) =>
       data.title.toLowerCase().includes(t.toLowerCase())
     );
@@ -88,6 +90,10 @@ export class FlightInformation {
 
     // And create a convenience value for compass correction:
     data.declination = data.trueHeading - data.heading;
+
+    // Finally: are we upside down?
+    data.upsideDown = abs(data.bank) > 90;
+    data.flipped = this.data.upsideDown !== data.upsideDown;
 
     // Then update our general flight values and return;
     this.setGeneralProperties(data);

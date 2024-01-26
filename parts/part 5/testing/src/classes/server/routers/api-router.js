@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 
 const resultCache = {};
 
-// Since there is only one API instance, we can cache that 
+// Since there is only one API instance, we can cache that
 // at the module level, just like in the server class.
 let api;
 
@@ -51,7 +51,7 @@ export class APIRouter {
         .split(`_`)
         .map((v) => v[0].toUpperCase() + v.substring(1).toLowerCase())
         .join(``);
-  
+
     // So: ask the API to register for this event, with an appropriate
     // bit of code to handle "what to do when SimConnect flags this event".
     if (!tracker.off) {
@@ -100,7 +100,7 @@ export class APIRouter {
         }
       });
     }
-    // And then we await the cache entry's data before responding. If this is a 
+    // And then we await the cache entry's data before responding. If this is a
     // request for data that was previously cached already, then this will pretty
     // much resolve instantly. Otherwise, it'll resolve once we get data from the API.
     return await resultCache[key].data;

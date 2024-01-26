@@ -57,11 +57,16 @@ svg.svg-graph g.plot-region {
     scale(1, var(--svg-graph-plot-scale));
 }
 
-svg.svg-graph g.plot-region path.data {
-  z-index: 10;
+svg.svg-graph g.plot-region path.data,
+svg.svg-graph g.plot-region path.limit {
+    z-index: 10;
   stroke: var(--svg-graph-plot-color);
   stroke-width: var(--svg-graph-plot-width);
   fill: none;
+}
+
+svg.svg-graph g.plot-region path.limit {
+  stroke: var(--svg-graph-data-limit-color);
 }
 
 svg.svg-graph g.plot-region path.filled.data {
