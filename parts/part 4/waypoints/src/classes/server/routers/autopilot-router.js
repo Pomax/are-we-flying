@@ -9,16 +9,20 @@ export class AutopilotRouter {
 
   // This is the only thing we want to expose to clients:
   // a way for them to change AP settings.
-  async update(client, params) {
+  update(client, params) {
     autopilot.setParameters(params);
+  }
+
+  resetTrim(client) {
+    autopilot.resetTrim();
   }
 
   getWaypoints(client) {
     return autopilot.waypoints.getWaypoints();
   }
 
-  addWaypoint(client, lat, long) {
-    autopilot.waypoints.add(lat, long);
+  addWaypoint(client, lat, long, alt) {
+    autopilot.waypoints.add(lat, long, alt);
   }
 
   setWaypointPosition(client, id, lat, long) {
@@ -33,6 +37,14 @@ export class AutopilotRouter {
     autopilot.waypoints.remove(id);
   }
 
+  duplicateWaypoint(client, id) {
+    autopilot.waypoints.duplicate(id);
+  }
+
+  targetWaypoint(client, id) {
+    autopilot.waypoints.target(id);
+  }
+
   resetWaypoints(client) {
     autopilot.waypoints.resetWaypoints();
   }
@@ -43,5 +55,9 @@ export class AutopilotRouter {
 
   toggleRepeating(client, value) {
     autopilot.waypoints.toggleRepeating(value);
+  }
+
+  revalidate(client, lat, long) {
+    autopilot.waypoints.revalidate(lat, long);
   }
 }

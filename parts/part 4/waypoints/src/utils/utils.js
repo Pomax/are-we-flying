@@ -90,6 +90,8 @@ export function getPointAtDistance(lat1, long1, d, heading, R = 6371) {
   return { lat: degrees(lat2), long: degrees(long2) };
 }
 
+// linear interpolation using a:b ratio,
+// such that r=1 is a and r=0 is b.
 export function lerp(r, a, b) {
   return r * a + (1 - r) * b;
 }
@@ -125,4 +127,38 @@ export function getHeadingFromTo(lat1, long1, lat2, long2, declination = 0) {
   const x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
   const y = cos(lat2) * sin(dLon);
   return (degrees(atan2(y, x)) - declination + 360) % 360;
+}
+
+export function projectCircleOnLine(px, py, r, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+
+  const A = dy ** 2 + dx ** 2;
+  const A2 = 1 / (2 * A);
+  const B = 2 * (-px * dx - py * dy + x1 * dx + y1 * dy);
+  const C =
+    px ** 2 + py ** 2 + x1 ** 2 + y1 ** 2 - 2 * px * x1 - 2 * py * y1 - r ** 2;
+  const D = B * B - 4 * A * C;
+  const t1 = (-B + sqrt(D)) * A2;
+  const t2 = (-B - sqrt(D)) * A2;
+
+  // You may have noticed that the above code is just solving the
+  // quadratic formula, so t1 and/or t2 might be "nothing". If there
+  // are no roots, there there's no intersection between the circle
+  // and the line *segment*, only the circle and the *line*.
+  if (isNaN(t1) && isNaN(t2)) {
+    const cx = px - x1;
+    const cy = py - y1;
+    let f = constrain((dx * cx + dy * cy) / (dx ** 2 + dy ** 2), 0, 1);
+    return { x: x1 + dx * f, y: y1 + dy * f };
+  }
+
+  // If we have one root, then that's going to be our solution.
+  if (isNaN(t1) || t1 < t2) t1 = t2;
+
+  // cap the intersection if we have to:
+  const t = constrain(t1, 0, 1);
+
+  // and return the actual intersection as {x,y} point
+  return { x: x1 + dx * t, y: y1 + dy * t, constrained: t !== t1 };
 }

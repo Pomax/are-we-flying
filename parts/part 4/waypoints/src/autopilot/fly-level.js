@@ -40,18 +40,10 @@ export async function flyLevel(autopilot, state) {
   // that lets us update pitch, roll, and yaw trim values on an ongoing basis.
   const { trim, api } = autopilot;
   const { data: flightData, model: flightModel } = state;
+  const parameters = Object.assign({}, flightModel, flightData);
 
   // Get our current bank/roll information:
-  const {
-    lat,
-    long,
-    declination,
-    aileronTrim,
-    bank,
-    speed,
-    heading,
-    turnRate,
-  } = flightData;
+  const { bank, speed } = flightData;
   const { bank: dBank } = flightData.d ?? { bank: 0 };
 
   // And our model data
@@ -75,15 +67,7 @@ export async function flyLevel(autopilot, state) {
   // be a number that may change every iteration.
   const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
   const { targetBank, maxDBank, targetHeading, headingDiff } =
-    getTargetBankAndTurnRate(
-      autopilot,
-      heading,
-      maxBank,
-      isAcrobatic,
-      lat,
-      long,
-      declination
-    );
+    getTargetBankAndTurnRate(autopilot, maxBank, parameters);
   const aHeadingDiff = abs(headingDiff);
   const diff = targetBank - bank;
 
@@ -132,23 +116,6 @@ export async function flyLevel(autopilot, state) {
     if (aDiff < 2) update /= 2;
   }
 
-  // console.log({
-  //   aileronTrim,
-  //   speed,
-  //   heading,
-  //   targetHeading,
-  //   headingDiff,
-  //   bank,
-  //   maxBank,
-  //   dBank,
-  //   maxDBank,
-  //   targetBank,
-  //   diff,
-  //   turnRate,
-  //   step,
-  //   update,
-  // });
-
   // If we're banking too hard, counter trim by "a lot".
   if (FEATURES.EMERGENCY_PROTECTION) {
     if (bank < -maxBank || bank > maxBank) {
@@ -173,15 +140,9 @@ export async function flyLevel(autopilot, state) {
 // And our new function:
 function getTargetBankAndTurnRate(
   autopilot,
-  heading,
   maxBank,
-  isAcrobatic,
-  lat,
-  long,
-  declination
+  { heading, isAcrobatic, lat, long, declination, speed, vs1, cruiseSpeed }
 ) {
-  const { modes } = autopilot;
-
   let targetBank = DEFAULT_TARGET_BANK;
   let maxDBank = DEFAULT_MAX_D_BANK;
 
@@ -189,12 +150,16 @@ function getTargetBankAndTurnRate(
     return { targetBank, maxDBank, heading, headingDiff: 0 };
   }
 
-  let targetHeading = autopilot.waypoints.getHeading(
+  let targetHeading = autopilot.waypoints.getHeading({
     autopilot,
+    heading,
     lat,
     long,
-    declination
-  );
+    declination,
+    speed,
+    vs1,
+    cruiseSpeed,
+  });
 
   let headingDiff;
   if (targetHeading) {

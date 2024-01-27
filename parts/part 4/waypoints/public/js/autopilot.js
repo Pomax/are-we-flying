@@ -13,12 +13,14 @@ export const AP_OPTIONS = {
   ALT: false,
   HDG: false,
   ATT: false,
+  HeadingTargets: false,
 };
 
 export class Autopilot {
   constructor(owner) {
     console.log(`Hooking up the autopilot controls`);
     this.owner = owner;
+    this.map = owner.map;
     const server = (this.server = owner.server);
     Object.keys(AP_OPTIONS).forEach((key) => {
       const e = document.querySelector(`#autopilot .${key}`);
@@ -40,23 +42,30 @@ export class Autopilot {
       });
     });
 
+    const domAP = document.getElementById(`autopilot`);
+
     // And then we also add an onchange handler to our number
     // field so that if that changes, we let the server know:
-    document
-      .querySelector(`#autopilot .altitude`)
-      ?.addEventListener(`change`, (evt) => {
-        server.autopilot.update({ ALT: evt.target.value });
-        evt.target.blur();
-      });
+    domAP.querySelector(`.altitude`)?.addEventListener(`change`, (evt) => {
+      server.autopilot.update({ ALT: evt.target.value });
+      evt.target.blur();
+    });
 
     // And then again just like for altitude, we add an onchange handler for heading.
-    document
-      .querySelector(`#autopilot .heading`)
-      ?.addEventListener(`change`, (evt) => {
-        const { value } = evt.target;
-        server.autopilot.update({ HDG: value });
-        evt.target.blur();
+    domAP.querySelector(`.heading`)?.addEventListener(`change`, (evt) => {
+      const { value } = evt.target;
+      server.autopilot.update({ HDG: value });
+      evt.target.blur();
+    });
+
+    domAP.querySelector(`.arm-all`).addEventListener(`click`, () => {
+      Object.entries(AP_OPTIONS).forEach(([key, value]) => {
+        if (key === `MASTER`) return;
+        if (!value) {
+          domAP.querySelector(`.${key}`).click();
+        }
       });
+    });
   }
 
   // And then we also add some ALT-specific code to our update function:
@@ -93,5 +102,27 @@ export class Autopilot {
     // pushing a course or altitude change through.
     if (!params[`ALT`]) altitude.value = round(flightData.alt);
     if (!params[`HDG`]) heading.value = round(flightData.heading);
+
+    // what are we even doing?
+    if (params[`HeadingTargets`]) {
+      const { targets, radius } = params[`HeadingTargets`];
+
+      this.targets?.forEach((t) => t.remove());
+      this.targets = [];
+      targets.forEach((t) => {
+        const { lat, long } = t;
+        if (!lat) return;
+        t = L.circle([t.lat, t.long], 50, { color: `red` });
+        t.addTo(this.map);
+        this.targets.push(t);
+      });
+
+      if (this.planeRadius) this.planeRadius.remove();
+      this.planeRadius = L.circle(
+        [flightData.lat, flightData.long],
+        radius * 1000
+      );
+      this.planeRadius.addTo(this.map);
+    }
   }
 }

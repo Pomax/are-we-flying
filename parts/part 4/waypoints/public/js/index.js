@@ -16,7 +16,7 @@ class BrowserClient {
 
     // And then, ather than "doing anything" here, we just pass the current
     // state on to the Plane. All we do in this file is wait for the next update.
-    this.plane.updateState(this.state);
+    this.plane?.updateState(this.state);
   }
 }
 

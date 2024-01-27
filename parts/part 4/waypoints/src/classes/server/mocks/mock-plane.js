@@ -17,6 +17,7 @@ import {
 
 const { abs, sign, tan, PI } = Math;
 const UPDATE_FREQUENCY = 450;
+const startTime = Date.now();
 
 /**
  * ...
@@ -82,13 +83,14 @@ export class MockPlane {
    * constrainMap and interpolate our way to victory.
    */
   update(ms) {
+    console.log(`- [${((Date.now() - startTime) / 1000).toFixed(1)}] update`);
     // If the interval is too long, "do nothing",
     // so we don't teleport around when the OS decides
     // to throttle or suspend a process.
-    if (ms > 5 * UPDATE_FREQUENCY) return
+    if (ms > 5 * UPDATE_FREQUENCY) return;
 
     // allow "fast forward"
-    const interval = ms / 1000 * this.playbackRate;
+    const interval = (ms / 1000) * this.playbackRate;
 
     // First, use the code we already wrote to data-fy the flight.
     const { data } = this;

@@ -2,14 +2,90 @@ import { Trail } from "./trail.js";
 import { showWaypointModal } from "./waypoint-modal.js";
 
 export class WaypointOverlay {
-  constructor(server, map) {
-    this.server = server;
-    this.map = map;
+  constructor(plane) {
+    this.plane = plane;
+    this.server = plane.server;
+    this.map = plane.map;
     this.waypoints = [];
+    this.addEventHandling();
+  }
+
+  addEventHandling() {
+    const { map, server } = this;
+
     // Set up the event handling for the map:
-    this.map.on(`click`, ({ latlng }) => {
+    map.on(`click`, ({ latlng }) => {
       const { lat, lng } = latlng;
       server.autopilot.addWaypoint(lat, lng);
+    });
+
+    document
+      .querySelector(`#map-controls .patrol`)
+      .addEventListener(`click`, () => {
+        server.autopilot.toggleRepeating();
+      });
+
+    document
+      .querySelector(`#map-controls .revalidate`)
+      .addEventListener(`click`, () => {
+        const { lat, long } = this.plane?.state.flightInformation?.data || {};
+        server.autopilot.revalidate(lat, long);
+      });
+
+    document
+      .querySelector(`#map-controls .reset`)
+      .addEventListener(`click`, () => {
+        server.autopilot.resetWaypoints();
+      });
+
+    document
+      .querySelector(`#map-controls .clear`)
+      .addEventListener(`click`, () => {
+        if (confirm(`Are you sure you want to clear all waypoints?`)) {
+          server.autopilot.clearWaypoints();
+        }
+      });
+
+    // Saving our waypoints is actually fairly easy: we throw everything except the lat/long/alt
+    // information away, and then we generate an `<a>` that triggers a file download for that
+    // data in JSON format:
+    document.querySelector(`button.save`).addEventListener(`click`, () => {
+      // Form our "purely lat/long/alt" data:
+      const strip = ({ lat, long, alt }) => ({ lat, long, alt });
+      const stripped = this.waypoints.map(strip);
+      const data = JSON.stringify(stripped, null, 2);
+
+      // Then create our download link:
+      const downloadLink = document.createElement(`a`);
+      downloadLink.textContent = `download this flightplan`;
+      downloadLink.href = `data:text/plain;base64,${btoa(data)}`;
+      downloadLink.download = `flightplan.txt`;
+
+      // And then automatically click it to trigger the download.
+      console.log(`Saving current flight path.`);
+      downloadLink.click();
+    });
+
+    // Loading data is even easier: we load the file using the file picker that is built
+    // into the browser, then we parse the JSON and tell the autopilot to make waypoints:
+    document.querySelector(`input.load`).addEventListener(`change`, (evt) => {
+      const file = evt.target.files[0];
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          server.autopilot.clearWaypoints();
+          data.forEach(({ lat, long, alt }) =>
+            server.autopilot.addWaypoint(lat, long, alt)
+          );
+          const { lat, long } = this.plane?.state.flightInformation?.data || {};
+          server.autopilot.revalidate(lat, long);
+          console.log(`Loaded flight path from file.`);
+        } catch (e) {
+          console.error(`Could not parse flight path.`, e);
+        }
+      };
+      reader.readAsText(file);
     });
   }
 
@@ -130,9 +206,11 @@ export class WaypointOverlay {
    * Create a local waypoint based on a remote waypoint at the server
    */
   addWaypoint(waypoint, number) {
-    // unpack and reassemble, because state content is immutable.
-    const { id, lat, long, active, completed, distance } = waypoint;
-    waypoint = { id, lat, long, active, completed, distance };
+    // Unpack and reassemble, because state content is immutable,
+    // but we want to tack new properties onto waypoints here.
+    // If we forget to do this, we'll get runtime errors!
+    waypoint = Object.assign({}, waypoint);
+    const { id, lat, long, completed, active } = waypoint;
 
     const waypointClass = `waypoint-marker${completed ? ` completed` : ``}${
       active ? ` active` : ``

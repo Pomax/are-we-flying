@@ -16,11 +16,29 @@
     </p>
     <ul id="questions" data-description="Templated from questions.html"></ul>
     <div id="map-controls">
-      <label for="center-on-plane">Center map on plane</label
-      ><input id="center-on-plane" type="checkbox" checked="checked" />
-      <button class="patrol">patrol</button>
-      <button class="reset">reset waypoints</button>
-      <button class="clear">clear waypoints</button>
+      <fieldset>
+        <label for="center-on-plane">Center map on plane</label>
+        <input id="center-on-plane" type="checkbox" checked="checked" />
+      </fieldset>
+      <fieldset>
+        <label for="show-labels">Show waypoint labels</label>
+        <input id="show-labels" type="checkbox" checked="checked" />
+      </fieldset>
+      <fieldset>
+        <label for="tiny-waypoints">Tiny waypoints</label>
+        <input id="tiny-waypoints" type="checkbox" />
+      </fieldset>
+      <fieldset>
+        flight plan:
+        <button class="save">save</button>
+        load: <input type="file" class="load" />
+      </fieldset>
+      <fieldset>
+        <button class="patrol">patrol</button>
+        <button class="revalidate">revalidate</button>
+        <button class="reset">reset waypoints</button>
+        <button class="clear">clear waypoints</button>
+      </fieldset>
     </div>
     <div id="visualization">
       <div id="map" style="width: 1200px; height: 800px"></div>

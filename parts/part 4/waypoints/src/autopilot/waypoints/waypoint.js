@@ -18,6 +18,7 @@ export class Waypoint {
   }
 
   reset() {
+    this.first = false;
     this.active = false;
     this.completed = false;
     this.distance = 0;
@@ -56,7 +57,14 @@ export class Waypoint {
   }
 
   complete() {
+    this.deactivate();
     this.completed = true;
     return this.next;
+  }
+
+  toJSON() {
+    const props = Object.assign({}, this);
+    props.next = props.next?.id;
+    return props;
   }
 }

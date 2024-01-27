@@ -1,9 +1,20 @@
 import {
+  constrainMap,
   getDistanceBetweenPoints,
   getHeadingFromTo,
+  projectCircleOnLine,
 } from "../../utils/utils.js";
 import { Waypoint } from "./waypoint.js";
-import { HEADING_MODE, ALTITUDE_HOLD } from "../../utils/constants.js";
+import {
+  ALTITUDE_HOLD,
+  HEADING_MODE,
+  HEADING_TARGETS,
+  KM_PER_ARC_DEGREE,
+  ONE_KTS_IN_KMS,
+} from "../../utils/constants.js";
+
+const { min } = Math;
+const innerRadiusRatio = 1;
 
 export class WayPointManager {
   constructor(autopilot) {
@@ -15,10 +26,12 @@ export class WayPointManager {
     this.points = [];
     this.currentWaypoint = undefined;
     this.repeating = false;
+    this.autopilot.onChange();
   }
 
   toggleRepeating() {
     this.repeating = !this.repeating;
+    this.resequence();
   }
 
   getWaypoints() {
@@ -47,17 +60,57 @@ export class WayPointManager {
     this.points.find((e) => e.id === id)?.setElevation(alt);
   }
 
+  /**
+   * remove a waypoint and resequence.
+   * @param {*} id
+   */
   remove(id) {
     const { points } = this;
     const pos = points.findIndex((e) => e.id === id);
-    if (pos > -1) {
-      points.splice(pos, 1)[0];
-      if (this.currentWaypoint?.id === id) {
-        this.currentWaypoint = this.currentWaypoint.next;
-        this.currentWaypoint?.activate();
-      }
-      this.resequence();
+    if (pos === -1) return;
+    points.splice(pos, 1)[0];
+    if (this.currentWaypoint?.id === id) {
+      this.currentWaypoint = this.currentWaypoint.next;
+      this.currentWaypoint?.activate();
     }
+    this.resequence();
+  }
+
+  /**
+   * Duplicate a waypoint, and put it *after* the one
+   * that's being duplicated, so that dragging the
+   * duplicate doesn't affect the prior flight path.
+   */
+  duplicate(id) {
+    const { points } = this;
+    const pos = points.findIndex((e) => e.id === id);
+    if (pos === -1) return;
+    // create a copy right next to the original point
+    const waypoint = points[pos];
+    const { lat, long, alt } = waypoint;
+    const copy = new Waypoint(lat, long, alt);
+    points.splice(pos, 0, copy);
+    this.resequence();
+  }
+
+  /**
+   * Make this waypoint the current target.
+   */
+  target(id) {
+    const { points } = this;
+    const pos = points.findIndex((e) => e.id === id);
+    if (pos === -1) return;
+    // create a copy right next to the original point
+    this.currentWaypoint = points[pos];
+    points.forEach((p, i) => {
+      p.reset();
+      if (i < pos) p.complete();
+      else if (i === pos) {
+        p.activate();
+        this.currentWaypoint = p;
+      }
+    });
+    this.resequence();
   }
 
   /**
@@ -65,7 +118,18 @@ export class WayPointManager {
    */
   resequence() {
     const { points } = this;
-    points.forEach((p, i) => p.setNext(points[i + 1]));
+    points.forEach((p, i) => {
+      p.first = i === 0;
+      p.id = i + 1;
+      p.setNext(points[i + 1]);
+    });
+
+    if (this.repeating) {
+      points.at(-1).setNext(points[0]);
+    }
+
+    // push the update to clients
+    this.autopilot.onChange();
   }
 
   /**
@@ -84,18 +148,122 @@ export class WayPointManager {
    * heading mode, if we're not flying in the right
    * direction at the moment, then return our heading.
    */
-  getHeading(autopilot, lat, long, declination) {
+  getHeading({
+    autopilot,
+    heading,
+    lat,
+    long,
+    declination,
+    speed,
+    vs1,
+    cruiseSpeed,
+  }) {
     const { modes } = autopilot;
-    const { currentWaypoint } = this;
-    if (currentWaypoint) {
-      const { lat: lat2, long: long2 } = currentWaypoint;
-      let target = getHeadingFromTo(lat, long, lat2, long2);
-      let hdg = parseFloat((target - declination).toFixed(2));
-      if (modes[HEADING_MODE] !== hdg) {
-        autopilot.setParameters({ [HEADING_MODE]: hdg });
-      }
-      this.checkTransition(lat, long);
+    const { currentWaypoint: p1 } = this;
+    let target;
+    let targets = [];
+
+    // Do we need to even do anything?
+    if (!p1) return modes[HEADING_MODE] ?? heading;
+
+    // We'll go with a radius based on X seconds at our current speed,
+    // where X is a full minute if we're near stall speed, or only 30
+    // seconds if we're going at cruise speed.
+    const seconds = constrainMap(speed, vs1, cruiseSpeed, 60, 30);
+    const radiusInKM = speed * ONE_KTS_IN_KMS * seconds;
+
+    // Do we only have a single point?
+    const p2 = p1.next;
+    if (!p2) {
+      target = this.checkTransition(lat, long, p1.lat, p1.long, radiusInKM)
+        ? p2
+        : p1;
     }
+
+    // We have two or more points, so let's keep going!
+    else {
+      target = projectCircleOnLine(
+        long,
+        lat,
+        radiusInKM * KM_PER_ARC_DEGREE * innerRadiusRatio,
+        p1.long,
+        p1.lat,
+        p2.long,
+        p2.lat
+      );
+      const { constrained } = target;
+
+      target = { lat: target.y, long: target.x };
+      targets.push({ lat: target.lat, long: target.long });
+
+      // if (!constrained) {
+      //   let fp = projectCircleOnLine(
+      //     long,
+      //     lat,
+      //     0,
+      //     p1.long,
+      //     p1.lat,
+      //     p2.long,
+      //     p2.lat
+      //   );
+      //   fp = { lat: fp.y, long: fp.x };
+      //   targets.push({ lat: fp.lat, long: fp.long });
+      //   const dLat = fp.lat - lat;
+      //   const dLong = fp.long - long;
+      //   // target.lat += dLat;
+      //   // target.long += dLong;
+      // }
+
+      // Do we have three or more points?
+      const p3 = p2.next;
+      if (!p3) {
+        this.checkTransition(lat, long, p2.lat, p2.long, radiusInKM);
+      }
+
+      // We do: let's keep going!
+      else {
+        const intersection = projectCircleOnLine(
+          long,
+          lat,
+          radiusInKM * KM_PER_ARC_DEGREE,
+          p2.long,
+          p2.lat,
+          p3.long,
+          p3.lat
+        );
+        if (
+          this.checkTransition(
+            lat,
+            long,
+            intersection.y,
+            intersection.x,
+            radiusInKM
+          )
+        ) {
+          target = { lat: intersection.y, long: intersection.x };
+        }
+      }
+    }
+
+    targets.push({ lat: target.lat, long: target.long });
+
+    // We now know which GPS coordinate to target, so let's
+    // determine what heading that equates to:
+    const newHeading = getHeadingFromTo(lat, long, target.lat, target.long);
+    const hdg = parseFloat(((360 + newHeading - declination) % 360).toFixed(2));
+
+    // And if that's not the heading we're already flying, update the autopilot!
+    if (modes[HEADING_MODE] !== hdg) {
+      console.log(`updating heading`);
+      autopilot.setParameters({
+        [HEADING_MODE]: hdg,
+        [HEADING_TARGETS]: {
+          radius: radiusInKM,
+          targets,
+        },
+      });
+    }
+
     return modes[HEADING_MODE];
   }
 
@@ -105,21 +273,49 @@ export class WayPointManager {
    * this is not a good transition policy, but we'll revisit
    * this code in the next subsection to make it much better.
    */
-  checkTransition(lat, long) {
+  /**
+   * And our updated "check transition" function, based on radial distance:
+   */
+  checkTransition(lat, long, lat2, long2, radiusInKM) {
     const { currentWaypoint } = this;
-    const { lat: lat2, long: long2 } = currentWaypoint;
-    const thresholdInKm = 1;
+
+    // Some planes are *very* zoomy, and we don't want them
+    // to transition so early that they slam into a mountain
+    // they're supposed to go around, instead.
+    radiusInKM = min(radiusInKM, 2.5);
+
     const d = getDistanceBetweenPoints(lat, long, lat2, long2);
-
-    if (d < thresholdInKm) {
+    // Are we close enough to transition to the next point?
+    if (d < radiusInKM) {
       currentWaypoint.deactivate();
-      this.currentWaypoint = currentWaypoint?.complete();
+      this.currentWaypoint = currentWaypoint.complete();
+      // Do we need to wrap-around after transitioning?
+      if (this.currentWaypoint.first) {
+        this.resetWaypoints();
+      }
       this.currentWaypoint?.activate();
+      return true;
     }
 
-    if (!this.currentWaypoint && this.repeating) {
-      this.resetWaypoints();
+    // If we're not, we may have missed the previous waypoint, so
+    // let's check if we're at the next one already, just to be sure:
+    const next = currentWaypoint.next;
+    if (next) {
+      const { lat: lat2, long: long2 } = next;
+      const d = getDistanceBetweenPoints(lat, long, lat2, long2);
+      if (d < radiusInKM) {
+        currentWaypoint.deactivate();
+        this.currentWaypoint = currentWaypoint.complete();
+        // Do we need to wrap-around after transitioning?
+        if (this.currentWaypoint.first) {
+          this.resetWaypoints();
+        }
+        this.currentWaypoint?.activate();
+        return true;
+      }
     }
+
+    return false;
   }
 
   /**
@@ -128,13 +324,54 @@ export class WayPointManager {
    */
   getAltitude(autopilot) {
     const { modes } = autopilot;
-    const { currentWaypoint } = this;
-    if (currentWaypoint) {
-      const { alt } = currentWaypoint;
+    const { currentWaypoint: p1 } = this;
+    if (p1) {
+      let { alt } = p1;
+
+      // Do we have a next waypoint?
+      const p2 = p1.next;
+      if (p2 && !!p2.alt && p2.alt > p1.alt) {
+        alt = p2.alt;
+      }
+
       if (alt && modes[ALTITUDE_HOLD] !== alt) {
         autopilot.setParameters({ [ALTITUDE_HOLD]: alt });
       }
     }
     return modes[ALTITUDE_HOLD];
+  }
+
+  /**
+   * revalidate the flight path based on the current plane position,
+   * marking the nearest waypoint as "the currently active point", and
+   * any points prior to it as already completed.
+   */
+  revalidate(lat, long) {
+    // which point are we closest to?
+    const { points } = this;
+    let nearest = { pos: 0 };
+    if (lat !== undefined && long !== undefined) {
+      nearest = { distance: Number.MAX_SAFE_INTEGER, pos: -1 };
+      points.forEach((p, pos) => {
+        p.reset();
+        const d = getDistanceBetweenPoints(lat, long, p.lat, p.long);
+        if (d < nearest.distance) {
+          nearest.distance = d;
+          nearest.pos = pos;
+        }
+      });
+    }
+
+    // Mark all points before the one we're closest to as complete:
+    for (let i = 0; i < nearest.pos; i++) points[i].complete();
+
+    // And then make sure every point knows what the next point is,
+    // and mark the one that we're closest to as our current waypoint.
+    this.currentWaypoint = points[nearest.pos];
+    this.currentWaypoint.activate();
+    this.resequence();
+
+    // and push the update to clients
+    this.autopilot.onChange();
   }
 }

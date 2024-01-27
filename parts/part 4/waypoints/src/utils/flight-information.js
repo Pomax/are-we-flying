@@ -5,6 +5,8 @@ import {
   renameData,
 } from "./flight-values.js";
 
+const { abs } = Math;
+
 let api;
 
 export class FlightInformation {
@@ -31,6 +33,18 @@ export class FlightInformation {
     try {
       if (!api.connected) throw new Error(`API not connected`);
       await Promise.all([this.updateModel(), this.updateFlight()]);
+
+      const parameters = Object.assign({}, this.model, this.data);
+      Object.entries(parameters).forEach(([key, value]) => {
+        if (
+          value === undefined ||
+          (typeof value === `number` && isNaN(value))
+        ) {
+          console.error(`bad value: ${key} = ${value}`);
+          console.trace();
+          process.exit(1);
+        }
+      });
     } catch (e) {
       console.warn(e);
     }
@@ -52,8 +66,13 @@ export class FlightInformation {
       data.title.toLowerCase().includes(t.toLowerCase())
     );
 
-    const acrobatic = ['Pitts'];
+    const acrobatic = ["Pitts", "Gee Bee R3", "Top Rudder"];
     data.isAcrobatic = acrobatic.some((t) =>
+      data.title.toLowerCase().includes(t.toLowerCase())
+    );
+
+    const stubborn = [`Kodiak`, `King Air`];
+    data.isStubborn = stubborn.some((t) =>
       data.title.toLowerCase().includes(t.toLowerCase())
     );
 
@@ -83,6 +102,10 @@ export class FlightInformation {
 
     // And create a convenience value for compass correction:
     data.declination = data.trueHeading - data.heading;
+
+    // Finally: are we upside down?
+    data.upsideDown = abs(data.bank) > 90;
+    data.flipped = this.data.upsideDown !== data.upsideDown;
 
     // Then update our general flight values and return;
     this.setGeneralProperties(data);

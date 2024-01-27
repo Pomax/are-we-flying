@@ -1,24 +1,22 @@
 const dirname = import.meta.dirname;
 import { watch } from "../utils/reload-watcher.js";
-import { runLater } from "../utils/utils.js";
-import { WayPointManager } from "./waypoints/waypoint-manager.js";
+import { constrainMap, runLater } from "../utils/utils.js";
 
 // Import our new constants
 import {
   ALTITUDE_HOLD,
   AUTO_THROTTLE,
   HEADING_MODE,
+  HEADING_TARGETS,
   LEVEL_FLIGHT,
 } from "../utils/constants.js";
 
-// and import the "fly level" code using our hot-reloading technique
 let { flyLevel } = await watch(
   dirname,
   `fly-level.js`,
   (lib) => (flyLevel = lib.flyLevel)
 );
 
-// and import the "fly level" code using our hot-reloading technique
 let { autoThrottle } = await watch(
   dirname,
   `auto-throttle.js`,
@@ -31,6 +29,8 @@ let { altitudeHold } = await watch(
   (lib) => (altitudeHold = lib.altitudeHold)
 );
 
+let { WayPointManager } = await import(`./waypoints/waypoint-manager.js`);
+
 const AUTOPILOT_INTERVAL = 500;
 
 export class AutoPilot {
@@ -39,7 +39,13 @@ export class AutoPilot {
     this.onChange = async (update) => {
       onChange(update ?? (await this.getParameters()));
     };
+
     this.waypoints = new WayPointManager(this);
+    watch(dirname, `./waypoints/waypoint-manager.js`, (lib) => {
+      WayPointManager = lib.WayPointManager;
+      Object.setPrototypeOf(this.waypoints, WayPointManager.prototype);
+    });
+
     this.reset();
   }
 
@@ -54,6 +60,7 @@ export class AutoPilot {
       [LEVEL_FLIGHT]: false,
       [ALTITUDE_HOLD]: false,
       [HEADING_MODE]: false,
+      [HEADING_TARGETS]: false,
       [AUTO_THROTTLE]: false,
     };
     this.resetTrim();
@@ -61,6 +68,7 @@ export class AutoPilot {
   }
 
   resetTrim() {
+    // zero out the trim vector, except for the aileron stick value.
     this.trim = {
       pitch: 0,
       roll: 0,
@@ -83,8 +91,8 @@ export class AutoPilot {
   async getParameters() {
     return {
       ...this.modes,
-      waypoints: this.waypoints.getWaypoints(),
-      waypointsRepeat: this.waypoints.repeating,
+      waypoints: this.waypoints?.getWaypoints(),
+      waypointsRepeat: this.waypoints?.repeating,
     };
   }
 
@@ -141,16 +149,16 @@ export class AutoPilot {
         "ELEVATOR_TRIM_POSITION"
       );
       trim.pitch = pitch;
-      console.log(
-        `Engaging altitude hold at ${value} feet. Initial trim:`,
-        trim.pitch
-      );
+      // console.log(
+      //   `Engaging altitude hold at ${value} feet. Initial trim:`,
+      //   trim.pitch
+      // );
     }
 
     if (key === HEADING_MODE && value !== false) {
-      console.log(`Engaging heading hold at ${value} degrees`);
       // When we set a heading, update the "heading bug" in-game:
       api.set(`AUTOPILOT_HEADING_LOCK_DIR`, value);
+      // console.log(`Engaging heading hold at ${value} degrees`);
     }
   }
 
@@ -189,8 +197,12 @@ export class AutoPilot {
     this.flightInfoUpdateHandler(await flightInformation.update());
 
     // Then run a single iteration of the wing leveler and altitude holder:
-    if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
-    if (modes[ALTITUDE_HOLD]) altitudeHold(this, flightInformation);
-    if (modes[AUTO_THROTTLE]) autoThrottle(this, flightInformation);
+    try {
+      if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
+      if (modes[ALTITUDE_HOLD]) altitudeHold(this, flightInformation);
+      if (modes[AUTO_THROTTLE]) autoThrottle(this, flightInformation);
+    } catch (e) {
+      console.warn(e);
+    }
   }
 }

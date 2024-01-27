@@ -20,13 +20,14 @@ If that sounds cool: you can check out the complete project over on the ["Are we
 
 ## The structure of this "tutorial"
 
-We'll be tackling this whole thing in five parts:
+We'll be tackling this whole thing in six parts:
 
 1. In the first part we'll cover the prep work we need to do in order to set up a working combination of MSFS, a SimConnect API server for communicating to and from MSFS, and a web server that hosts a webpage and takes care of communicating to and from the API server.
 2. In the the second part we'll cover the "web page pages", where we're going to visualize everything we can visualize relating to our flights in MSFS, including graphs that plot the various control values over time (altitude, speed, heading, trim values, etc.) to get a better insight into how our aeroplane(s) responds to control inputs.
 3. In the third part we'll cover the thing you came here for: writing our own autopilot (in several stages of complexity) and making our computer fly planes all on its own!
-4. n the fourth part, we're going to cover the "flight path" part of a modern autopilot, but rather than programming specific radio beacons and airports, we're going the google maps route, where you just place markers on the map and then the plane flies the path through those markers.
-5. In the fifth part, we're going to cover the thing you didn't even realize you came here for: literally making JavaScript fly our plane for us, where we spawn a plane on the runway, click "take off" in the browser and have the plane just... start flying in MSFS with us along for the ride, following our flight path with automatic elevation detection, and then when we click "land", having the autopilot find a nearby airport, figure out an approach, and then land the plane for us. _Because we can_.
+4. In the fourth part, we're going to cover the "flight path" part of a modern autopilot, but rather than programming specific radio beacons and airports, we're going the google maps route, where you just place markers on the map and then the plane flies the path through those markers.
+5. Part five is dedicated to running test flights and rewriting some of our code based on the flight behaviour of a variety of in-game planes ranging from ultra light to commercial jet airliners.
+6. In the sixth part, we're going to cover the thing you didn't even realize you came here for: literally making JavaScript fly our plane for us, where we spawn a plane on the runway, click "take off" in the browser and have the plane just... start flying in MSFS with us along for the ride, following our flight path with automatic elevation detection, and then when we click "land", having the autopilot find a nearby airport, figure out an approach, and then land the plane for us. _Because we can_.
 
 And along the way we're going to learn a few developer tricks like hot reloading ES modules, mocking SimConnect, and other such fun things.
 
@@ -44,9 +45,11 @@ or this:
 
 If that sounds (and looks) good to you, then read on!
 
+
 # Table of Contents
 
 {:toc}
+
 
 # Part 1: The prep work
 

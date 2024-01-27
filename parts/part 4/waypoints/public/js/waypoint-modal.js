@@ -2,35 +2,40 @@
  * Show a full-page modal for editing waypoint properties.
  */
 export function showWaypointModal(server, waypoint) {
-  const { id, alt } = waypoint;
+  const { id, alt, lat, long, active, completed } = waypoint;
 
   // Our modal HTML:
-  const div = document.createElement(`div`);
-  div.classList.add(`modal`);
-  div.innerHTML = `
+  const modal = document.createElement(`div`);
+  modal.close = () => modal.remove();
+  modal.classList.add(`modal`);
+  modal.innerHTML = `
       <div class="content">
         <h3>Waypoint ${id}</h3>
+        <h4>${lat}, ${long}</h4>
         <fieldset>
-          <label>elevation:</label>
+          <label>Elevation:</label>
           <input type="number" class="altitude" value="${
             alt ? alt : ``
           }" placeholder="feet above sea level"/>
         </fieldset>
         <fieldset>
-          <label>remove waypoint?</label>
+          <label>Options:</label>
+					<button class="duplicate">duplicate</button>
 					<button class="remove">remove</button>
+					<button class="target">fly</button>
         </fieldset>
       </div>
     `;
 
-  // Input handling for our elevation input element:
-  const input = div.querySelector(`input.altitude`);
-  div.addEventListener(`click`, (evt) => {
+  const input = modal.querySelector(`input.altitude`);
+
+  // Dismiss the modal and commit the elevation change
+  modal.addEventListener(`click`, (evt) => {
     const { target } = evt;
-    if (target === div) {
+    if (target === modal) {
       evt.preventDefault();
       evt.stopPropagation();
-      div.remove();
+      modal.close();
       const alt = parseFloat(input.value);
       if (!isNaN(alt) && alt > 0) {
         server.autopilot.setWaypointElevation(id, alt);
@@ -40,36 +45,46 @@ export function showWaypointModal(server, waypoint) {
     }
   });
 
-  // With additional event listening for the escape and enter keys:
+  // Also add key-based dismissal. Esc cancels, Enter commits.
   const controller = new AbortController();
   document.addEventListener(
     `keydown`,
     ({ key }) => {
       if (key === `Escape`) {
-        div.remove();
+        modal.close();
         controller.abort();
       }
       if (key === `Enter`) {
-        div.click();
+        modal.click();
         controller.abort();
       }
     },
     { signal: controller.signal }
   );
-  document.body.appendChild(div);
-  input.addEventListener(`focus`, ({ target }) => {
-    const v = target.value;
-    target.value = ``;
-    target.value = v;
-  });
-  input.focus();
+  document.body.appendChild(modal);
 
-  // And finally, our much easier "remove waypoint" button:
-  const remove = div.querySelector(`button.remove`);
-  remove.addEventListener(`click`, () => {
-    if (confirm(`Are you sure you want to remove this waypoint?`)) {
-      server.autopilot.removeWaypoint(id);
-      div.remove();
-    }
+  // And then our "duplicate" button:
+  const duplicate = modal.querySelector(`button.duplicate`);
+  duplicate.addEventListener(`click`, () => {
+    server.autopilot.duplicateWaypoint(id);
+    modal.close();
   });
+
+  // Then, our much easier "remove waypoint" button:
+  const remove = modal.querySelector(`button.remove`);
+  remove.addEventListener(`click`, () => {
+    server.autopilot.removeWaypoint(id);
+    modal.close();
+  });
+
+  // And our "This is now our target" button:
+  const target = modal.querySelector(`button.target`);
+  target.addEventListener(`click`, () => {
+    server.autopilot.targetWaypoint(id);
+    modal.close();
+  });
+
+  // Auto-select the elevation text when the modal opens.
+  input.addEventListener(`focus`, () => input.select());
+  input.focus();
 }
