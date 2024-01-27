@@ -2,7 +2,9 @@ import {
   constrainMap,
   getDistanceBetweenPoints,
   getHeadingFromTo,
+  getPointAtDistance,
   projectCircleOnLine,
+  project,
 } from "../../utils/utils.js";
 import { Waypoint } from "./waypoint.js";
 import {
@@ -54,10 +56,12 @@ export class WayPointManager {
 
   setWaypointPosition(id, lat, long) {
     this.points.find((e) => e.id === id)?.setPosition(lat, long);
+    this.autopilot.onChange();
   }
 
   setWaypointElevation(id, alt) {
     this.points.find((e) => e.id === id)?.setElevation(alt);
+    this.autopilot.onChange();
   }
 
   /**
@@ -182,37 +186,20 @@ export class WayPointManager {
 
     // We have two or more points, so let's keep going!
     else {
-      target = projectCircleOnLine(
-        long,
-        lat,
-        radiusInKM * KM_PER_ARC_DEGREE * innerRadiusRatio,
-        p1.long,
-        p1.lat,
-        p2.long,
-        p2.lat
-      );
-      const { constrained } = target;
+      let fp = project(p1.long, p1.lat, p2.long, p2.lat, long, lat);
 
-      target = { lat: target.y, long: target.x };
-      targets.push({ lat: target.lat, long: target.long });
+      fp = { lat: fp.y, long: fp.x };
+      console.log(fp);
+      targets.push(fp);
+      target = fp;
 
-      // if (!constrained) {
-      //   let fp = projectCircleOnLine(
-      //     long,
-      //     lat,
-      //     0,
-      //     p1.long,
-      //     p1.lat,
-      //     p2.long,
-      //     p2.lat
-      //   );
-      //   fp = { lat: fp.y, long: fp.x };
-      //   targets.push({ lat: fp.lat, long: fp.long });
-      //   const dLat = fp.lat - lat;
-      //   const dLong = fp.long - long;
-      //   // target.lat += dLat;
-      //   // target.long += dLong;
-      // }
+      const a = getDistanceBetweenPoints(lat, long, fp.lat, fp.long);
+      const h = radiusInKM;
+      if (a < h) {
+        const b = (h ** 2 - a ** 2) ** 0.5;
+        target = getPointAtDistance(fp.lat, fp.long, b, p1.headingToNext);
+        targets.push(target);
+      }
 
       // Do we have three or more points?
       const p3 = p2.next;
@@ -222,30 +209,20 @@ export class WayPointManager {
 
       // We do: let's keep going!
       else {
-        const intersection = projectCircleOnLine(
-          long,
-          lat,
-          radiusInKM * KM_PER_ARC_DEGREE,
-          p2.long,
-          p2.lat,
-          p3.long,
-          p3.lat
-        );
-        if (
-          this.checkTransition(
-            lat,
-            long,
-            intersection.y,
-            intersection.x,
-            radiusInKM
-          )
-        ) {
-          target = { lat: intersection.y, long: intersection.x };
+        let fp3 = project(p2.long, p2.lat, p3.long, p3.lat, long, lat);
+        fp3 = { lat: fp3.y, long: fp3.x };
+        const d = getDistanceBetweenPoints(lat, long, fp3.lat, fp3.long);
+        if (d < radiusInKM) {
+          this.currentWaypoint = currentWaypoint.complete();
+          // Do we need to wrap-around after transitioning?
+          if (this.currentWaypoint?.first) {
+            this.resetWaypoints();
+          }
+          this.currentWaypoint?.activate();    
+          target = p2;
         }
       }
     }
-
-    targets.push({ lat: target.lat, long: target.long });
 
     // We now know which GPS coordinate to target, so let's
     // determine what heading that equates to:
@@ -257,12 +234,14 @@ export class WayPointManager {
       console.log(`updating heading`);
       autopilot.setParameters({
         [HEADING_MODE]: hdg,
-        [HEADING_TARGETS]: {
-          radius: radiusInKM,
-          targets,
-        },
       });
     }
+    autopilot.setParameters({
+      [HEADING_TARGETS]: {
+        radius: radiusInKM,
+        targets,
+      },
+    });
 
     return modes[HEADING_MODE];
   }
@@ -272,9 +251,6 @@ export class WayPointManager {
    * based on the plane's current GPS coordinate. Note that
    * this is not a good transition policy, but we'll revisit
    * this code in the next subsection to make it much better.
-   */
-  /**
-   * And our updated "check transition" function, based on radial distance:
    */
   checkTransition(lat, long, lat2, long2, radiusInKM) {
     const { currentWaypoint } = this;
@@ -290,7 +266,7 @@ export class WayPointManager {
       currentWaypoint.deactivate();
       this.currentWaypoint = currentWaypoint.complete();
       // Do we need to wrap-around after transitioning?
-      if (this.currentWaypoint.first) {
+      if (this.currentWaypoint?.first) {
         this.resetWaypoints();
       }
       this.currentWaypoint?.activate();

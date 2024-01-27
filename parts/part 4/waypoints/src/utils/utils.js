@@ -162,3 +162,18 @@ export function projectCircleOnLine(px, py, r, x1, y1, x2, y2) {
   // and return the actual intersection as {x,y} point
   return { x: x1 + dx * t, y: y1 + dy * t, constrained: t !== t1 };
 }
+
+export function project(x1, y1, x2, y2, px, py) {
+  const abx = x2 - x1;
+  const aby = y2 - y1;
+  const acx = px - x1;
+  const acy = py - y1;
+  const coeff = constrain(
+    (abx * acx + aby * acy) / (abx * abx + aby * aby),
+    0,
+    1
+  );
+  const x = x1 + abx * coeff;
+  const y = y1 + aby * coeff;
+  return { x, y };
+}

@@ -127,6 +127,7 @@ export class AutoPilot {
       const num = parseFloat(value);
       // intentional coercive comparison:
       if (num == value) value = num;
+      console.log(`setting ${key} to`, value);
       modes[key] = value;
     }
 

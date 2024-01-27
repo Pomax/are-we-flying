@@ -1,4 +1,4 @@
-import { getDistanceBetweenPoints } from "../../utils/utils.js";
+import { getDistanceBetweenPoints, getHeadingFromTo } from "../../utils/utils.js";
 import { KM_PER_NM } from "../../utils/constants.js";
 
 export class Waypoint {
@@ -38,6 +38,13 @@ export class Waypoint {
   setNext(nextWaypoint) {
     this.next = nextWaypoint;
     if (this.next) {
+      this.headingToNext = getHeadingFromTo(
+        this.lat,
+        this.long,
+        this.next.lat,
+        this.next.long,
+
+      );
       this.next.distance =
         getDistanceBetweenPoints(
           this.lat,

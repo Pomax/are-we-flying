@@ -107,14 +107,15 @@ export class Autopilot {
     if (params[`HeadingTargets`]) {
       const { targets, radius } = params[`HeadingTargets`];
 
-      this.targets?.forEach((t) => t.remove());
-      this.targets = [];
+      this.tmarkers?.forEach((t) => t.remove());
+      this.tmarkers = [];
       targets.forEach((t) => {
+        console.log(t);
         const { lat, long } = t;
         if (!lat) return;
-        t = L.circle([t.lat, t.long], 50, { color: `red` });
+        t = L.circle([lat, long], 50, { color: `red` });
         t.addTo(this.map);
-        this.targets.push(t);
+        this.tmarkers.push(t);
       });
 
       if (this.planeRadius) this.planeRadius.remove();
