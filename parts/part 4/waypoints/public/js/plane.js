@@ -139,10 +139,8 @@ export class Plane {
       const kmps = (speed ?? 0) / 1944;
 
       // We'll call ourselves "teleported" if we moved at a speed of over
-      // 5 kilometers per second (3.1 miles per second), which is roughly
-      // equivalent to mach 14.5, which is a little over half the orbital
-      // speed of the international space station.
-      const teleported = this.lastUpdate.flightData && d > 5 * kmps;
+      // 0.75 kilometers per second, which is 1450 knots, or  mach 2.17
+      const teleported = this.lastUpdate.flightData && d > 0.5 * kmps;
       if (teleported) this.startNewTrail([lat, long]);
     } catch (e) {
       // this will als fail if we don't have lastUpdate yet, and that's still fine.

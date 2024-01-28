@@ -11,11 +11,23 @@ import {
   LEVEL_FLIGHT,
 } from "../utils/constants.js";
 
-let { flyLevel } = await watch(
-  dirname,
-  `fly-level.js`,
-  (lib) => (flyLevel = lib.flyLevel)
-);
+const USE_NEW_HEADING_MODE = true;
+let flyLevel;
+if (USE_NEW_HEADING_MODE) {
+  const lib = await watch(
+    dirname,
+    `heading-mode.js`,
+    (lib) => (flyLevel = lib.flyLevel)
+  );
+  flyLevel = lib.flyLevel
+} else {
+  const lib = await watch(
+    dirname,
+    `fly-level.js`,
+    (lib) => (flyLevel = lib.flyLevel)
+  );
+  flyLevel = lib.flyLevel
+}
 
 let { autoThrottle } = await watch(
   dirname,
@@ -68,11 +80,24 @@ export class AutoPilot {
   }
 
   resetTrim() {
+    // // Figure out a sensible "start value" for working
+    // // the aileron, based on the plane's weight/wingArea
+    // const { weight, wingArea } = this.flightInformation?.model ?? {
+    //   weight: 0,
+    //   wingArea: 1,
+    // };
+    // const wpa = weight / wingArea;
+    // const defaultAileronMaxStick =
+    //   wpa === 0 ? 300 : constrainMap(wpa, 4, 20, 300, 1500);
+
     // zero out the trim vector, except for the aileron stick value.
     this.trim = {
       pitch: 0,
       roll: 0,
       yaw: 0,
+      // only used
+      aileronOffset: 0,
+      aileronMaxStick: 300,
     };
   }
 
@@ -127,7 +152,6 @@ export class AutoPilot {
       const num = parseFloat(value);
       // intentional coercive comparison:
       if (num == value) value = num;
-      console.log(`setting ${key} to`, value);
       modes[key] = value;
     }
 

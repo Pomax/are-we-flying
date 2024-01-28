@@ -15,8 +15,12 @@ import {
   ONE_KTS_IN_KMS,
 } from "../../utils/constants.js";
 
-const { min } = Math;
-const innerRadiusRatio = 1;
+const { acos, atan2, min, sign } = Math;
+const innerRadiusRatio = 2 / 3;
+
+const sub = (v1, v2) => ({ lat: v2.lat - v1.lat, long: v2.long - v1.long });
+const dot = (v1, v2) => v1.lat * v2.lat + v1.long * v2.long;
+const mag = (v) => (v.lat ** 2 + v.long ** 2) ** 0.5;
 
 export class WayPointManager {
   constructor(autopilot) {
@@ -56,12 +60,12 @@ export class WayPointManager {
 
   setWaypointPosition(id, lat, long) {
     this.points.find((e) => e.id === id)?.setPosition(lat, long);
-    this.autopilot.onChange();
+    this.resequence();
   }
 
   setWaypointElevation(id, alt) {
     this.points.find((e) => e.id === id)?.setElevation(alt);
-    this.autopilot.onChange();
+    this.resequence();
   }
 
   /**
@@ -162,88 +166,113 @@ export class WayPointManager {
     vs1,
     cruiseSpeed,
   }) {
-    const { modes } = autopilot;
-    const { currentWaypoint: p1 } = this;
-    let target;
-    let targets = [];
+    try {
+      const { modes } = autopilot;
+      let { currentWaypoint: p1 } = this;
+      let p2, p3, target;
+      let targets = [];
 
-    // Do we need to even do anything?
-    if (!p1) return modes[HEADING_MODE] ?? heading;
+      const seconds = constrainMap(speed, vs1, cruiseSpeed, 60, 30);
+      const radiusInKM = speed * ONE_KTS_IN_KMS * seconds;
 
-    // We'll go with a radius based on X seconds at our current speed,
-    // where X is a full minute if we're near stall speed, or only 30
-    // seconds if we're going at cruise speed.
-    const seconds = constrainMap(speed, vs1, cruiseSpeed, 60, 30);
-    const radiusInKM = speed * ONE_KTS_IN_KMS * seconds;
-
-    // Do we only have a single point?
-    const p2 = p1.next;
-    if (!p2) {
-      target = this.checkTransition(lat, long, p1.lat, p1.long, radiusInKM)
-        ? p2
-        : p1;
-    }
-
-    // We have two or more points, so let's keep going!
-    else {
-      let fp = project(p1.long, p1.lat, p2.long, p2.lat, long, lat);
-
-      fp = { lat: fp.y, long: fp.x };
-      console.log(fp);
-      targets.push(fp);
-      target = fp;
-
-      const a = getDistanceBetweenPoints(lat, long, fp.lat, fp.long);
-      const h = radiusInKM;
-      if (a < h) {
-        const b = (h ** 2 - a ** 2) ** 0.5;
-        target = getPointAtDistance(fp.lat, fp.long, b, p1.headingToNext);
-        targets.push(target);
+      // Do we even need to do anything?
+      if (!p1) {
+        modes[HEADING_MODE] ??= heading;
       }
 
-      // Do we have three or more points?
-      const p3 = p2.next;
-      if (!p3) {
-        this.checkTransition(lat, long, p2.lat, p2.long, radiusInKM);
-      }
-
-      // We do: let's keep going!
+      // We'll go with a radius based on X seconds at our current speed,
+      // where X is a full minute if we're near stall speed, or only 30
+      // seconds if we're going at cruise speed.
       else {
-        let fp3 = project(p2.long, p2.lat, p3.long, p3.lat, long, lat);
-        fp3 = { lat: fp3.y, long: fp3.x };
-        const d = getDistanceBetweenPoints(lat, long, fp3.lat, fp3.long);
-        if (d < radiusInKM) {
-          this.currentWaypoint = currentWaypoint.complete();
-          // Do we need to wrap-around after transitioning?
-          if (this.currentWaypoint?.first) {
-            this.resetWaypoints();
+        // Do we only have a single point?
+        p2 = p1.next;
+        if (!p2) {
+          this.checkTransition(lat, long, p1.lat, p1.long, radiusInKM);
+        }
+
+        // If we have at least two points, let's do some projective planning.
+        else if (
+          p2 &&
+          !this.checkTransition(lat, long, p2.lat, p2.long, radiusInKM)
+        ) {
+          // project the plane
+          const { x, y } = project(p1.long, p1.lat, p2.long, p2.lat, long, lat);
+          const fp = { lat: y, long: x };
+          targets.push(fp);
+          target = fp;
+
+          // if we're close enough, project forward by radial distance
+          const a = getDistanceBetweenPoints(lat, long, fp.lat, fp.long);
+          const h = radiusInKM;
+          if (a < h) {
+            0;
+            const b = (h ** 2 - a ** 2) ** 0.5;
+            target = getPointAtDistance(
+              fp.lat,
+              fp.long,
+              b * innerRadiusRatio,
+              p1.headingToNext
+            );
+            targets.push(target);
           }
-          this.currentWaypoint?.activate();    
-          target = p2;
+
+          /*
+          // // Second check: are we close enough to the next leg? If so,
+          // // transition early.
+          // p3 = p2.next;
+          // if (p3) {
+          //   const { x, y } = project(
+          //     p2.long,
+          //     p2.lat,
+          //     p3.long,
+          //     p3.lat,
+          //     long,
+          //     lat
+          //   );
+          //   const fp = { lat: y, long: x };
+          //   targets.push(fp);
+          //   if (this.checkTransition(lat, long, fp.lat, fp.long)) {
+          //     target = fp;
+          //   }
+          // }
+          */
+        }
+
+        if (target) {
+          // We now know which GPS coordinate to target, so let's
+          // determine what heading that equates to:
+          const newHeading = getHeadingFromTo(
+            lat,
+            long,
+            target.lat,
+            target.long
+          );
+          const hdg = parseFloat(
+            ((360 + newHeading - declination) % 360).toFixed(2)
+          );
+
+          // And if that's not the heading we're already flying, update the autopilot!
+          if (modes[HEADING_MODE] !== hdg) {
+            console.log(`updating heading`);
+            autopilot.setParameters({
+              [HEADING_MODE]: hdg,
+            });
+          }
         }
       }
-    }
 
-    // We now know which GPS coordinate to target, so let's
-    // determine what heading that equates to:
-    const newHeading = getHeadingFromTo(lat, long, target.lat, target.long);
-    const hdg = parseFloat(((360 + newHeading - declination) % 360).toFixed(2));
-
-    // And if that's not the heading we're already flying, update the autopilot!
-    if (modes[HEADING_MODE] !== hdg) {
-      console.log(`updating heading`);
+      // For visualization purposes, update the targets involved in this code:
       autopilot.setParameters({
-        [HEADING_MODE]: hdg,
+        [HEADING_TARGETS]: {
+          radius: radiusInKM,
+          targets,
+        },
       });
-    }
-    autopilot.setParameters({
-      [HEADING_TARGETS]: {
-        radius: radiusInKM,
-        targets,
-      },
-    });
 
-    return modes[HEADING_MODE];
+      return modes[HEADING_MODE];
+    } catch (err) {
+      console.error(`fix your shit`, err);
+    }
   }
 
   /**
@@ -253,45 +282,21 @@ export class WayPointManager {
    * this code in the next subsection to make it much better.
    */
   checkTransition(lat, long, lat2, long2, radiusInKM) {
-    const { currentWaypoint } = this;
-
-    // Some planes are *very* zoomy, and we don't want them
-    // to transition so early that they slam into a mountain
-    // they're supposed to go around, instead.
-    radiusInKM = min(radiusInKM, 2.5);
-
     const d = getDistanceBetweenPoints(lat, long, lat2, long2);
-    // Are we close enough to transition to the next point?
     if (d < radiusInKM) {
-      currentWaypoint.deactivate();
-      this.currentWaypoint = currentWaypoint.complete();
-      // Do we need to wrap-around after transitioning?
-      if (this.currentWaypoint?.first) {
-        this.resetWaypoints();
-      }
-      this.currentWaypoint?.activate();
-      return true;
+      return this.transition();
     }
+  }
 
-    // If we're not, we may have missed the previous waypoint, so
-    // let's check if we're at the next one already, just to be sure:
-    const next = currentWaypoint.next;
-    if (next) {
-      const { lat: lat2, long: long2 } = next;
-      const d = getDistanceBetweenPoints(lat, long, lat2, long2);
-      if (d < radiusInKM) {
-        currentWaypoint.deactivate();
-        this.currentWaypoint = currentWaypoint.complete();
-        // Do we need to wrap-around after transitioning?
-        if (this.currentWaypoint.first) {
-          this.resetWaypoints();
-        }
-        this.currentWaypoint?.activate();
-        return true;
-      }
-    }
-
-    return false;
+  /**
+   * do the thing.
+   */
+  transition() {
+    this.currentWaypoint.deactivate();
+    this.currentWaypoint = this.currentWaypoint.complete();
+    if (this.currentWaypoint?.first) this.resetWaypoints();
+    this.currentWaypoint?.activate();
+    return true;
   }
 
   /**

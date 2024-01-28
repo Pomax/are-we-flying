@@ -85,7 +85,7 @@ export async function flyLevel(autopilot, state) {
   // more than "max bank", correct based off the max bank value instead.
   // Also, we'll restrict how much that max bank is based on how fast we're
   // going. Because a hard bank at low speeds is a good way to crash a plane.
-  let bankDiff = constrainMap(diff, -maxBank, maxBank, -step, step);
+  let bankDiff = constrainMap(diff, -maxBank, maxBank, -2 * step, 2 * step);
 
   // boost the heck out of "slowing down" as we reach our target heading.
   if (FEATURES.SNAP_TO_HEADING) {

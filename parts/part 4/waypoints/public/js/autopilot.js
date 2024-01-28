@@ -109,8 +109,7 @@ export class Autopilot {
 
       this.tmarkers?.forEach((t) => t.remove());
       this.tmarkers = [];
-      targets.forEach((t) => {
-        console.log(t);
+      targets?.forEach((t) => {
         const { lat, long } = t;
         if (!lat) return;
         t = L.circle([lat, long], 50, { color: `red` });
