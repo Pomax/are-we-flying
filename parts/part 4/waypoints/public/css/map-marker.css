@@ -1,3 +1,9 @@
+#map {
+  --flight-path-colour: grey;
+}
+
+/* ----------------------------------- */
+
 #plane-icon {
   --speed: 120;
   --altitude: 1500;
@@ -190,10 +196,6 @@
 }
 
 /* ----------------------------------- */
-
-#map {
-  --flight-path-colour: grey;
-}
 
 .waypoint-div {
   &::before {

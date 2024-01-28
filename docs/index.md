@@ -4778,20 +4778,30 @@ export function getInitialState() {
 }
 ```
 
-So far so good, this is just.. data. Let's turn that into "a flight" by creating a `mock-plane.js` in the same dir:
+So far so good, we now have data that can "pretend to be simconnect" data. Let's turn that into "a flight" by creating a `mock-plane.js` in the same dir:
 
 ```javascript
+// we'll need something that lets us look up the magnetic declination
+// given a lat/long coordinate so we run "npm install geomag" to get
+// a package installed that lets us do just that:
 import * as geomag from "geomag";
+
+// we'll import the data we just defined...
 import { getInitialState } from "./fake-flight-data.js";
+
+// plus the convenience functions from our FlightInformation work
 import { convertValues, renameData } from "../../../utils/flight-values.js";
+
+// plus some constants and utility functions.
 import { FEET_PER_METER, FPS_PER_KNOT, ONE_KTS_IN_KMS } from "../../../utils/constants.js";
 import { constrainMap, degrees, getPointAtDistance, lerp, radians, runLater } from "../../../utils/utils.js";
-
 const { abs, sign, tan, PI } = Math;
+
+// Then we're going to be running our flight in 450ms intervals. 
 const UPDATE_FREQUENCY = 450;
 
 /**
- * We're going to ignore physics entirely and just fake ourselves a flight.
+ * Then our mocked plane: we're going to ignore physics entirely and just fake a flight.
  */
 export class MockPlane {
   constructor() {
@@ -4799,37 +4809,13 @@ export class MockPlane {
     this.run();
   }
 
+  // we set up a separate function that lets us call server.api.reset()
+  // from the client in order to reset out "simulation" if we need to.
   reset() {
     this.data = getInitialState();
   }
 
-  setHeading(
-    deg,
-    lat = degrees(this.data.PLANE_LATITUDE),
-    long = degrees(this.data.PLANE_LONGITUDE),
-    alt = this.data.INDICATED_ALTITUDE / (1000 * FEET_PER_METER)
-  ) {
-    const { data } = this;
-    const declination = geomag.field(lat, long, alt).declination;
-    data.MAGVAR = radians(declination);
-    deg = (deg + 360) % 360;
-    data.PLANE_HEADING_DEGREES_MAGNETIC = radians(deg);
-    data.PLANE_HEADING_DEGREES_TRUE = radians(deg + declination);
-  }
-
-  setAltitude(feet, lat, long, groundAlt = this.getGroundAlt(lat, long)) {
-    const { data } = this;
-    data.INDICATED_ALTITUDE = feet;
-    data.PLANE_ALT_ABOVE_GROUND = feet - groundAlt;
-    data.PLANE_ALT_ABOVE_GROUND_MINUS_CG =
-      data.PLANE_ALT_ABOVE_GROUND - data.STATIC_CG_TO_GROUND;
-  }
-
-  getGroundAlt(lat, long) {
-    // if we have an elevation server, we could use that here.
-    return 0;
-  }
-
+  // Obviously we'll need a period update:
   run(previousCallTime = Date.now()) {
     let callTime = Date.now();
     const ms = callTime - previousCallTime;
@@ -4844,12 +4830,11 @@ export class MockPlane {
   /**
    * This is where we run our "world's worst flight simulator":
    * we're not even going to bother with a simplified flight model
-   * and computing lift and drag forces with simplified math. Even
-   * though we're trying to work with a trim-based autopilot, we're
-   * just going to constrainMap and interpolate our way to victory.
+   * and computing lift and drag forces with simplified math.
+   * We're ust going to constrainMap and interpolate our way to victory.
    */
   update(ms) {
-    // If the interval is too long, "do nothing",
+    // If the update interval was too long, "do nothing",
     // so we don't teleport around when the OS decides
     // to throttle or suspend a process.
     if (ms > 5 * UPDATE_FREQUENCY) return
@@ -4857,12 +4842,16 @@ export class MockPlane {
     // For math purposes, we need an interval in seconds.
     const interval = ms / 1000;
 
-    // First, use the code we already wrote to data-fy the flight.
+    // First, use the code we already wrote for working
+    // with flight information to make the reset of the
+    // work here a bit easier:
     const { data } = this;
     const converted = Object.assign({}, data);
     convertValues(converted);
     renameData(converted, this.previousValues);
     this.previousValues = converted;
+
+    // Then, on to the "simulation":
 
     // Update the current altitude by turning the current elevator
     // trim position into a target pitch and vertical speed, and then
@@ -4879,7 +4868,7 @@ export class MockPlane {
     // we're covering, and thus how many vertical feet that
     // works out to. This is, of course, *completely wrong*
     // compared to the real world, but: this is a mock.
-    // We don't *need* realistic, we just need good enough.
+    // We don't need realistic, we just need "sort of works".
     const newVS =
       tan(-data.PLANE_PITCH_DEGREES) *
       FPS_PER_KNOT *
@@ -4888,7 +4877,12 @@ export class MockPlane {
       5;
     data.VERTICAL_SPEED = lerp(0.15, data.VERTICAL_SPEED, newVS);
 
-    // Then update our current speed, based on the throttle lever,
+    // With that, we can update our altitude:
+    const { alt } = converted;
+    const newAltitude = alt + data.VERTICAL_SPEED * interval;
+    this.setAltitude(newAltitude, lat, long);
+    
+    // Then we update our current speed, based on the throttle lever,
     // with a loss (or gain) offset based on the current vertical
     // speed, so the autothrottle/targetVS code has something to
     // work with.
@@ -4908,30 +4902,68 @@ export class MockPlane {
     let turnRate = aileronTrim * 30;
     data.TURN_INDICATOR_RATE = lerp(0.9, data.TURN_INDICATOR_RATE, turnRate);
 
-    // Update heading, taking into account that the slower we go, the
-    // faster we can turn, and the faster we go, the slower we can turn:
+    // With that, we can update our heading, taking into account that
+    // the slower we go, the faster we can change heading, and the faster
+    // we go, the slower we can change heading:
     const { heading } = converted;
     const speedFactor = constrainMap(speed, 100, 150, 4, 1);
     const updatedHeading = heading + speedFactor * turnRate * interval;
     this.setHeading(updatedHeading, lat, long);
 
-    // Update our altitude values...
-    const { alt } = converted;
-    const newAltitude = alt + data.VERTICAL_SPEED * interval;
-    this.setAltitude(newAltitude, lat, long);
-
-    // And update our GPS position.
+    // And with our heading set, we can update our current GPS position.
     const d = data.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
     const h = degrees(data.PLANE_HEADING_DEGREES_TRUE);
     const { lat: lat2, long: long2 } = getPointAtDistance(lat, long, d, h);
     data.PLANE_LATITUDE = radians(lat2);
     data.PLANE_LONGITUDE = radians(long2);
+    
+    // And that's it. This is an absolutely terrible simulation,
+    // is all kinds of wrong, and also does what we need just
+    // well enough that we can run our code against it.
   }
 
   /**
-   * We accept all of four variables, one each so that
-   * ATT, ALT, and LVL modes work, and then one for updating
-   * the heading bug, because we use that in the browser.
+   * When we set our heading we need to update several simconnect
+   * variables at the same time, so it's its own function:
+   */
+  setHeading(
+    deg,
+    lat = degrees(this.data.PLANE_LATITUDE),
+    long = degrees(this.data.PLANE_LONGITUDE),
+    alt = this.data.INDICATED_ALTITUDE / (1000 * FEET_PER_METER)
+  ) {
+    const { data } = this;
+    const declination = geomag.field(lat, long, alt).declination;
+    data.MAGVAR = radians(declination);
+    deg = (deg + 360) % 360;
+    data.PLANE_HEADING_DEGREES_MAGNETIC = radians(deg);
+    data.PLANE_HEADING_DEGREES_TRUE = radians(deg + declination);
+  }
+  
+  /**
+   * The same goes for when we change altitudes.
+   */
+  setAltitude(feet, lat, long, groundAlt = this.getGroundAlt(lat, long)) {
+    const { data } = this;
+    data.INDICATED_ALTITUDE = feet;
+    data.PLANE_ALT_ABOVE_GROUND = feet - groundAlt;
+    data.PLANE_ALT_ABOVE_GROUND_MINUS_CG =
+      data.PLANE_ALT_ABOVE_GROUND - data.STATIC_CG_TO_GROUND;
+  }
+
+  /**
+   * if we have an elevation server, we could use that here,
+   * but we don't (...yet...) so we just pretend the grouned
+   * is at sea level.
+   */
+  getGroundAlt(lat, long) {
+    return 0;
+  }
+
+  /**
+   * In order for our autopilot code to affect this "flight" we need
+   * to be able to accept "set" commands, but we only need to worry
+   * about four of them:
    */
   set(name, value) {
     const { data } = this;
@@ -4949,7 +4981,7 @@ export class MockPlane {
 }
 ```
 
-There are a few utility functions here that we do need to add to our `utils.js` though:
+There are a few new utility functions here that we do need to add to our `utils.js` though:
 
 ```javascript
 ...
@@ -4977,7 +5009,8 @@ export function getPointAtDistance(lat1, long1, d, heading, R = 6371) {
 /**
  * Linear interpolation between values "a" and "b",
  *
- *  r: a value in the internval [0,1], specifying the ratio of a:b
+ *  r: a value in the internval [0,1], specifying the ratio of a:b,
+ *     meaning that r=1 yields a, and r=0 yields b.
  */
 export function lerp(r, a, b) {
   return r * a + (1-r) * b;
@@ -4985,12 +5018,15 @@ export function lerp(r, a, b) {
 
 ```
 
-And now we're almost done, we just need to create a fake API. We'll create a as `mock-api.js`:
+And now we're almost done, we just need to create a little "fake MSFS API" class, in `mock-api.js`:
 
 ```javascript
 import { watch } from "../../../utils/reload-watcher.js";
 import { runLater } from "../../../utils/utils.js";
 
+// In case we want to change things while a fake flight
+// is running, and we almost certainly will, let's watch
+// this import.
 let plane;
 let { MockPlane } = await watch(
   import.meta.dirname,
@@ -5004,6 +5040,9 @@ let { MockPlane } = await watch(
 );
 
 export class MOCK_API {
+  /**
+   * Let's make sure we are 100% aware of the fact that we're running a mock
+   */
   constructor() {
     console.log(`
       ==========================================
@@ -5015,6 +5054,9 @@ export class MOCK_API {
     this.reset();
   }
 
+  /**
+   * wrap the plane reset in our "API"'s reset
+   */
   reset(notice) {
     if (notice) console.log(notice);
     plane ??= new MockPlane();
@@ -5028,6 +5070,12 @@ export class MOCK_API {
     }
   }
 
+  /**
+   * Because we want to be able to start a controlled
+   * flight automatically, we add a function that, when
+   * given the autopilot, starts a 10 second count down
+   * and then turns it on:
+   */
   async setAutopilot(autopilot) {
     if (this.started) return;
     this.autopilot = autopilot;
@@ -5035,6 +5083,11 @@ export class MOCK_API {
     runLater(
       () => autopilot.setParameters({ MASTER: true, LVL: true, ALT: 1500, HDG: 270 }),
       10000,
+      // Normally we don't need these two additional arguments
+      // to runLater, but in this case we really need them. The
+      // first runs a console log, the second is a function
+      // that gets run "in parallel" (which JS can't do, it
+      // actually runs asynchronously interscheduled)
       `--- Starting autopilot in 10 seconds ---`,
       () => {
         for (let i = 1; i < 10; i++) {
@@ -5079,12 +5132,16 @@ export function runLater(fn, timeoutInMS, notice, preCall) {
 }
 ```
 
-Which we tie that into our server class:
+Then all that's left is to make our server use our mock, when we call it with `node api-server --mock`:
 
 ```javascript
 ...
 
+// Import our mock API
 import { MOCK_API } from "./mocks/mock-api.js";
+
+// And determine whether we should actually use it
+// based on there being a --mock runtime flag:
 const USE_MOCK = process.argv.includes(`--mock`);
 
 export class ServerClass {
@@ -5092,19 +5149,19 @@ export class ServerClass {
   async init() {
     const { clients } = this;
 
-    // set up the API variable - note that because this is a global,
-    // clients can't directly access the API. However, we'll be setting
-    // up some API routing to make that a non-issue in a bit.
+    // Load the mock, if we're running a mock:
     api = USE_MOCK ? new MOCK_API() : new MSFS_API();
 
     ...
 
+    // Explicitly bind the autopilot if we're running a mock,
+    // because the mock is going to have to turn it on without
+    // any sort of user involvement.
     if (USE_MOCK) {
-      // Explicitly bind the autopilot if we're running a mock,
-      // because the mock is going to have to turn it on without
-      // any sort of user involvement.
       api.setAutopilot(autopilot);
-      // And allow clients to call this.server.mock.reset(),
+      // And expose a "route" that allows clients to call
+      // this.server.mock.reset() in order to restart the
+      // "simulation" without restarting the node process:      
       this.mock = { reset: () => api.reset(`Resetting the mock flight`) };
     }
 
@@ -5115,7 +5172,7 @@ export class ServerClass {
 }
 ```
 
-Aaaaand we just faked ourselves an MSFS. We can now run this without needing to have the game running. If we noew run our server with `node api-server.js --mock` we see the following output:
+Aaaaand we just faked ourselves an MSFS. We can now run this without needing to have the game running. If we run our server with `node api-server.js --mock` we see the following output:
 
 ```
 
@@ -5168,19 +5225,39 @@ Flying towards a point is pretty easy, but transitioning in a way that "feels ri
 
 As such, we're going to need to break down waypoint logic as a few separate tasks:
 
-1. the server side, which is the authority on which waypoints exist and which one we're flying towards,
-   1. which requires having code that models waypoints, and
-   2. requires updating our heading and altitude hold modes to made the plane fly along our flight path.
-2. the client side, which lets us place, move, and remove waypoints,
-   1. which requires some Leaflet code for placing, showing, and moving waypoints as markers, and
-   2. some regular JS for synchronizing with the server on waypoint information
+1. the server side will  be our authority on which waypoints exist and which one we're flying towards, which:
+   1. requires having code that models individual waypoints,
+   2. requires having a waypoint manager, and
+   3. requires updating our heading and altitude hold modes to made the plane fly get their target heading and altitude from the waypoint manager.
+2. the client side is our UI for placing, editing, and removing waypoints, which:
+   1. requires code for showing waypoints as map markers, and
+   2. Requires code for placing and editing waypoints.
+
+This will be a little "trickier" in that the client will need to main a list of waypoints _in parallel_ to the server's list of waypoints, which we need to keep in sync with the list of waypoints we get as part of our regular server update. And of course, the client is _just_ a UI, so if we -say- place a point, we don't: we instead send an instruction to create a new waypoint to the server, and then on the next server update we'll see that waypoint in the updated listed of waypoints. So it's going to be a bit more code than you might have thought this would be.
+
+So let's get started! 
 
 ### The server side
 
-We'll model waypoints pretty plainly in their own `src/autopilot/waypoints/waypoint.js`:
+We'll model waypoints pretty plainly in their own `src/autopilot/waypoints/waypoint.js`, after a quick think about what we want our waypoints to model:
+
+1. they need a lat/long GPS position, obviously,
+2. they need an _optional_ elevation,
+3. they need a way to indicate whether we've passed them or not,
+4. they need a way to indicate whether they are "our current waypoint",
+5. they need to know what "the next waypoint" is,
+6. they need to know the distance to the previous waypoint, and
+7.  one of them needs to know it's the first waypoint
+
+And that last one seems obvious: it's the first one in whatever list of waypoints we end up coding, but 
+
+Similarly, we'll need ways to set and update all those values. So... let's put all that in:
 
 ```javascript
-import { getDistanceBetweenPoints } from "../../utils/utils.js";
+import {
+  getDistanceBetweenPoints,
+  getHeadingFromTo,
+} from "../../utils/utils.js";
 import { KM_PER_NM } from "../../utils/constants.js";
 
 export class Waypoint {
@@ -5191,6 +5268,8 @@ export class Waypoint {
     let id = 1;
     return () => id++;
   })();
+  
+  // The follow functions should be pretty self-explanatory:
 
   constructor(lat, long, alt = false) {
     this.id = Waypoint.nextId();
@@ -5216,9 +5295,40 @@ export class Waypoint {
     this.alt = !isNaN(alt) && alt > 0 ? alt : false;
   }
 
+  activate() {
+    this.active = Date.now();
+  }
+
+  deactivate() {
+    this.active = false;
+  }
+
+  /**
+   * When we complete a waypoint, we automatically
+   * return "the next one" so we can keep going.
+   */
+  complete() {
+    this.deactivate();
+    this.completed = true;
+    return this.next;
+  }
+
+  /**
+   * When we set a "next" waypoint, we want to set
+   * the heading towards that next waypoint, and
+   * we want that next waypoint to record how far
+   * away from us it is, so that users can see how
+   * long a leg will be (in nautical miles).
+   */
   setNext(nextWaypoint) {
     this.next = nextWaypoint;
     if (this.next) {
+      this.heading = getHeadingFromTo(
+        this.lat,
+        this.long,
+        this.next.lat,
+        this.next.long
+      );
       this.next.distance =
         getDistanceBetweenPoints(
           this.lat,
@@ -5229,27 +5339,32 @@ export class Waypoint {
     }
   }
 
-  activate() {
-    this.active = Date.now();
-  }
-
-  deactivate() {
-    this.active = false;
-  }
-
-  complete() {
-    this.deactivate();
-    this.completed = true;
-    return this.next;
+  /**
+   * When objects are converted to JSON through a
+   * JSON.stringify call, this function (if it exists)
+   * gets called as a "preprocessing" step, as part of
+   * standard JavaScript execution rules.
+   */
+  toJSON() {
+    // this is useful because we need to make sure that our
+    // "next" property is just the id for that waypoint,
+    // not the actual waypoint.
+    const props = Object.assign({}, this);
+    props.next = props.next?.id;
+    return props;
   }
 }
 ```
 
-And that's all we need them to do. Next up, a waypoint manager, housed in its own `waypoint-manager.js` file:
+That should cover what we need them to do. Next up, a waypoint manager, housed in its own `waypoint-manager.js` file:
 
 ```javascript
-import { getDistanceBetweenPoints } from "../../utils/utils.js";
+import {
+  getDistanceBetweenPoints,
+  getHeadingFromTo,
+} from "../../utils/utils.js";
 import { Waypoint } from "./waypoint.js";
+import { ALTITUDE_HOLD, HEADING_MODE } from "../../utils/constants.js";
 
 export class WayPointManager {
   constructor(autopilot) {
@@ -5261,23 +5376,35 @@ export class WayPointManager {
     this.points = [];
     this.currentWaypoint = undefined;
     this.repeating = false;
+    this.autopilot.onChange();
   }
 
-  toggleRepeating() {
-    this.repeating = !this.repeating;
-  }
-
+  /**
+   * Make sure that if someone asks for all waypoints, they
+   * don't get a direct reference to the array we're using.
+   */
   getWaypoints() {
-    // Make sure that if someone asks for all waypoints, they
-    // don't get a direct reference to the array we're using.
     return this.points.slice();
   }
 
-  add(lat, long, alt) {
+  /**
+   * Should we restart at the beginning once we finish the
+   * last waypoint or not?
+   */
+  toggleRepeating() {
+    this.repeating = !this.repeating;
+    this.resequence();
+  }
+
+  /**
+   * Add a waypoint, where lat/long is required, but altitude
+   * is entirely optional.
+   */
+  add(lat, long, alt = false) {
     const { points } = this;
     const waypoint = new Waypoint(lat, long, alt);
     points.push(waypoint);
-    // If we don't have a "current" point, this is now it.
+    // If we don't have a "current" point yet, this is now it.
     if (!this.currentWaypoint) {
       this.currentWaypoint = waypoint;
       this.currentWaypoint.activate();
@@ -5285,49 +5412,79 @@ export class WayPointManager {
     this.resequence();
   }
 
+  /**
+   * Allow waypoints to be repositioned.
+   */
   setWaypointPosition(id, lat, long) {
     this.points.find((e) => e.id === id)?.setPosition(lat, long);
+    this.resequence();
   }
 
+  /**
+   * And allow waypoints to have their elevation changed.
+   */
   setWaypointElevation(id, alt) {
     this.points.find((e) => e.id === id)?.setElevation(alt);
+    this.resequence();
   }
 
-  
   /**
-   * Turn one waypoint into two waypoints, so that you can
-   * relatively easily add waypoints in between existing ones:
-   */
-  split(id) {
-    const { points } = this;
-    const pos = points.findIndex((e) => e.id === id);
-    if (pos > -1) {
-      const waypoint = points[pos];
-      const { lat, long, alt } = waypoint;
-      points.splice(pos, 0, new Waypoint(lat, long, alt));
-      this.resequence();
-    }
-  }
-  
-  /**
-   * Remove a waypoint from the set of waypoints.
+   * remove a waypoint and resequence.
    */
   remove(id) {
     const { points } = this;
     const pos = points.findIndex((e) => e.id === id);
-    if (pos > -1) {
-      points.splice(pos, 1)[0];
-      if (this.currentWaypoint?.id === id) {
-        this.currentWaypoint = this.currentWaypoint.next;
-        this.currentWaypoint?.activate();
-      }
-      this.resequence();
+    if (pos === -1) return;
+    points.splice(pos, 1)[0];
+    if (this.currentWaypoint?.id === id) {
+      this.currentWaypoint = this.currentWaypoint.next;
+      this.currentWaypoint?.activate();
     }
+    this.resequence();
   }
 
   /**
-   * Make sure each waypoint knows what "the next waypoint" is,
-   * with the last waypoint getting a "next" that is undefined.
+   * Duplicate a waypoint, and put it *after* the one
+   * that's being duplicated, so that dragging the
+   * duplicate doesn't affect the prior flight path.
+   */
+  duplicate(id) {
+    const { points } = this;
+    const pos = points.findIndex((e) => e.id === id);
+    if (pos === -1) return;
+    // create a copy right next to the original point
+    const waypoint = points[pos];
+    const { lat, long, alt } = waypoint;
+    const copy = new Waypoint(lat, long, alt);
+    points.splice(pos, 0, copy);
+    this.resequence();
+  }
+
+  /**
+   * Make a waypoint our current waypoint.
+   */
+  target(id) {
+    const { points } = this;
+    const pos = points.findIndex((e) => e.id === id);
+    if (pos === -1) return;
+    this.currentWaypoint = points[pos];
+    // make sure all points prior to this one are now
+    // marked as complete, with this one active, and
+    // any subsequent points fully reset.
+    points.forEach((p, i) => {
+      p.reset();
+      if (i < pos) p.complete();
+      else if (i === pos) {
+        p.activate();
+        this.currentWaypoint = p;
+      }
+    });
+    this.resequence();
+  }
+
+  /**
+   * Make sure each waypoint knows what "their next waypoint"
+   * is, then notify all clients of this resequence.
    */
   resequence() {
     const { points } = this;
@@ -5335,8 +5492,8 @@ export class WayPointManager {
       p.id = i + 1;
       p.setNext(points[i + 1]);
     });
-    // Also let clients know that we have a (maybe) new
-    // sequence of waypoints now.
+    if (this.repeating) points.at(-1).setNext(points[0]);
+    // push the update to clients
     this.autopilot.onChange();
   }
 
@@ -5350,87 +5507,120 @@ export class WayPointManager {
     this.currentWaypoint?.activate();
     this.resequence();
   }
-  
+
   /**
-   * We'll be implementing this after we figure out how to
-   * determine a "current heading" based on which waypoints
-   * the plane is currently between, and where the plane is
-   * relative to the flight path. For now, let's be dumb:
+   * Have our waypoint manager update the autopilot's
+   * heading mode, if we're not flying in the right
+   * direction at the moment. Then return our heading.
    */
-  getHeading({ autopilot, heading, lat, long, declination }) {
-    const { currentWaypoint } = this;
+  getHeading({ autopilot, heading, lat, long }) {
     const { modes } = autopilot;
+    let { currentWaypoint } = this;
 
-    // are we already done?
-    if (!currentWaypoint) return modes[HEADING_MODE] ?? heading;
-    
-    // if not, check if we need to transition to the next waypoint,
-    // and then return the heading for the current waypoint (if
-    // we transitioned, that'll get picked up on the next "tick").
-    const { lat: lat2, long: long2 } = currentWaypoint;
-		this.checkTransition(lat, long, lat2, long2);
+    // If we don't have a waypoint, then our current heading
+    // becomes our current autopilot heading parameter.
+    if (!currentWaypoint) {
+      modes[HEADING_MODE] ??= heading;
+    }
 
-    // Compute the heading we should be flying:
-    const newHeading = getHeadingFromTo(lat, long, lat2, long2);   
-    autopilot.setParameters({
-      [HEADING_MODE]: parseFloat(((360 + newHeading - declination) % 360).toFixed(2))
-    });
+    // If we do have a waypoint, then set the autopilot to
+    // the heading we need to fly in order to fly "through"
+    // our waypoint.
+    else {
+      const newHeading = getHeadingFromTo(lat, long, target.lat, target.long);
+      const hdg = parseFloat(
+        ((360 + newHeading - declination) % 360).toFixed(2)
+      );
 
+      // And if that's not the heading we're already flying, update the autopilot!
+      if (modes[HEADING_MODE] !== hdg) {
+        console.log(`updating heading`);
+        autopilot.setParameters({
+          [HEADING_MODE]: hdg,
+        });
+      }
+
+      // Also make sure to check whether we're now close enough to
+      // our waypoint that we need to transition to the next one:
+      this.checkTransition(lat, long, p1);
+    }
     return modes[HEADING_MODE];
-  } 
+  }
 
   /**
    * Check whether we should transition to the next waypoint
    * based on the plane's current GPS coordinate. Note that
    * this is not a good transition policy, but we'll revisit
-   * this code and improve it later.
+   * this code in the next subsection to make it much better.
    */
-  checkTransition(lat, long, lat2, long2, radiusInKM = 1) {
-    const d = getDistanceBetweenPoints(lat, long, lat2, long2);
-    if (d <= radiusInKM) {
-      this.currentWaypoint = this.currentWaypoint.complete();
+  checkTransition(lat, long, point, radiusInKM = 1) {
+    const d = getDistanceBetweenPoints(lat, long, point.lat, point.long);
+    if (d < radiusInKM) {
+      return this.transition();
     }
   }
-  
+
   /**
-   * Much like for heading, waypoints can have an altitude. so we
-   * want a way to check what altitude we should be flying at.
+   * do the thing!
    */
-  getAltitude({ autopilot, alt }) {
+  transition() {
+    const { points } = this;
+    this.currentWaypoint.deactivate();
+    this.currentWaypoint = this.currentWaypoint.complete();
+    if (this.currentWaypoint === points[0]) this.resetWaypoints();
+    this.currentWaypoint?.activate();
+    return true;
+  }
+
+  /**
+   * Check if we need to set the autopilot's altitude hold
+   * value to something new, and then return our hold alt:
+   */
+  getAltitude(autopilot) {
     const { modes } = autopilot;
-    const { currentWaypoint } = this;
-    if (!currentWaypoint) return modes[ALTITUDE_HOLD] ?? alt;
-    alt = currentWaypoint.alt
+    const { currentWaypoint: p1 } = this;
+    if (p1) {
+      let { alt } = p1;
 
-    // Is there next waypoint?
-    const next = currentWaypoint.next;
+      // Do we have a next waypoint? And does it have
+      // greater elevation than this one? If so, use that.
+      const p2 = p1.next;
+      if (p2 && !!p2.alt && p2.alt > p1.alt) {
+        alt = p2.alt;
+      }
 
-    // And if so, does it specify an altitude, and is that
-    // altitude higher than the current waypoint's altitude?
-    if (next && !!next.alt && next.alt > next.alt) {
-      alt = next.alt;
+      // Update the autopilot altitude parameter,
+      // if we have a different value here.
+      if (alt && modes[ALTITUDE_HOLD] !== alt) {
+        autopilot.setParameters({ [ALTITUDE_HOLD]: alt });
+      }
     }
-
-    // Update the AP heading and return
-    autopilot.setParameters({ [ALTITUDE_HOLD]: alt });
     return modes[ALTITUDE_HOLD];
   }
 }
 ```
 
-Then we add a waypoint manager instance to our `src/autopilot/autopilot.js`,  so we can do waypoint things (which is mostly passing things on to the waypoint manager):
+That looks like a lot of code, but most of it's fairly standard boilerplat for an ordered list item manager. The parts that are _really_ waypoint specific are the `getHeading` and `getAltitude` functions, which actually "set and get": they update the autopilot to the appropriate heading and altitude respectively, and then return that new value. Both use fairly "naive" approaches: `getHeading` simply returns the heading towards the next waypoint (which is a _terrible_ flight policy, as we'll see in a bit) and `getAltitude` returns either our current waypoint's elevation, or the next elevation's, depending on which is higher. Picking the highest (hopefully) prevents us from flying into a hill side.
+
+So just a few steps left. First, we need to add a waypoint manager instance to our `src/autopilot/autopilot.js`:
 
 ```javascript
+// We're not hot-reloading this one, but we could. The reason we don't
+// is because we've pretty much covered everything we needed to already.
+// There's one thing we'll be adding a bit later, but we don't need
+// hot reloading for that.
 import { WayPointManager } from "./waypoints/waypoint-manager.js";
 
 ...
 
 export class AutoPilot {
+  // Add the manager in our constructor...
   constructor(api, onChange = () => {}) {
     ...
     this.waypoints = new WayPointManager(this);
   }
 
+  // ...and then add the waypoint list to our autopilot parameter object:Ï
   async getParameters() {
     return {
       ...this.modes,
@@ -5442,33 +5632,36 @@ export class AutoPilot {
 }
 ```
 
-With an update to our autopilot router as well, so that clients can make function calls that "do waypoint things":
+And then we also update our autopilot route, so that clients call things like `this.server.autopilot.addWaypoint(...)`:
 
 ```javascript
 let autopilot;
 
 export class AutopilotRouter {
   constructor(_autopilot) { autopilot = _autopilot; }
-  resetTrim(client) { autopilot.resetTrim(); }  
   update(client, params) { autopilot.setParameters(params); }
+  resetTrim(client) { autopilot.resetTrim(); }  
   // Our new "routes":
   getWaypoints(client) { return autopilot.waypoints.getWaypoints(); }
   addWaypoint(client, lat, long) { autopilot.waypoints.addWaypoint(lat, long); }
   setWaypointPosition(client, id, lat, long) { autopilot.waypoints.setWaypointPosition(id, lat, long); }
   setWaypointElevation(client, id, alt) { autopilot.waypoints.setWaypointElevation(id, alt); }
-  toggleRepeating(client, value) { autopilot.waypoints.toggleRepeating(value); }
   removeWaypoint(client, id) { autopilot.waypoints.remove(id); }
-  splitWaypoint(client, id) { autopilot.waypoints.split(id); }
+  duplicateWaypoint(client, id) { autopilot.waypoints.duplicate(id); }
+  targetWaypoint(client, id) { autopilot.waypoints.target(id); }
   resetWaypoints(client) { autopilot.waypoints.resetWaypoints(); }
   clearWaypoints(client) { autopilot.waypoints.reset(); }
+  toggleRepeating(client, value) { autopilot.waypoints.toggleRepeating(value); }
 }
 ```
 
-And speaking of clients, let's update our client code so we can start testing this code.
+And speaking of clients, that was the last of the server-side work, so let's update our client cod and get to testing.
 
 ### The client side
 
-In order to work with waypoints, let's first update our `public/js/plane.js`:
+In order to work with waypoints, we'll want the client-side equivalent of a waypoint manager, but since it won't be "really" managing waypoints, let's call it a waypoint overlay instead. It'll be mirroring server-side waypoints on our map, so that feels an appropriate name.
+
+Let's first update our `public/js/plane.js`:
 
 ```javascript
 import { WaypointOverlay } from "./waypoint-overlay.js";
@@ -5516,23 +5709,9 @@ export class WaypointOverlay {
       const { lat, lng } = latlng;
       server.autopilot.addWaypoint(lat, lng);
     });
+    // ...We're going to add a bunch more here very soon...
   }
 
-
-  /**
-   * A little helper for "drawing lines" between waypoints
-   */
-  addNewTrail(lat, long, lat2, long2) {
-    const trail = new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
-    trail.add(lat2, long2);
-    return trail;
-  }
-
-  /**
-   * This will be our "main entry point": run through the list of
-   * server-side waypoints and update our local page UI to reflect
-   * that state.
-   */
   manage(waypoints = [], repeating) {
     // Look at each waypoint and determine whether it's
     // a new point, or one we already know about.
@@ -5542,11 +5721,10 @@ export class WaypointOverlay {
 
     // Then, do we need to remove any waypoints from our map?
     if (waypoints.length < this.waypoints.length) {
-      console.log(`points were removed`);
       this.waypoints
         .filter((w) => !waypoints.find((e) => e.id === w.id))
         .forEach(({ id }) => this.removeWaypoint(id));
-      this.resequence();
+      this.resequence(repeating);
     }
   }
 
@@ -5563,89 +5741,42 @@ export class WaypointOverlay {
   }
 
   /**
-   * Make sure that cosmetically, the first waypoint is labeled
-   * as waypoint 1, the next is waypoint 2, etc, irrespective of
-   * the waypoint's internal id number.
-   */
-  resequence(repeating) {
-    this.waypoints.forEach((waypoint, pos) => {
-      if (pos > 0) {
-        const { lat, long } = waypoint;
-        const prev = (waypoint.prev = this.waypoints[pos - 1]);
-        waypoint.trail?.remove();
-        waypoint.trail = this.addNewTrail(prev.lat, prev.long, lat, long);
-      }
-      this.setWaypointLabel(waypoint, pos + 1);
-    });
-    this.updateClosingTrail(repeating);
-  }
-
-  /**
-   * make sure we have a trail connecting the first and last
-   * waypoint, if we need to repeat the flightpath. Note that
-   * we also call this when we *move* the first or last point,
-   * so we indiscriminantly remove the trail first, then
-   * selectively add it back in.
-   */
-  updateClosingTrail(repeating) {
-    const { waypoints } = this;
-    if (waypoints.length < 2) return;
-
-    if (this.closingTrail) {
-      this.closingTrail.remove();
-      this.closingTrail = undefined;
-    }
-
-    if (repeating && !this.closingTrail) {
-      const first = waypoints[0];
-      const last = waypoints.at(-1);
-      this.closingTrail = this.addNewTrail(
-        first.lat,
-        first.long,
-        last.lat,
-        last.long
-      );
-    }
-  }
-  
-  /**
    * Set a human-friendly label on a waypoint
    */
   setWaypointLabel(waypoint, number) {
     waypoint.marker
       .getElement()
-      .querySelector(
-        `.pre`
-      ).textContent = `waypoint ${number} (${waypoint.distance.toFixed(1)} NM)`;
+      .querySelector(`.pre`)
+      .textContent = `waypoint ${number} (${waypoint.distance.toFixed(1)} NM)`;
   }
 
   /**
-   * Is this a new waypoint that we need to put on the map, or
-   * is this a previously known waypoint that we need to update?I lik
+   * Is this a new waypoint that we need to put on the map, or is
+   * this a previously known waypoint that we need to update?
    */
-  manageWaypoint(waypoint) {
+  manageWaypoint(waypoint, number) {
     const { waypoints } = this;
     const { id } = waypoint;
     const known = waypoints.find((e) => e.id === id);
-    if (!known) return this.addWaypoint(waypoint);
-    this.updateWaypoint(known, waypoint);
+    if (!known) return this.addWaypoint(waypoint, number);
+    this.updateWaypoint(known, waypoint, number);
   }
 
   /**
-   * If this is a new waypoint, we need to add it to our local list
-   * of waypoints, build a UI element for it, and link it up (visually)
-   * to its previous and/or next waypoint(s).
+   * Create a local waypoint based on a remote waypoint at the server
    */
-  addWaypoint(waypoint) {
+  addWaypoint(waypoint, number) {
     // Unpack and reassemble, because state content is immutable,
     // but we want to tack new properties onto waypoints here.
     // If we forget to do this, we'll get runtime errors!
     waypoint = Object.assign({}, waypoint);
-    const { id, lat, long, completed } = waypoint;
+    const { id, lat, long, completed, active } = waypoint;
 
-    const waypointClass = `waypoint-marker${completed ? ` completed` : ``}${active ? ` active` : ``}`;
+    const waypointClass = `waypoint-marker${completed ? ` completed` : ``}${
+      active ? ` active` : ``
+    }`;
 
-    // First we create a Leaflet icon, which is a div with custom size and CSS classes:
+    // First we create a Leaflet icon:
     const icon = L.divIcon({
       iconSize: [40, 40],
       iconAnchor: [20, 40],
@@ -5665,11 +5796,11 @@ export class WaypointOverlay {
       { icon, draggable: true }
     ).addTo(this.map));
 
-    // And we make sure there's a nice label for the user...
+    // We we set a human-friendly label
     this.setWaypointLabel(waypoint, number);
 
-    // Next, if we click-drag a marker, we want to send its new
-    // position to the server only once we let go.
+    // Next, if we click-drag a marker, we want to send the positional
+    // change to the server once we let go.
     marker.on(`drag`, (event) => (marker.__drag__latlng = event.latlng));
     marker.on(`dragend`, () => {
       const { lat, lng: long } = marker.__drag__latlng;
@@ -5677,9 +5808,8 @@ export class WaypointOverlay {
       this.server.autopilot.setWaypointPosition(id, lat, long);
     });
 
-    // Then, because we want to see the flight path, not just
-    // individual markers, we also build trails between "the new
-    // marker" and the previous one.
+    // Then, because we want to see the flight path, not just individual markers,
+    // we also build trails between "the new marker" and the previous one.
     const prev = this.waypoints.at(-1);
     this.waypoints.push(waypoint);
     if (prev) {
@@ -5690,11 +5820,11 @@ export class WaypointOverlay {
   }
 
   /**
-   * Updating a known marker means checking whether any of its
-   * properties have changed since the last time we saw it.
+   * Check if we need to update a local waypoint based on it
+   * having changed at the server.
    */
   updateWaypoint(waypoint, fromServer) {
-    const { lat, long, alt, active, completed } = fromServer;
+    const { id, lat, long, alt, active, completed } = fromServer;
 
     // First, are we currently dragging this point around? If so, don't
     // do anything to this point yet, because we're not done with it.
@@ -5722,8 +5852,11 @@ export class WaypointOverlay {
     // Do we need to update its altitude information?
     const div = waypoint.marker.getElement();
     if (div && div.dataset) {
-      if (alt) { div.dataset.alt = `${alt}'`; }
-      else { delete div.dataset.alt; }
+      if (alt) {
+        div.dataset.alt = `${alt}'`;
+      } else {
+        delete div.dataset.alt;
+      }
     }
     waypoint.alt = alt;
 
@@ -5734,90 +5867,120 @@ export class WaypointOverlay {
     waypoint.completed = completed;
     classes.toggle(`completed`, !!completed);
   }
+
+  /**
+   * Make sure that cosmetically, the first waypoint is labeled
+   * as waypoint 1, the next is waypoint 2, etc, irrespective of
+   * the waypoint's internal id number.
+   */
+  resequence(repeating) {
+    this.waypoints.forEach((waypoint, pos) => {
+      if (pos > 0) {
+        const { lat, long } = waypoint;
+        const prev = (waypoint.prev = this.waypoints[pos - 1]);
+        waypoint.trail?.remove();
+        waypoint.trail = this.addNewTrail(prev.lat, prev.long, lat, long);
+      }
+      this.setWaypointLabel(waypoint, pos + 1);
+    });
+  }
+
+  /**
+   * A little helper for "drawing lines" between waypoints
+   */
+  addNewTrail(lat, long, lat2, long2) {
+    const trail = new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
+    trail.add(lat2, long2);
+    return trail;
+  }
 }
 ```
 
-And of course, the image we're using for waypoints:
+We'll be using the following image for our marker:
 
 ![marker-icon](./images/page/marker-icon.png)
 
-With a smattering of CSS to make our markers look reasonable in `public/css/map-marker.css`:
+And we'll use a smattering of CSS to make the various waypoint states look differently, in  our `public/css/map-marker.css` file:
 
 ```CSS
 #map {
   --flight-path-colour: grey;
+}
 
-  & .waypoint-div {
-    &::before {
-      content: attr(data-alt);
+...
+
+.waypoint-div {
+  &::before {
+    content: attr(data-alt);
+    position: relative;
+    width: 40px;
+    display: inline-block;
+    text-align: center;
+    bottom: -40px;
+    text-shadow:
+      0px 0px 5px black,
+      0px 0px 10px black,
+      0px 0px 15px black;
+    color: white;
+    font-weight: bold;
+  }
+
+  &.active .waypoint-marker img {
+    filter: hue-rotate(145deg) brightness(2);
+  }
+
+  & .waypoint-marker {
+    & .pre {
+      display: block;
+      position: absolute;
+      width: auto;
+      white-space: nowrap;
+      background: white;
+      border: 1px solid lightgrey;
+      border-radius: 5px;
+      padding: 0 4px;
+      top: calc(1em - 100%);
+      left: -40%;
+    }
+    & img {
+      width: 40px !important;
+      height: 40px !important;
       position: relative;
-      width: 40px;
-      display: inline-block;
-      text-align: center;
-      bottom: -40px;
-      text-shadow:
-        0px 0px 5px black,
-        0px 0px 10px black,
-        0px 0px 15px black;
-      color: white;
-      font-weight: bold;
+      top: -20px;
+      left: 0;
     }
+  }
 
-    &.active .waypoint-marker img {
-      filter: hue-rotate(145deg) brightness(2);
+  &.completed .waypoint-marker {
+    & .pre {
+      top: calc(1em - 50%);
+      left: -40%;
     }
-
-    & .waypoint-marker {
-      & .pre {
-        display: block;
-        position: absolute;
-        width: auto;
-        white-space: nowrap;
-        background: white;
-        border: 1px solid lightgrey;
-        border-radius: 5px;
-        padding: 0 4px;
-        top: calc(1em - 100%);
-        left: -40%;
-      }
-      & img {
-        width: 40px !important;
-        height: 40px !important;
-        position: relative;
-        top: -20px;
-        left: 0;
-      }
-    }
-
-    &.completed .waypoint-marker {
-      & .pre {
-        top: calc(1em - 50%);
-        left: -40%;
-      }
-      & img {
-        width: 20px !important;
-        height: 20px !important;
-        filter: hue-rotate(-45deg);
-        opacity: 1;
-        top: 0px;
-        left: 10px;
-      }
+    & img {
+      width: 20px !important;
+      height: 20px !important;
+      filter: hue-rotate(-45deg);
+      opacity: 1;
+      top: 0px;
+      left: 10px;
     }
   }
 }
 ```
 
-And with that, we should be done, let's test this!
+And with that, we should be ready to do some testing!
 
 ### Testing waypoint placement
 
-If we rerun our server and client, we can now place a bunch of waypoints by clicking the map, which will send a waypoint creation message to the server, which creates the _actual_ waypoint, which we're then told about because the waypoints are now part of our autopilot information that we send to the client every time the autopilot updates.
+If we rerun our server with `node api-server.js --mock` and our client with `node web-server.js --owner --browser` , we can now place a bunch of waypoints by clicking the map, which will send a waypoint creation message to the server, which creates the _actual_ waypoint, which we're then told about because the waypoints are now part of the autopilot information that gets sent to the client every time the autopilot updates.
 
 ![Adding some waypoints to our map](./images/waypoints/placing-points.png)
 
-And that works, but the map keeps snapping to the plane, which makes placing points harder than it needs to be because we need to zoom out so we can place  points, and then when we try to move them around the map keeps changing on us, not to mention that our plane doesn't actually _do_ anything with the flight path yet. So let's keep going:
+...but it's a bit janky: the map keeps snapping to the plane, which makes placing points harder than it needs to be because we need to zoom out so we can place points, and then when we try to move them around the map keeps changing on us, not to mention that the plane doesn't actually _do_ anything yet, it just keeps flying in a straight line, which isn't super useful. And while we can move points around, we don't have a way to edit or remove them yet. Nor a way to mark a sequence of waypoints as repeating... let's improve things a bit!
 
 ## Quality of life improvements
+
+#### --- continue here ---
 
 ### Don't snap the map
 

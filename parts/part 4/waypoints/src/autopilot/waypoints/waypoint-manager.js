@@ -127,7 +127,6 @@ export class WayPointManager {
   resequence() {
     const { points } = this;
     points.forEach((p, i) => {
-      p.first = i === 0;
       p.id = i + 1;
       p.setNext(points[i + 1]);
     });
@@ -187,14 +186,11 @@ export class WayPointManager {
         // Do we only have a single point?
         p2 = p1.next;
         if (!p2) {
-          this.checkTransition(lat, long, p1.lat, p1.long, radiusInKM);
+          this.checkTransition(lat, long, p1, radiusInKM);
         }
 
         // If we have at least two points, let's do some projective planning.
-        else if (
-          p2 &&
-          !this.checkTransition(lat, long, p2.lat, p2.long, radiusInKM)
-        ) {
+        else if (p2 && !this.checkTransition(lat, long, p2, radiusInKM)) {
           // project the plane
           const { x, y } = project(p1.long, p1.lat, p2.long, p2.lat, long, lat);
           const fp = { lat: y, long: x };
@@ -211,7 +207,7 @@ export class WayPointManager {
               fp.lat,
               fp.long,
               b * innerRadiusRatio,
-              p1.headingToNext
+              p1.heading
             );
             targets.push(target);
           }
@@ -231,7 +227,7 @@ export class WayPointManager {
           //   );
           //   const fp = { lat: y, long: x };
           //   targets.push(fp);
-          //   if (this.checkTransition(lat, long, fp.lat, fp.long)) {
+          //   if (this.checkTransition(lat, long, fp)) {
           //     target = fp;
           //   }
           // }
@@ -281,8 +277,8 @@ export class WayPointManager {
    * this is not a good transition policy, but we'll revisit
    * this code in the next subsection to make it much better.
    */
-  checkTransition(lat, long, lat2, long2, radiusInKM) {
-    const d = getDistanceBetweenPoints(lat, long, lat2, long2);
+  checkTransition(lat, long, point, radiusInKM) {
+    const d = getDistanceBetweenPoints(lat, long, point.lat, point.long);
     if (d < radiusInKM) {
       return this.transition();
     }
@@ -292,9 +288,10 @@ export class WayPointManager {
    * do the thing.
    */
   transition() {
+    const { points } = this;
     this.currentWaypoint.deactivate();
     this.currentWaypoint = this.currentWaypoint.complete();
-    if (this.currentWaypoint?.first) this.resetWaypoints();
+    if (this.currentWaypoint === points[0]) this.resetWaypoints();
     this.currentWaypoint?.activate();
     return true;
   }

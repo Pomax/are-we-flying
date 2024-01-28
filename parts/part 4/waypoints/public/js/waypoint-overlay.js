@@ -89,12 +89,6 @@ export class WaypointOverlay {
     });
   }
 
-  addNewTrail(lat, long, lat2, long2) {
-    const trail = new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
-    trail.add(lat2, long2);
-    return trail;
-  }
-
   manage(waypoints = [], repeating) {
     // Show whether this is a closed path or not by marking our button active or not:
     document
@@ -131,52 +125,6 @@ export class WaypointOverlay {
     waypoint.marker.remove();
     waypoint.trail?.remove();
     waypoint.next?.trail?.remove();
-  }
-
-  /**
-   * Make sure that cosmetically, the first waypoint is labeled
-   * as waypoint 1, the next is waypoint 2, etc, irrespective of
-   * the waypoint's internal id number.
-   */
-  resequence(repeating) {
-    this.waypoints.forEach((waypoint, pos) => {
-      if (pos > 0) {
-        const { lat, long } = waypoint;
-        const prev = (waypoint.prev = this.waypoints[pos - 1]);
-        waypoint.trail?.remove();
-        waypoint.trail = this.addNewTrail(prev.lat, prev.long, lat, long);
-      }
-      this.setWaypointLabel(waypoint, pos + 1);
-    });
-    this.updateClosingTrail(repeating);
-  }
-
-  /**
-   * make sure we have a trail connecting the first and last
-   * waypoint, if we need to repeat the flightpath. Note that
-   * we also call this when we *move* the first or last point,
-   * so we indiscriminantly remove the trail first, then
-   * selectively add it back in.
-   */
-  updateClosingTrail(repeating) {
-    const { waypoints } = this;
-    if (waypoints.length < 2) return;
-
-    if (this.closingTrail) {
-      this.closingTrail.remove();
-      this.closingTrail = undefined;
-    }
-
-    if (repeating && !this.closingTrail) {
-      const first = waypoints[0];
-      const last = waypoints.at(-1);
-      this.closingTrail = this.addNewTrail(
-        first.lat,
-        first.long,
-        last.lat,
-        last.long
-      );
-    }
   }
 
   /**
@@ -313,5 +261,60 @@ export class WaypointOverlay {
     classes.toggle(`active`, !!active);
     waypoint.completed = completed;
     classes.toggle(`completed`, !!completed);
+  }
+
+  /**
+   * Make sure that cosmetically, the first waypoint is labeled
+   * as waypoint 1, the next is waypoint 2, etc, irrespective of
+   * the waypoint's internal id number.
+   */
+  resequence(repeating) {
+    this.waypoints.forEach((waypoint, pos) => {
+      if (pos > 0) {
+        const { lat, long } = waypoint;
+        const prev = (waypoint.prev = this.waypoints[pos - 1]);
+        waypoint.trail?.remove();
+        waypoint.trail = this.addNewTrail(prev.lat, prev.long, lat, long);
+      }
+      this.setWaypointLabel(waypoint, pos + 1);
+    });
+    this.updateClosingTrail(repeating);
+  }
+
+  /**
+   * make sure we have a trail connecting the first and last
+   * waypoint, if we need to repeat the flightpath. Note that
+   * we also call this when we *move* the first or last point,
+   * so we indiscriminantly remove the trail first, then
+   * selectively add it back in.
+   */
+  updateClosingTrail(repeating) {
+    const { waypoints } = this;
+    if (waypoints.length < 2) return;
+
+    if (this.closingTrail) {
+      this.closingTrail.remove();
+      this.closingTrail = undefined;
+    }
+
+    if (repeating && !this.closingTrail) {
+      const first = waypoints[0];
+      const last = waypoints.at(-1);
+      this.closingTrail = this.addNewTrail(
+        first.lat,
+        first.long,
+        last.lat,
+        last.long
+      );
+    }
+  }
+
+  /**
+   * A little helper for "drawing lines" between waypoints
+   */
+  addNewTrail(lat, long, lat2, long2) {
+    const trail = new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
+    trail.add(lat2, long2);
+    return trail;
   }
 }
