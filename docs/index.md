@@ -4836,7 +4836,7 @@ import { FEET_PER_METER, FPS_PER_KNOT, ONE_KTS_IN_KMS } from "../../../utils/con
 import { constrainMap, degrees, getPointAtDistance, lerp, radians, runLater } from "../../../utils/utils.js";
 const { abs, sign, tan, PI } = Math;
 
-// Then we're going to be running our flight in 450ms intervals. 
+// Then we're going to be running our flight in 450ms intervals.
 const UPDATE_FREQUENCY = 450;
 
 /**
@@ -4920,7 +4920,7 @@ export class MockPlane {
     const { alt } = converted;
     const newAltitude = alt + data.VERTICAL_SPEED * interval;
     this.setAltitude(newAltitude, lat, long);
-    
+
     // Then we update our current speed, based on the throttle lever,
     // with a loss (or gain) offset based on the current vertical
     // speed, so the autothrottle/targetVS code has something to
@@ -4955,7 +4955,7 @@ export class MockPlane {
     const { lat: lat2, long: long2 } = getPointAtDistance(lat, long, d, h);
     data.PLANE_LATITUDE = radians(lat2);
     data.PLANE_LONGITUDE = radians(long2);
-    
+
     // And that's it. This is an absolutely terrible simulation,
     // is all kinds of wrong, and also does what we need just
     // well enough that we can run our code against it.
@@ -4978,7 +4978,7 @@ export class MockPlane {
     data.PLANE_HEADING_DEGREES_MAGNETIC = radians(deg);
     data.PLANE_HEADING_DEGREES_TRUE = radians(deg + declination);
   }
-  
+
   /**
    * The same goes for when we change altitudes.
    */
@@ -5200,7 +5200,7 @@ export class ServerClass {
       api.setAutopilot(autopilot);
       // And expose a "route" that allows clients to call
       // this.server.mock.reset() in order to restart the
-      // "simulation" without restarting the node process:      
+      // "simulation" without restarting the node process:
       this.mock = { reset: () => api.reset(`Resetting the mock flight`) };
     }
 
@@ -5274,7 +5274,7 @@ As such, we're going to need to break down waypoint logic as a few separate task
 
 This will be a little "trickier" in that the client will need to main a list of waypoints _in parallel_ to the server's list of waypoints, which we need to keep in sync with the list of waypoints we get as part of our regular server update. And of course, the client is _just_ a UI, so if we -say- place a point, we don't: we instead send an instruction to create a new waypoint to the server, and then on the next server update we'll see that waypoint in the updated listed of waypoints. So it's going to be a bit more code than you might have thought this would be.
 
-So let's get started! 
+So let's get started!
 
 ### The server side
 
@@ -5287,7 +5287,7 @@ We'll model waypoints pretty plainly in their own `src/autopilot/waypoints/waypo
 5. they need to know what "the next waypoint" is, so we can show that in our UI, and
 6. they need to know their distance from the previous waypoint, so we can show that in our UI
 
-And that last one seems obvious: it's the first one in whatever list of waypoints we end up coding, but 
+And that last one seems obvious: it's the first one in whatever list of waypoints we end up coding, but
 
 Similarly, we'll need ways to set and update all those values. So... let's put all that in:
 
@@ -5306,7 +5306,7 @@ export class Waypoint {
     let id = 1;
     return () => id++;
   })();
-  
+
   // The following functions should be pretty self-explanatory:
 
   constructor(lat, long, alt = false) {
@@ -5744,7 +5744,7 @@ let autopilot;
 export class AutopilotRouter {
   constructor(_autopilot) { autopilot = _autopilot; }
   update(client, params) { autopilot.setParameters(params); }
-  resetTrim(client) { autopilot.resetTrim(); }  
+  resetTrim(client) { autopilot.resetTrim(); }
   // Our new "routes":
   getWaypoints(client) { return autopilot.waypoints.getWaypoints(); }
   addWaypoint(client, lat, long) { autopilot.waypoints.addWaypoint(lat, long); }
@@ -5978,7 +5978,7 @@ export class WaypointOverlay {
     waypoint.trail?.remove();
     waypoint.next?.trail?.remove();
   }
-  
+
   /**
    * Make sure that cosmetically, the first waypoint is labeled
    * as waypoint 1, the next is waypoint 2, etc, irrespective of
@@ -6165,10 +6165,10 @@ export class Plane {
     // Link our checkbox to our new "centerMapOnPlane" flag
     const btn = (this.centerButton = document.getElementById(`center-on-plane`));
     btn.addEventListener(`change`, ({ target }) => (this.centerMapOnPlane = !!target.checked));
-    
+
     // Then: if we drag the map around, turn off auto-centering
     map.on(`drag`, () => { if (btn.checked) btn.click(); });
-    
+
     // And if we load the page without the checkbox checked
     // (e.g. we reload the page), get it checked.
     if (!btn.checked) btn.click();
@@ -6369,19 +6369,19 @@ Next, our `waypoint-overlay.js` to add the click handler:
 
 export class WaypointOverlay {
   ...
-  
+
   addEventHandling() {
     ...
-    
+
     document
       .querySelector(`#map-controls .patrol`)
       .addEventListener(`click`, () => {
         server.autopilot.toggleRepeating();
-      });  
+      });
   }
 
   // But we're not done: we now also need some extra code that
-  // can show the flight path as closed or not, by adding an 
+  // can show the flight path as closed or not, by adding an
   // extra trail from end to start...
 
   manage(waypoints = [], repeating) {
@@ -6397,7 +6397,7 @@ export class WaypointOverlay {
 
     ...
   }
-    
+
   ...
 
   /**
@@ -6418,7 +6418,7 @@ export class WaypointOverlay {
       }
     }
     ...
-  }    
+  }
 
   ...
 
@@ -6473,7 +6473,7 @@ Finally, we're still missing something that lets us edit a waypoint. We can clic
 3. making a waypoint the current target, and
 4. removing a waypoint.
 
-And if you remember the `addWaypoint` function in our `waypoint-overlay.js`, it has 
+And if you remember the `addWaypoint` function in our `waypoint-overlay.js`, it has
 
 So let's make a little modal that then let's make sure we can also edit and/or remove waypoints, by adding some code that gives us an edit modal when we click on waypoints. And edit to our `waypoint-overlay.js`:
 
@@ -6528,7 +6528,7 @@ export function showWaypointModal(server, waypoint) {
     `;
 
   // Add the modal and get the elevation input field
-  document.body.appendChild(modal);   
+  document.body.appendChild(modal);
   const input = modal.querySelector(`input.altitude`);
 
   // Dismiss the modal and commit the elevation change
@@ -6692,12 +6692,12 @@ if (!p2) {
   return p1;
 }
 
-// If we *are*, project our plane onto the flightpath and
-// target that, or if our "circle" overlaps the flight path,
-// target the intersection of those two:
+// If we *are* flying a leg, project our plane onto the flightpath
+// and target that, or if our "circle" overlaps the flight path,
+// target the intersection of the flight path line and our circle:
 const target = airplane.project(p1.x, p1.y, p2.x, p2.y, airplane.r);
 
-// And of course, if we're close enough to p2, transition.
+// And if we're close enough to p2, transition.
 if (dist(airplane.x, airplane.y, p2.x, p2.y) < airplane.r) {
   current++;
 }
@@ -6712,19 +6712,23 @@ So let's see what that does when we slot this new targeting code in the above gr
   <source title="our new targeting policy" src="./graphics/project.js" />
 </graphics-element>
 
-This is better, but it takes a while for the plane to be properly aligned with the flight path, and it would be nicer if we got there sooner. We can sort of fake that by giving our plane a smaller radius: the smaller we make it, the closer our target point on the flight path will be to our plane, but then we also run the risk of overshooting our transitions again... play around with the radius slider in the following graphic to see what happens:
+This at least looks a bit better, but it can take quite a while for the plane to be properly aligned with the flight path, and it would be nicer if we could make that happen quicker.
+
+We can sort of fake that by giving our plane a smaller radius: the smaller we make it, the closer our target point on the flight path will be to our plane, but then we also run the risk of overshooting our transitions again... play around with the radius slider in the following graphic to see what happens:
 
 <graphics-element title="Intercepting the flight path" src="./graphics/flight-path-base.js">
   <source src="./graphics/airplane.js" />
   <source src="./graphics/dynamic-project.js" />
 </graphics-element>
 
-Of course, we can be clever and  combine these two, so that we have an "outer circle" that we use for transition waypoints, and an "inner circle" that we use for flightpath targeting:
+Of course, we can be clever and give the plane _two_ radii instead of just one:
+- one that represents our transition radius, and
+- one that represents our on-path target radius:
 
 ```javascript
 ...
 
-const target = airplane.project(p1.x, p1.y, p2.x, p2.y, innerRadius);
+const target = airplane.project(p1.x, p1.y, p2.x, p2.y, onPathRadius);
 
 if (dist(airplane.x, airplane.y, p2.x, p2.y) < airplane.r) {
   current++;
@@ -6740,7 +6744,9 @@ Which has the following effect:
   <source src="./graphics/dual-project.js" />
 </graphics-element>
 
-This is again better, but if you look at what happens at the transitions, our outer circle intersects the next leg of our flight path _before_ it reaches the next waypoint, so what if we transition early? Instead of just projecting our plane onto the current leg, we'll also project the plane onto the _next_ leg, and if the distance from our plane to that second projection is less than our plane's outer radius, we transition, while still using our inner radius for finding a point on the flight path to target:
+This is again better, but if you look at what happens at the transitions with angles less than 90 degrees, our outer circle intersects the next leg of our flight path _before_ the plane reaches the next waypoint, so what if we transition early?
+
+Instead of just projecting our plane onto the current leg, we'll also project the plane onto the _next_ leg, and if the distance from our plane to that second projection is less than our plane's outer radius, we transition, while still using our inner radius for finding a point on the flight path to target:
 
 ```javascript
 function checkTransition(p) {
@@ -6765,16 +6771,14 @@ if (!p2) {
 // find our target based on the "inner radius"
 target = airplane.project(p1.x, p1.y, p2.x, p2.y, innerRadius);
 
-// But now let's also check whether we're close enough to the
+// And now let's also check whether we're close enough to the
 // next leg (if there is one) so that we can transition early:
 p3 = points[current + 2];
 
 if (p3) {
   intersection = airplane.project(p2.x, p2.y, p3.x, p3.y);
-  if (intersection) {
-    if (checkTransition(intersection)) {
-      target = intersection;
-    }
+  if (intersection && checkTransition(intersection)) {
+    target = intersection;
   }
 } else checkTransition(p2);
 
@@ -6827,9 +6831,9 @@ How did we do?
   <source src="./graphics/bumped.js" />
 </graphics-element>
 
-It's actually hard to tell: this looks pretty much the same as before, but things change if we increase the plane's speed and reduce the inner radius. Pick a speed of 100 and a radius of 1: comparing the two graphics, we see that our latest update keeps the plane much closer to the flight path itself. In fact, let's keep the speed at 50, and set the ratio to 1, so that we're effectively _only_ working with our outer circle: that's actually good enough that we can just dispense with our inner radius entirely, and simply pick an outer radius based on our speed without having to guess at what a workable inner ratio would be.
+It's actually hard to tell: if we overlay the graphs we see that we get onto the flight path just a _tiny_ bit earlier in the very last turn, but not fast enough to justify the extra work.
 
-So... let's just remove the inner radius and update our `getHeading` in our `waypoint-manager.js` file:
+So let's update the `getHeading` function in our `waypoint-manager.js` file to use our "projective" flight pathing:
 
 ```javascript
 import {
@@ -7118,7 +7122,7 @@ export class WaypointOverlay {
       reader.readAsText(file);
     });
   }
-  
+
   ...
 }
 ```
@@ -7483,7 +7487,7 @@ That said, the King Air needs the same correction so let's figure out how to do 
 
 ## Gee Bee R3 Special
 
-It can fly the route just fine. 
+It can fly the route just fine.
 
 ## Flying upside down
 
