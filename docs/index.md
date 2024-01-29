@@ -7013,20 +7013,48 @@ Not quite as good... Because our mock plane is pretty terrible at turning compar
 
 But before we do, let's make sure we can fly the same flight path with lots of different planes...
 
-## Saving and loading flight paths
+## Saving and loading flight plans
 
-Before we move on to testing, let's make sure we can _repeat_ flights, otherwise testing is going to be quite the challenge. Thankfully, this is going to be super simple. First, we add some web page UI:
+Before we move on to testing, let's make sure we can _repeat_ flights, otherwise testing is going to be quite the challenge. Thankfully, this is going to be super simple. First, we add some save and load buttons to our `index.html`:
 
 ```html
-<div id="maps-selectors">
   ...
-  flight plan:
-  <button name="save">save</button>
-  load: <input type="file" name="load" />
-</div>
+    <div id="map-controls">
+      ...
+      <fieldset>
+        flight plan:
+        <button class="save">save</button>
+        load: <input type="file" class="load" />
+      </fieldset>
+      <fieldset>
+        <button class="patrol">patrol</button>
+        <button class="revalidate">revalidate</button>
+        <button class="reset">reset waypoints</button>
+        <button class="clear">clear waypoints</button>
+      </fieldset>
+    </div>
+  ...
 ```
 
-With some extra JS added to our waypoint overlay event handling function:
+With just enough CSS to hide the filename when we pick a file (which is, annoyingly, not something you just just... remove) in our `index.css:
+
+```css
+fieldset {
+  border: 1px solid black;
+  border-radius: 0.5em;
+  margin: 0;
+  padding: 0.25em 0.5em;
+  display: inline-block;
+
+  input[type="file"] {
+    color: transparent;
+    width: 6em;
+  }
+}
+...
+```
+
+And some extra JS added to our waypoint overlay event handling function:
 
 ```javascript
 ...
@@ -7038,50 +7066,32 @@ export class WaypointOverlay {
     this.addEventHandling(map);
   }
 
-  addEventHandling(map) {
-    map.on(`click`, ({ latlng }) => {
-      const { lat, lng } = latlng;
-      server.autopilot.addWaypoint(lat, lng);
-    });
+  addEventHandling() {
+    ...
 
     document
-      .querySelector(`#map-controls .patrol`)
+      .querySelector(`#map-controls .revalidate`)
       .addEventListener(`click`, () => {
-        this.server.autopilot.toggleRepeating();
-      });
-
-    document
-      .querySelector(`#map-controls .reset`)
-      .addEventListener(`click`, () => {
-        if (confirm(`Are you sure you want to reset all waypoints?`)) {
-          this.server.autopilot.resetWaypoints();
-        }
-      });
-
-    document
-      .querySelector(`#map-controls .clear`)
-      .addEventListener(`click`, () => {
-        if (confirm(`Are you sure you want to clear all waypoints?`)) {
-          this.server.autopilot.clearWaypoints();
-        }
+        const { lat, long } = this.plane?.state.flightInformation?.data || {};
+        server.autopilot.revalidate(lat, long);
       });
 
     // Saving our waypoints is actually fairly easy: we throw everything except the lat/long/alt
     // information away, and then we generate an `<a>` that triggers a file download for that
     // data in JSON format:
     document.querySelector(`button.save`).addEventListener(`click`, () => {
-      // Form our "purely lat/long/alt" data:
+      // Form "purely lat/long/alt" data:
       const strip = ({ lat, long, alt }) => ({ lat, long, alt });
       const stripped = this.waypoints.map(strip);
       const data = JSON.stringify(stripped, null, 2);
 
-      // Then create our download link:
+      // Then create a download link:
       const downloadLink = document.createElement(`a`);
       downloadLink.textContent = `download this flightplan`;
       downloadLink.href = `data:text/plain;base64,${btoa(data)}`;
       downloadLink.download = `flightplan.txt`;
 
-      // And then automatically click it to trigger the download.
+      // And then automatically click it to trigger a download.
       console.log(`Saving current flight path.`);
       downloadLink.click();
     });
@@ -7094,103 +7104,30 @@ export class WaypointOverlay {
       reader.onload = () => {
         try {
           const data = JSON.parse(reader.result);
-          this.server.autopilot.clearWaypoints();
+          server.autopilot.clearWaypoints();
           data.forEach(({ lat, long, alt }) =>
-            this.server.autopilot.addWaypoint(lat, long, alt)
+            server.autopilot.addWaypoint(lat, long, alt)
           );
-          console.log(`Loaded flight path from file.`);
-        } catch (e) {
-          console.error(`Could not parse flight path.`);
-        }
-      };
-      reader.readAsText(file);
-    });
-  }
-
-  ...
-}
-```
-
-### Picking the right waypoint
-
-Of course, with saving and loading, we run the risk of loading a flight path that we're "in the middle of", with the plane nowhere near the start of the flight path. Right now, doing so would make the plane turn around so it can start all the way back at the start, which would be a bit silly. In order to deal with this, we can update our flight path loading code so that it asks the server to revalidate the flight path, to see which waypoint we should "start" at.
-
-First, we'll update our `plane.js` to change how we create our waypoint overlay:
-
-```javascript
-...
-export class Plane {
-  constructor(server, map = defaultMap, location = DUNCAN_AIRPORT, heading = 135) {
-    ...
-    this.waypointOverlay = new WaypointOverlay(this);
-    this.setupControls(map);
-  }
-  ...
-}
-```
-
-Then, we update our `waypoint-overlay.js`, updating the constructor and the file load handling:
-
-```javascript
-export class WaypointOverlay {
-  // we'll swap our constructor arguments over to just "plane":
-  constructor(plane) {
-    this.plane = plane;
-    this.server = plane.server;
-    this.map = plane.map;
-    this.waypoints = [];
-    this.addEventHandling(this.map);
-  }
-
-  // then we add a revalidation call to our load event handler:
-  addEventHandling(map) {
-    const { server } = this;
-
-    ...
-
-    document.querySelector(`input.load`).addEventListener(`change`, (evt) => {
-      const file = evt.target.files[0];
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const data = JSON.parse(reader.result);
-          this.server.autopilot.clearWaypoints();
-          data.forEach(({ lat, long, alt }) =>
-            this.server.autopilot.addWaypoint(lat, long, alt)
-          );
-
-          // Get the plane's current position and ask the server to
-          // revalidate the flight path against that GPS coordinate:
           const { lat, long } = this.plane?.state.flightInformation?.data || {};
           server.autopilot.revalidate(lat, long);
-
           console.log(`Loaded flight path from file.`);
         } catch (e) {
-          console.error(`Could not parse flight path:`, e);
+          console.error(`Could not parse flight path.`, e);
         }
       };
       reader.readAsText(file);
     });
   }
-}
-```
-
-And then we implement the `revalidate` route in our `autopilot-router.js`:
-
-```javascript
-...
-export class AutopilotRouter {
+  
   ...
-  revalidate(client) {
-    autopilot.waypoints.revalidate();
-  }
 }
 ```
 
-And the actual `revalidate` function in our `waypoint-manager.js`:
+Which leaves adding the `revalidate` function to our `waypoint-manager.js`, so that when we load up a flight path, we can find the point on that flight path that the plane is currently closest to, mark the entire path leading up to that point as "completed", and marking everything past it as "still pending":
 
 ```javascript
 ...
+
 export class WayPointManager {
   ...
 
@@ -7200,10 +7137,8 @@ export class WayPointManager {
    * any points prior to it as already completed.
    */
   revalidate(lat, long) {
+    // which point are we closest to?
     const { points } = this;
-
-    // Which point are we currently closest to? (and if no lat/long
-    // was passed, just assume the first point in the flight path).
     let nearest = { pos: 0 };
     if (lat !== undefined && long !== undefined) {
       nearest = { distance: Number.MAX_SAFE_INTEGER, pos: -1 };
@@ -7222,16 +7157,32 @@ export class WayPointManager {
 
     // And then make sure every point knows what the next point is,
     // and mark the one that we're closest to as our current waypoint.
-    this.resequence();
     this.currentWaypoint = points[nearest.pos];
     this.currentWaypoint.activate();
+    this.resequence();
+
+    // and push the update to clients
+    this.autopilot.onChange();
+  }
+}
+
+```
+
+And then of course we need to expose that through the `autopilot-router.js` too:
+
+```javascript
+...
+export class AutopilotRouter {
+  ...
+  revalidate(client, lat, long) {
+    autopilot.waypoints.revalidate(lat, long);
   }
 }
 ```
 
-Now if we load a flight path, we won't be sent all the way back to the start.
+And with that, saving and loading's sorted.
 
-And: that was the last bit of waypoint related code: let's fly some planes!
+Which means it's time to say goodbye to our mocked MSFS and its janky fake plane, and test things properly with a plane loaded up in MSFS!
 
 # Part 5: Testing and refining our code
 

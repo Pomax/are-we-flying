@@ -102,27 +102,5 @@ export class Autopilot {
     // pushing a course or altitude change through.
     if (!params[`ALT`]) altitude.value = round(flightData.alt);
     if (!params[`HDG`]) heading.value = round(flightData.heading);
-
-    // what are we even doing?
-    if (params[`HeadingTargets`]) {
-      const { targets, radius } = params[`HeadingTargets`];
-
-      this.tmarkers?.forEach((t) => t.remove());
-      this.tmarkers = [];
-      targets?.forEach((t) => {
-        const { lat, long } = t;
-        if (!lat) return;
-        t = L.circle([lat, long], 50, { color: `red` });
-        t.addTo(this.map);
-        this.tmarkers.push(t);
-      });
-
-      if (this.planeRadius) this.planeRadius.remove();
-      this.planeRadius = L.circle(
-        [flightData.lat, flightData.long],
-        radius * 1000
-      );
-      this.planeRadius.addTo(this.map);
-    }
   }
 }

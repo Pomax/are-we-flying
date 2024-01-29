@@ -11,7 +11,7 @@ import {
   LEVEL_FLIGHT,
 } from "../utils/constants.js";
 
-const USE_NEW_HEADING_MODE = true;
+const USE_NEW_HEADING_MODE = false;
 let flyLevel;
 if (USE_NEW_HEADING_MODE) {
   const lib = await watch(
