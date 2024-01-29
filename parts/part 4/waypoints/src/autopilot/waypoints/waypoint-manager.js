@@ -155,120 +155,45 @@ export class WayPointManager {
    * heading mode, if we're not flying in the right
    * direction at the moment, then return our heading.
    */
-  getHeading({
-    autopilot,
-    heading,
-    lat,
-    long,
-    declination,
-    speed,
-    vs1,
-    cruiseSpeed,
-  }) {
-    try {
-      const { modes } = autopilot;
-      let { currentWaypoint: p1 } = this;
-      let p2, p3, target;
-      let targets = [];
+  getHeading({ autopilot, heading, lat, long, declination }) {
+    const { modes } = autopilot;
+    let { currentWaypoint: p1 } = this;
 
-      const seconds = constrainMap(speed, vs1, cruiseSpeed, 60, 30);
-      const radiusInKM = speed * ONE_KTS_IN_KMS * seconds;
-
-      // Do we even need to do anything?
-      if (!p1) {
-        modes[HEADING_MODE] ??= heading;
+    // If we don't have a waypoint, and the autopilot doesn't
+    // have anything set, then our current heading becomes our
+    // autopilot heading parameter.
+    if (!p1) {
+      if (!modes[HEADING_MODE]) {
+        autopilot.setParameters({
+          [HEADING_MODE]: heading,
+        });
       }
-
-      // We'll go with a radius based on X seconds at our current speed,
-      // where X is a full minute if we're near stall speed, or only 30
-      // seconds if we're going at cruise speed.
-      else {
-        // Do we only have a single point?
-        p2 = p1.next;
-        if (!p2) {
-          this.checkTransition(lat, long, p1, radiusInKM);
-        }
-
-        // If we have at least two points, let's do some projective planning.
-        else if (p2 && !this.checkTransition(lat, long, p2, radiusInKM)) {
-          // project the plane
-          const { x, y } = project(p1.long, p1.lat, p2.long, p2.lat, long, lat);
-          const fp = { lat: y, long: x };
-          targets.push(fp);
-          target = fp;
-
-          // if we're close enough, project forward by radial distance
-          const a = getDistanceBetweenPoints(lat, long, fp.lat, fp.long);
-          const h = radiusInKM;
-          if (a < h) {
-            0;
-            const b = (h ** 2 - a ** 2) ** 0.5;
-            target = getPointAtDistance(
-              fp.lat,
-              fp.long,
-              b * innerRadiusRatio,
-              p1.heading
-            );
-            targets.push(target);
-          }
-
-          /*
-          // // Second check: are we close enough to the next leg? If so,
-          // // transition early.
-          // p3 = p2.next;
-          // if (p3) {
-          //   const { x, y } = project(
-          //     p2.long,
-          //     p2.lat,
-          //     p3.long,
-          //     p3.lat,
-          //     long,
-          //     lat
-          //   );
-          //   const fp = { lat: y, long: x };
-          //   targets.push(fp);
-          //   if (this.checkTransition(lat, long, fp)) {
-          //     target = fp;
-          //   }
-          // }
-          */
-        }
-
-        if (target) {
-          // We now know which GPS coordinate to target, so let's
-          // determine what heading that equates to:
-          const newHeading = getHeadingFromTo(
-            lat,
-            long,
-            target.lat,
-            target.long
-          );
-          const hdg = parseFloat(
-            ((360 + newHeading - declination) % 360).toFixed(2)
-          );
-
-          // And if that's not the heading we're already flying, update the autopilot!
-          if (modes[HEADING_MODE] !== hdg) {
-            console.log(`updating heading`);
-            autopilot.setParameters({
-              [HEADING_MODE]: hdg,
-            });
-          }
-        }
-      }
-
-      // For visualization purposes, update the targets involved in this code:
-      autopilot.setParameters({
-        [HEADING_TARGETS]: {
-          radius: radiusInKM,
-          targets,
-        },
-      });
-
-      return modes[HEADING_MODE];
-    } catch (err) {
-      console.error(`fix your shit`, err);
     }
+
+    // If we do have a waypoint, then set the autopilot to
+    // the heading we need to fly in order to fly "through"
+    // our waypoint.
+    else {
+      const newHeading = getHeadingFromTo(lat, long, p1.lat, p1.long);
+      // round the heading to 2 decimal places..
+      const hdg = parseFloat(
+        ((360 + newHeading - declination) % 360).toFixed(2)
+      );
+
+      // ...and if that's not the heading we're already flying,
+      // update the autopilot!
+      if (modes[HEADING_MODE] !== hdg) {
+        autopilot.setParameters({
+          [HEADING_MODE]: hdg,
+        });
+      }
+
+      // Also make sure to check whether we're now close enough to
+      // our waypoint that we need to transition to the next one:
+      this.checkTransition(lat, long, p1);
+    }
+
+    return modes[HEADING_MODE];
   }
 
   /**
@@ -277,7 +202,7 @@ export class WayPointManager {
    * this is not a good transition policy, but we'll revisit
    * this code in the next subsection to make it much better.
    */
-  checkTransition(lat, long, point, radiusInKM) {
+  checkTransition(lat, long, point, radiusInKM = 1) {
     const d = getDistanceBetweenPoints(lat, long, point.lat, point.long);
     if (d < radiusInKM) {
       return this.transition();
@@ -300,18 +225,34 @@ export class WayPointManager {
    * Check if we need to set the autopilot's altitude hold
    * value to something new, and then return our hold alt:
    */
-  getAltitude(autopilot) {
+  getAltitude(autopilot, alt) {
     const { modes } = autopilot;
     const { currentWaypoint: p1 } = this;
-    if (p1) {
-      let { alt } = p1;
 
-      // Do we have a next waypoint?
+    // If we don't have a waypoint, then our current heading
+    // becomes our current autopilot heading parameter.
+    if (!p1) {
+      if (!modes[ALTITUDE_HOLD]) {
+        autopilot.setParameters({
+          [ALTITUDE_HOLD]: alt,
+        });
+      }
+    }
+
+    // If we do have a waypoint, then set the autopilot to the
+    // altitude we need to fly in order to fly at a safe level
+    else {
+      alt = p1.alt;
+
+      // Do we have a next waypoint? And does it have
+      // greater elevation than this one? If so, use that.
       const p2 = p1.next;
       if (p2 && !!p2.alt && p2.alt > p1.alt) {
         alt = p2.alt;
       }
 
+      // Update the autopilot altitude parameter,
+      // if we have a different value here.
       if (alt && modes[ALTITUDE_HOLD] !== alt) {
         autopilot.setParameters({ [ALTITUDE_HOLD]: alt });
       }

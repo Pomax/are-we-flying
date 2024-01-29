@@ -2524,6 +2524,7 @@ So with that class set up, let's update `plane.js` some more:
 
 ```javascript
 import { Trail } from "./trail.js";
+import { getDistanceBetweenPoints } from "./utils.js";
 
 ...
 
@@ -2601,6 +2602,44 @@ export class Plane {
    ...
 }
 ```
+
+With the `getDistanceBetweenPoints` in utils:
+
+```javascript
+const { sin, cos, atan2, sqrt } = Math;
+
+...
+
+export function radians(deg) {
+  return (deg / 180) * PI;
+}
+
+export function degrees(rad) {
+  return (rad / PI) * 180;
+}
+
+export function getDistanceBetweenPoints(lat1, long1, lat2, long2, R = 6371) {
+  // see https://stackoverflow.com/a/365853/740553
+
+  lat1 = parseFloat(lat1);
+  long1 = parseFloat(long1);
+  lat2 = parseFloat(lat2); // do we still need parseFloat here?
+  long2 = parseFloat(long2);
+
+  const dLat = radians(lat2 - lat1);
+  const dLong = radians(long2 - long1);
+  lat1 = radians(lat1);
+  lat2 = radians(lat2);
+
+  const a =
+    sin(dLat / 2) * sin(dLat / 2) +
+    sin(dLong / 2) * sin(dLong / 2) * cos(lat1) * cos(lat2);
+  const c = 2 * atan2(sqrt(a), sqrt(1 - a));
+  return R * c;
+}
+```
+
+
 
 A reasonably small bit of extra code, for a profound improvement:
 
@@ -5242,12 +5281,11 @@ So let's get started!
 We'll model waypoints pretty plainly in their own `src/autopilot/waypoints/waypoint.js`, after a quick think about what we want our waypoints to model:
 
 1. they need a lat/long GPS position, obviously,
-2. they need an _optional_ elevation,
-3. they need a way to indicate whether we've passed them or not,
-4. they need a way to indicate whether they are "our current waypoint",
-5. they need to know what "the next waypoint" is,
-6. they need to know the distance to the previous waypoint, and
-7.  one of them needs to know it's the first waypoint
+2. they need an optional elevation,
+3. they need a way to indicate whether we've passed them or not, so we can show that in our UI
+4. they need a way to indicate whether they are "our current waypoint", so we can show that in our UI
+5. they need to know what "the next waypoint" is, so we can show that in our UI, and
+6. they need to know their distance from the previous waypoint, so we can show that in our UI
 
 And that last one seems obvious: it's the first one in whatever list of waypoints we end up coding, but 
 
@@ -5269,7 +5307,7 @@ export class Waypoint {
     return () => id++;
   })();
   
-  // The follow functions should be pretty self-explanatory:
+  // The following functions should be pretty self-explanatory:
 
   constructor(lat, long, alt = false) {
     this.id = Waypoint.nextId();
@@ -5305,7 +5343,7 @@ export class Waypoint {
 
   /**
    * When we complete a waypoint, we automatically
-   * return "the next one" so we can keep going.
+   * return "the next one" so code can keep going.
    */
   complete() {
     this.deactivate();
@@ -5513,28 +5551,32 @@ export class WayPointManager {
    * heading mode, if we're not flying in the right
    * direction at the moment. Then return our heading.
    */
-  getHeading({ autopilot, heading, lat, long }) {
+  getHeading({ autopilot, heading, lat, long, declination }) {
     const { modes } = autopilot;
-    let { currentWaypoint } = this;
+    let { currentWaypoint: p1 } = this;
 
-    // If we don't have a waypoint, then our current heading
-    // becomes our current autopilot heading parameter.
-    if (!currentWaypoint) {
-      modes[HEADING_MODE] ??= heading;
+    // If we don't have a waypoint, and the autopilot doesn't
+    // have anything set, then our current heading becomes our
+    // autopilot heading parameter.
+    if (!p1) {
+      if (!modes[HEADING_MODE]) {
+        autopilot.setParameters({
+          [HEADING_MODE]: heading,
+        });
+      }
     }
 
     // If we do have a waypoint, then set the autopilot to
     // the heading we need to fly in order to fly "through"
     // our waypoint.
     else {
-      const newHeading = getHeadingFromTo(lat, long, target.lat, target.long);
-      const hdg = parseFloat(
-        ((360 + newHeading - declination) % 360).toFixed(2)
-      );
+      const newHeading = getHeadingFromTo(lat, long, p1.lat, p1.long);
+      // round the heading to 2 decimal places..
+      const hdg = parseFloat(((360 + newHeading - declination) % 360).toFixed(2));
 
-      // And if that's not the heading we're already flying, update the autopilot!
+      // ...and if that's not the heading we're already flying,
+      // update the autopilot!
       if (modes[HEADING_MODE] !== hdg) {
-        console.log(`updating heading`);
         autopilot.setParameters({
           [HEADING_MODE]: hdg,
         });
@@ -5544,6 +5586,7 @@ export class WayPointManager {
       // our waypoint that we need to transition to the next one:
       this.checkTransition(lat, long, p1);
     }
+
     return modes[HEADING_MODE];
   }
 
@@ -5576,11 +5619,24 @@ export class WayPointManager {
    * Check if we need to set the autopilot's altitude hold
    * value to something new, and then return our hold alt:
    */
-  getAltitude(autopilot) {
+  getAltitude(autopilot, alt) {
     const { modes } = autopilot;
     const { currentWaypoint: p1 } = this;
-    if (p1) {
-      let { alt } = p1;
+
+    // If we don't have a waypoint, then our current heading
+    // becomes our current autopilot heading parameter.
+    if (!p1) {
+      if (!modes[ALTITUDE_HOLD]) {
+        autopilot.setParameters({
+          [ALTITUDE_HOLD]: alt,
+        });
+      }
+    }
+
+    // If we do have a waypoint, then set the autopilot to the
+    // altitude we need to fly in order to fly at a safe level
+    else {
+      alt = p1.alt;
 
       // Do we have a next waypoint? And does it have
       // greater elevation than this one? If so, use that.
@@ -5600,7 +5656,28 @@ export class WayPointManager {
 }
 ```
 
-That looks like a lot of code, but most of it's fairly standard boilerplat for an ordered list item manager. The parts that are _really_ waypoint specific are the `getHeading` and `getAltitude` functions, which actually "set and get": they update the autopilot to the appropriate heading and altitude respectively, and then return that new value. Both use fairly "naive" approaches: `getHeading` simply returns the heading towards the next waypoint (which is a _terrible_ flight policy, as we'll see in a bit) and `getAltitude` returns either our current waypoint's elevation, or the next elevation's, depending on which is higher. Picking the highest (hopefully) prevents us from flying into a hill side.
+That looks like a lot of code, but most of it's fairly standard boilerplate. The parts that are _really_ waypoint specific are the `getHeading` and `getAltitude` functions, which actually "set and get": they update the autopilot to the appropriate heading and altitude respectively, and then return that new value. Both use fairly "naïve" approaches: `getHeading` simply returns the heading towards the next waypoint (which is a _terrible_ flight policy, as we'll see in a bit) and `getAltitude` returns either our current waypoint's elevation, or the next elevation's, depending on which is higher. Picking the highest (hopefully) prevents us from flying into a hill side.
+
+This does mean we have a new functions in our `utils.js` file for getting the heading from one point to another:
+
+```javascript
+...
+
+/**
+ * Determine the heading from a point 1 to a point 2, using airplane
+ * heading (a degree value between 0 and 360).
+ */
+export function getHeadingFromTo(lat1, long1, lat2, long2, declination = 0) {
+  lat1 = radians(parseFloat(lat1));
+  long1 = radians(parseFloat(long1));
+  lat2 = radians(parseFloat(lat2));
+  long2 = radians(parseFloat(long2));
+  const dLon = long2 - long1;
+  const x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
+  const y = cos(lat2) * sin(dLon);
+  return (degrees(atan2(y, x)) - declination + 360) % 360;
+}
+```
 
 So just a few steps left. First, we need to add a waypoint manager instance to our `src/autopilot/autopilot.js`:
 
@@ -5632,7 +5709,34 @@ export class AutoPilot {
 }
 ```
 
-And then we also update our autopilot route, so that clients call things like `this.server.autopilot.addWaypoint(...)`:
+Then, we'll need to update our `fly-level.js` and `altitude-hold.js` so they actually _use_ the waypoint manager to get the heading and altitude we should be flying. Respectively:
+
+```javascript
+...
+
+function getTargetBankAndTurnRate(...) {
+  ...
+  let targetHeading = autopilot.waypoints.getHeading(autopilot, heading, lat, long);
+  ...
+}
+```
+
+and
+
+```javascript
+...
+
+function getTargetVS(...) {
+  ...
+  if (...) {
+    targetAlt = autopilot.waypoints.getAltitude(autopilot, alt)
+    ...
+  }
+  ...
+}
+```
+
+And finally, we need to update our autopilot router, so that clients call things like `this.server.autopilot.addWaypoint(...)`:
 
 ```javascript
 let autopilot;
@@ -5655,7 +5759,7 @@ export class AutopilotRouter {
 }
 ```
 
-And speaking of clients, that was the last of the server-side work, so let's update our client cod and get to testing.
+And speaking of clients, that was the last of the server-side work, so let's update our client code and get to testing.
 
 ### The client side
 
@@ -5669,21 +5773,20 @@ import { WaypointOverlay } from "./waypoint-overlay.js";
 ...
 
 export class Plane {
+  // Step 1: bind a client-side waypoint manager
   constructor(server, map = defaultMap, location = DUNCAN_AIRPORT, heading = 135) {
     ...
-    // Step 1: bind a client-side waypoint manager
     this.waypointOverlay = new WaypointOverlay(this);
   }
 
+  // Step 2: give it the server-side waypoint data
+  //         and let it sort out the rest!
   async updateState(state) {
     ...
     const { autopilot: params } = state;
     this.autopilot.update(flightData, params);
-
-    // Step 2: give it the waypoint data and let it sort out the rest!
     this.waypointOverlay.manage(params.waypoints);
-
-    this.lastUpdate = { time: now, ...state };
+    ...
   }
 };
 ```
@@ -5709,45 +5812,29 @@ export class WaypointOverlay {
       const { lat, lng } = latlng;
       server.autopilot.addWaypoint(lat, lng);
     });
+
     // ...We're going to add a bunch more here very soon...
   }
 
+  /**
+   * Look at each waypoint and determine whether it's
+   * a new point, or one we already know about.
+   */
   manage(waypoints = [], repeating) {
-    // Look at each waypoint and determine whether it's
-    // a new point, or one we already know about.
     waypoints.forEach((waypoint, pos) =>
       this.manageWaypoint(waypoint, pos + 1)
     );
 
-    // Then, do we need to remove any waypoints from our map?
+    // Additionally, if we received fewer waypoints from the
+    // server than we have locally, one or more got removed,
+    // and we'll have to remove those from our list, then
+    // visually hook everything up to look right again.
     if (waypoints.length < this.waypoints.length) {
       this.waypoints
         .filter((w) => !waypoints.find((e) => e.id === w.id))
         .forEach(({ id }) => this.removeWaypoint(id));
       this.resequence(repeating);
     }
-  }
-
-  /**
-   * remove a point locally (because it no longer exists at the server)
-   */
-  removeWaypoint(id) {
-    const pos = this.waypoints.findIndex((e) => e.id === id);
-    if (pos === -1) return;
-    const waypoint = this.waypoints.splice(pos, 1)[0];
-    waypoint.marker.remove();
-    waypoint.trail?.remove();
-    waypoint.next?.trail?.remove();
-  }
-
-  /**
-   * Set a human-friendly label on a waypoint
-   */
-  setWaypointLabel(waypoint, number) {
-    waypoint.marker
-      .getElement()
-      .querySelector(`.pre`)
-      .textContent = `waypoint ${number} (${waypoint.distance.toFixed(1)} NM)`;
   }
 
   /**
@@ -5869,6 +5956,30 @@ export class WaypointOverlay {
   }
 
   /**
+   * Set a human-friendly label on a waypoint
+   */
+  setWaypointLabel(waypoint, number) {
+    waypoint.marker
+      .getElement()
+      .querySelector(`.pre`)
+       // We'll show the waypoint's number (starting at 1, not 0) as
+       // well as the distance to this waypoint from the previous one.
+      .textContent = `waypoint ${number} (${waypoint.distance.toFixed(1)} NM)`;
+  }
+
+  /**
+   * remove a point locally (because it no longer exists at the server)
+   */
+  removeWaypoint(id) {
+    const pos = this.waypoints.findIndex((e) => e.id === id);
+    if (pos === -1) return;
+    const waypoint = this.waypoints.splice(pos, 1)[0];
+    waypoint.marker.remove();
+    waypoint.trail?.remove();
+    waypoint.next?.trail?.remove();
+  }
+  
+  /**
    * Make sure that cosmetically, the first waypoint is labeled
    * as waypoint 1, the next is waypoint 2, etc, irrespective of
    * the waypoint's internal id number.
@@ -5886,7 +5997,10 @@ export class WaypointOverlay {
   }
 
   /**
-   * A little helper for "drawing lines" between waypoints
+   * A little helper for "drawing lines" between waypoints. By using
+   * separate lines, we can more easily update "just the two that need
+   * to be redone" when a point gets moved around, rather than having
+   * to rebuild the entire flight path's polygon.
    */
   addNewTrail(lat, long, lat2, long2) {
     const trail = new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
@@ -5972,19 +6086,23 @@ And with that, we should be ready to do some testing!
 
 ### Testing waypoint placement
 
-If we rerun our server with `node api-server.js --mock` and our client with `node web-server.js --owner --browser` , we can now place a bunch of waypoints by clicking the map, which will send a waypoint creation message to the server, which creates the _actual_ waypoint, which we're then told about because the waypoints are now part of the autopilot information that gets sent to the client every time the autopilot updates.
+If we rerun our server with `node api-server.js --mock` and our client with `node web-server.js --owner --browser` , we can now run our "simulation" and place a bunch of waypoints by clicking the map, which will send a waypoint creation message to the server, which creates the _actual_ waypoint, which we're then told about because the waypoints are now part of the autopilot information that gets sent to the client every time the autopilot updates, and the plane will do something!
 
 ![Adding some waypoints to our map](./images/waypoints/placing-points.png)
 
-...but it's a bit janky: the map keeps snapping to the plane, which makes placing points harder than it needs to be because we need to zoom out so we can place points, and then when we try to move them around the map keeps changing on us, not to mention that the plane doesn't actually _do_ anything yet, it just keeps flying in a straight line, which isn't super useful. And while we can move points around, we don't have a way to edit or remove them yet. Nor a way to mark a sequence of waypoints as repeating... let's improve things a bit!
+...but it's a bit janky: the map keeps snapping to the plane, which makes placing points harder than it needs to be because we need to zoom out so we can place points, and then when we try to move them around the map keeps changing on us, not to mention that the plane is using an extremely poor waypoint policy that we can't actually use in-game:
+
+#### ![image-20240128175409726](./image-20240128175409726.png)
+
+Note that, at no point during this flight, are we actually properly on the flight path itself... And of course: while we can move points around, we don't have a way to edit or remove them yet. Nor a way to mark a sequence of waypoints as repeating... let's improve things a bit!
 
 ## Quality of life improvements
 
-#### --- continue here ---
-
 ### Don't snap the map
 
-When placing or moving waypoints, it would be _Extremely Useful <sup>(tm)</sup>_ if the map didn't constantly snap to our plane. If you recall, the reason it does that is because we have a `map.setView()` call in our `plane.js`, so let's add a checkbox on our page that maps to a boolean flag that tells the plane code whether or not to center the map on our plane. First, we'll edit our `index.html`:
+When placing or moving waypoints, it would be _Extremely Useful <sup>(tm)</sup>_ if the map didn't constantly snap to our plane. If you recall, the reason it does that is because we have a `map.setView()` call in our `plane.js` that explicitly keeps the map in lock-step with our plane, so let's add a flag in the code, and a checkbox to our page, and tie those two together.
+
+First, we'll edit our `index.html`:
 
 ```html
 <!doctype html>
@@ -5996,8 +6114,10 @@ When placing or moving waypoints, it would be _Extremely Useful <sup>(tm)</sup>_
   <body>
     ...
     <div id="map-controls">
-      <label for="center-on-plane">Center map on plane</label>
-      <input id="center-on-plane" type="checkbox" checked="checked" />
+      <fieldset>
+        <label for="center-on-plane">Center map on plane</label>
+        <input id="center-on-plane" type="checkbox" checked="checked" />
+      </fieldset>
     </div>
     <div id="visualization">
       ...
@@ -6010,7 +6130,15 @@ When placing or moving waypoints, it would be _Extremely Useful <sup>(tm)</sup>_
 With a tiny `public/css/index.css`:
 
 ```css
-label[for="center-on-plane"] {
+fieldset {
+  display: inline-block;
+  margin: 0;
+  padding: 0.25em 0.5em;
+  border: 1px solid black;
+  border-radius: 0.5em;
+}
+
+label[for] {
   cursor: pointer;
 }
 
@@ -6033,20 +6161,24 @@ export class Plane {
 
   setupControls(map) {
     this.centerMapOnPlane = true;
-    // link our checkbox to our new "centerMapOnPlane" flag
+
+    // Link our checkbox to our new "centerMapOnPlane" flag
     const btn = (this.centerButton = document.getElementById(`center-on-plane`));
     btn.addEventListener(`change`, ({ target }) => (this.centerMapOnPlane = !!target.checked));
-    // then: if we drag the map around, turn off auto-centering
+    
+    // Then: if we drag the map around, turn off auto-centering
     map.on(`drag`, () => { if (btn.checked) btn.click(); });
-    // And if we load the page without checkbox checked (e.g. page reloads), check it.
+    
+    // And if we load the page without the checkbox checked
+    // (e.g. we reload the page), get it checked.
     if (!btn.checked) btn.click();
   }
 
   ...
 
+  // And of course: control the centering using our new flag!
   async updateMap({ model: flightModel, data: flightData, general }) {
     ...
-    // And of course: control the centering using our new flag!
     if (this.centerMapOnPlane) map.setView([lat, long]);
     ...
   }
@@ -6063,30 +6195,32 @@ Things can get a bit hard to see with a large flightpath with lots of labels, so
 
 ```html
     <div id="map-controls">
-      <label for="center-on-plane">Center map on plane</label>
-      <input id="center-on-plane" type="checkbox" checked="checked" />
-      <label for="show-labels">Show waypoint labels</label>
-      <input id="show-labels" type="checkbox" checked />
+      <fieldset>
+        <label for="center-on-plane">Center map on plane</label>
+        <input id="center-on-plane" type="checkbox" checked="checked" />
+      </fieldset>
+      <fieldset>
+        <label for="show-labels">Show waypoint labels</label>
+        <input id="show-labels" type="checkbox" checked />
+      </fieldset>
     </div>
 ```
 
-And then we'll update our `index.css`, making the label rule kick in for anything with a `for` attribute, and then writing a bit of clever CSS that toggles visibility of our waypoint labels based on whether or not our checkbox is checked or unchecked:
+And then we'll update our `index.css`, with a bit of clever CSS that toggles visibility of our waypoint labels based on whether or not our checkbox is checked or unchecked:
 
 ```css
-label[for] {
-  cursor: pointer;
-}
-
-body:has(#show-labels:not(:checked)) {
-  #map .waypoint-div .waypoint-marker {
-    & .pre, & .post {
-      display: none;
+body {
+  &:has(#show-labels:not(:checked)) {
+    #map .waypoint-div .waypoint-marker {
+      & .pre, & .post {
+        display: none;
+      }
     }
   }
 }
 ```
 
-And presto, suddenly we can hide and reveal waypoint labels!
+What we've done here is created a conditional bit of CSS for `#map .waypoint-div .waypoint-marker` that will only kick in when `#show-labels:not(:checked)` is true _anywhere on the page_. This kind of CSS only works in browsers that support `:has`, but as of 2024 that's "all of them" so that's handy, because now we don't need to set any classes on the JS side: this immediately works:
 
 ![Hiding our waypoint labels](./images/waypoints/hide-labels.png)
 
@@ -6094,26 +6228,41 @@ In fact, let's take that one step further:
 
 ```html
     <div id="map-controls">
-      <label for="center-on-plane">Center map on plane</label>
-      <input id="center-on-plane" type="checkbox" checked="checked" />
-      <label for="show-labels">Show waypoint labels</label>
-      <input id="show-labels" type="checkbox" checked />
-      <label for="tiny-waypoints">Tiny waypoints</label>
-      <input id="tiny-waypoints" type="checkbox" />
-    </div>
+      <fieldset>
+        <label for="center-on-plane">Center map on plane</label>
+        <input id="center-on-plane" type="checkbox" checked="checked" />
+      </fieldset>
+      <fieldset>
+        <label for="show-labels">Show waypoint labels</label>
+        <input id="show-labels" type="checkbox" checked />
+      </fieldset>
+      <fieldset>
+        <label for="tiny-waypoints">Tiny waypoints</label>
+        <input id="tiny-waypoints" type="checkbox" />
+      </fieldset>
+  </div>
 ```
 
 And an extra CSS rule for waypoint images:
 
 ```css
-body:has(#tiny-waypoints:checked) {
-  #map .waypoint-div .waypoint-marker {
-    & img {
-      transform: translate(0, 10px) scale(0.4);
+
+body {
+  &:has(#show-labels:not(:checked)) {
+    ...
+  }
+
+  &:has(#tiny-waypoints:checked) {
+    #map .waypoint-div .waypoint-marker {
+      & img {
+        transform: translate(0, 10px) scale(0.4);
+      }
     }
   }
 }
 ```
+
+And now we can toggle between full size waypoints and mini waypoints, which is super useful when we're zoomed out, looking at a large path with lots of waypoints:
 
 ![image-20240120115225767](./image-20240120115225767.png)
 
@@ -6138,53 +6287,44 @@ Much like before, let's start with the HTML:
   <body>
     ...
     <div id="map-controls">
-      <label for="center-on-plane">Center map on plane</label>
-      <input id="center-on-plane" type="checkbox" checked="checked" />
-      <button class="patrol">patrol</button>
-      <button class="reset">reset waypoints</button>
-      <button class="clear">clear waypoints</button>
+      ...
+      <fieldset>
+        <button class="reset">reset waypoints</button>
+        <button class="clear">clear waypoints</button>
+      </fieldset>
     </div>
     ...
   </body>
 </html>
 ```
 
-And then we update our `plane.js` some more:
+And then we update our `waypoint-overlay.js` since these are waypoint-related controls:
 
 ```javascript
 ...
-export class Plane {
-  ...
+export class WaypointOverlay {
+  constructor(plane) {
+    ...
+    this.addEventHandling();
+  }
 
-  setupControls(map) {
-    this.centerMapOnPlane = true;
-    const btn = (this.centerButton = document.getElementById(`center-on-plane`));
-    btn.addEventListener(`change`, ({ target }) => (this.centerMapOnPlane = !!target.checked));
-    map.on(`drag`, () => { if (btn.checked) btn.click(); });
-    if (!btn.checked) btn.click();
-
-    // Each of our buttons simply calls the appropriate autopilot function on the server:
-
-    document
-      .querySelector(`#map-controls .patrol`)
-      .addEventListener(`click`, () => this.server.autopilot.toggleRepeating());
+  addEventHandling() {
+    ...
 
     document
       .querySelector(`#map-controls .reset`)
       .addEventListener(`click`, () => {
-        // You don't want to accidentally do this, because there's
-        // no undo. So, let's make sure you're sure about this:
-        if (confirm(`Are you sure you want to reset all waypoints?`)) {
-          this.server.autopilot.resetWaypoints();
-        }
+        // We won't ask for confirmation to reset the flight path for
+        // reasons that will become clear in the next improvement.
+        server.autopilot.resetWaypoints();
       });
 
     document
       .querySelector(`#map-controls .clear`)
       .addEventListener(`click`, () => {
-        // This one's arguably even more important to get confirmation for:
+        // But we *do* verify that this wasn't an accidental click!
         if (confirm(`Are you sure you want to clear all waypoints?`)) {
-          this.server.autopilot.clearWaypoints();
+          server.autopilot.clearWaypoints();
         }
       });
   }
@@ -6193,16 +6333,60 @@ export class Plane {
 }
 ```
 
-And then we'll put in one more change, in our `waypoint-overlay.js`, because we want the UI to show whether or not our flight path is a closed, "patrolling path", or open:
+Sorted. Next up:
+
+### Repeating the flight path
+
+Let's also add in a button that toggles the flight path from being "just this path" to "and when you get to the end, start at the start again". First up, our page code:
+
+```html
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    ...
+  </head>
+  <body>
+    ...
+    <div id="map-controls">
+      ...
+      <fieldset>
+        <button class="patrol">patrol</button>
+        <button class="reset">reset waypoints</button>
+        <button class="clear">clear waypoints</button>
+      </fieldset>
+    </div>
+    ...
+  </body>
+</html>
+```
+
+because we're basically turning the flight path into a patrol route =)
+
+Next, our `waypoint-overlay.js` to add the click handler:
 
 ```javascript
 ...
 
 export class WaypointOverlay {
   ...
+  
+  addEventHandling() {
+    ...
+    
+    document
+      .querySelector(`#map-controls .patrol`)
+      .addEventListener(`click`, () => {
+        server.autopilot.toggleRepeating();
+      });  
+  }
+
+  // But we're not done: we now also need some extra code that
+  // can show the flight path as closed or not, by adding an 
+  // extra trail from end to start...
 
   manage(waypoints = [], repeating) {
-    // Show whether this is a closed path or not by marking our button active or not:
+    // Since we could start the web UI when a flight already
+    // in progress, make sure to class our button appropriately:
     document
       .querySelector(`#map-controls .patrol`)
       .classList.toggle(`active`, repeating);
@@ -6211,26 +6395,36 @@ export class WaypointOverlay {
     // based on the repeating state and whether we already have it or not.
     this.updateClosingTrail(repeating);
 
-    // Look at each waypoint and determine whether it's
-    // a new point, or one we already know about.
-    waypoints.forEach((waypoint, pos) =>
-      this.manageWaypoint(waypoint, pos + 1)
-    );
-
-    // Then, do we need to remove any waypoints from our map?
-    if (waypoints.length < this.waypoints.length) {
-      console.log(`points were removed`);
-      this.waypoints
-        .filter((w) => !waypoints.find((e) => e.id === w.id))
-        .forEach(({ id }) => this.removeWaypoint(id));
-      this.resequence(repeating);
-    }
+    ...
   }
+    
+  ...
+
+  /**
+   * And then we also make sure  call that function when a waypoint moves,
+   * and that waypoint is either the first or last point
+   * in our list:
+   */
+  updateWaypoint(waypoint, fromServer) {
+    ...
+    if (waypoint.lat !== lat || waypoint.long !== long) {
+      ...
+
+      // Did we move the first or last waypoint?
+      const pos = this.waypoints.findIndex((e) => e.id === id);
+      if (pos === 0 || pos === this.waypoints.length - 1) {
+        // If we did, update our "wraparound" line.
+        this.updateClosingTrail();
+      }
+    }
+    ...
+  }    
 
   ...
 
   /**
-   * We extend the function signature to include the repeat flag:
+   * We also extend the resequence function signature to
+   * include the repeat flag:
    */
   resequence(repeating) {
     ...
@@ -6265,45 +6459,33 @@ export class WaypointOverlay {
       );
     }
   }
-
-  ...
-
-  /**
-   * Then we also call that function when a waypoint moves,
-   * and that waypoint is either the first or last point
-   * in our list:
-   */
-  updateWaypoint(waypoint, fromServer) {
-    ...
-    if (waypoint.lat !== lat || waypoint.long !== long) {
-      ...
-      const pos = this.waypoints.findIndex((e) => e.id === id);
-      if (pos === 0 || pos === this.waypoints.length - 1) {
-        this.updateClosingTrail();
-      }
-    }
-    ...
-  }
 }
 ```
 
-Very fancy indeed:
-
-![Fancy buttons](./images/waypoints/buttons.png)
+And now we can "open" or "close" a flight path!
 
 ### Adding a waypoint edit modal
 
-And then let's make sure we can also edit and/or remove waypoints, by adding some code that gives us an edit modal when we click on waypoints. Let's edit `waypoint-overlay.js` some more:
+Finally, we're still missing something that lets us edit a waypoint. We can click-drag them to move them on the map but we still need UI for:
+
+1. changing the elevation
+2. duplicating a waypoint
+3. making a waypoint the current target, and
+4. removing a waypoint.
+
+And if you remember the `addWaypoint` function in our `waypoint-overlay.js`, it has 
+
+So let's make a little modal that then let's make sure we can also edit and/or remove waypoints, by adding some code that gives us an edit modal when we click on waypoints. And edit to our `waypoint-overlay.js`:
 
 ```javascript
-import { Trail } from "./trail.js";
+...
 import { showWaypointModal } from "./waypoint-modal.js";
 
 export class WaypointOverlay {
   ...
   addWaypoint(waypoint) {
     ...
-    // Add a "show dialog on click" to our marker:
+    // Add a "show dialog" action when we click a waypoint marker:
     marker.on(`click`, () => showWaypointModal(this.server, waypoint));
     ...
   }
@@ -6311,42 +6493,52 @@ export class WaypointOverlay {
 }
 ```
 
-With our modal code in its own `waypoint-modal.js`:
+And then we write a bunch of fairly straight-forward JS in a new `waypoint-modal.js`:
 
 ```javascript
 /**
  * Show a full-page modal for editing waypoint properties.
  */
 export function showWaypointModal(server, waypoint) {
-  const { id, alt } = waypoint;
+  const { id, alt, lat, long, active, completed } = waypoint;
 
-  // Our modal HTML:
-  const div = document.createElement(`div`);
-  div.classList.add(`modal`);
-  div.innerHTML = `
-      <div class="content">
+  // Previously we use `fetch` to template HTML into our page,
+  // but since we're adding and deleting this one, let's use
+  // a template string instead:
+  const modal = document.createElement(`div`);
+  modal.close = () => modal.remove();
+  modal.classList.add(`modal`);
+  modal.innerHTML = `
+      <dialog class="content" open>
         <h3>Waypoint ${id}</h3>
+        <h4>${lat.toFixed(6)}, ${long.toFixed(6)}</h4>
         <fieldset>
-          <label>elevation:</label>
+          <label>Elevation:</label>
           <input type="number" class="altitude" value="${
             alt ? alt : ``
           }" placeholder="feet above sea level"/>
         </fieldset>
         <fieldset>
-          <label>remove waypoint?</label>
+          <label>Options:</label>
+					<button class="duplicate">duplicate</button>
+					<button class="target">fly</button>
 					<button class="remove">remove</button>
         </fieldset>
-      </div>
+      </dialog>
     `;
 
-  // Input handling for our elevation input element:
-  const input = div.querySelector(`input.altitude`);
-  div.addEventListener(`click`, (evt) => {
+  // Add the modal and get the elevation input field
+  document.body.appendChild(modal);   
+  const input = modal.querySelector(`input.altitude`);
+
+  // Dismiss the modal and commit the elevation change
+  // if we click outside the dialog box:
+  modal.addEventListener(`click`, (evt) => {
     const { target } = evt;
-    if (target === div) {
+    if (target === modal) {
       evt.preventDefault();
       evt.stopPropagation();
-      div.remove();
+      modal.close();
       const alt = parseFloat(input.value);
       if (!isNaN(alt) && alt > 0) {
         server.autopilot.setWaypointElevation(id, alt);
@@ -6356,39 +6548,53 @@ export function showWaypointModal(server, waypoint) {
     }
   });
 
-  // With additional event listening for the escape and enter keys:
+  // Also add key-based dismissal:
+  // - `Esc` cancels,
+  // - `Enter` saves.
   const controller = new AbortController();
   document.addEventListener(
     `keydown`,
     ({ key }) => {
       if (key === `Escape`) {
-        div.remove();
+        modal.close();
         controller.abort();
       }
       if (key === `Enter`) {
-        div.click();
+        modal.click();
         controller.abort();
       }
     },
     { signal: controller.signal }
   );
-  document.body.appendChild(div);
-  input.addEventListener(`focus`, ({ target }) => {
-    const v = target.value;
-    target.value = ``;
-    target.value = v;
-  });
-  input.focus();
 
-  // And finally, our much easier "remove waypoint" button:
-  const remove = div.querySelector(`button.remove`);
-  remove.addEventListener(`click`, () => {
-    if (confirm(`Are you sure you want to remove this waypoint?`)) {
-      server.autopilot.removeWaypoint(id);
-      div.remove();
-    }
+  // Then we hook up our "duplicate" button:
+  const duplicate = modal.querySelector(`button.duplicate`);
+  duplicate.addEventListener(`click`, () => {
+    server.autopilot.duplicateWaypoint(id);
+    modal.close();
   });
+
+  // And our "This is now our target" button:
+  const target = modal.querySelector(`button.target`);
+  target.addEventListener(`click`, () => {
+    server.autopilot.targetWaypoint(id);
+    modal.close();
+  });
+
+  // And our "remove waypoint" button:
+  const remove = modal.querySelector(`button.remove`);
+  remove.addEventListener(`click`, () => {
+    server.autopilot.removeWaypoint(id);
+    modal.close();
+  });
+
+  // And finally, auto-select the elevation text when
+  // the modal opens so you can immediately change it
+  // by just typing (or immediately tab to the buttons)
+  input.addEventListener(`focus`, () => input.select());
+  input.focus();
 }
+
 ```
 
 With some CSS to make that modal look sensible, in `index.css`:
@@ -6407,8 +6613,9 @@ div.modal {
   justify-content: center;
   align-items: center;
 
-  & div.content {
+  & dialog.content {
     background: white;
+    border: none;
     border-radius: 0.5em;
     padding: 0 2em 1em 2em;
     box-shadow: 3px 3px 14px #000;
@@ -6419,8 +6626,8 @@ div.modal {
 
     & fieldset {
       border: none;
-      margin: 0;
       padding: 0;
+      display: block;
 
       & + fieldset {
         margin-top: 1em;
@@ -6432,165 +6639,13 @@ div.modal {
 
 And now when we click on a waypoint, we get this:
 
-![Waypoint properties modal](./images/waypoints/modal.png)
+![image-20240128100954922](./image-20240128100954922.png)
 
-And that's our quality of life improvements covered, let's make this plane fly our flight path already!
-
-## Hooking up heading and altitude hold
-
-The nice thing about our autopilot code is that this last step is actually very little work: we just need to make sure to set the "heading" and "alt hold" values based on what the current waypoint is (if there is one), and then the code that's already there just does what it needs to do without needing any changes. So, let's update our heading mode in `fly-level.js`:
-
-```javascript
-...
-function getTargetBankAndTurnRate(autopilot, heading, maxBank, isAcrobatic, lat, long, declination) {
-  const { modes } = autopilot;
-
-  let targetBank = DEFAULT_TARGET_BANK;
-  let maxDBank = DEFAULT_MAX_D_BANK;
-
-  if (!FEATURES.FLY_SPECIFIC_HEADING) {
-    return { targetBank, maxDBank, heading, headingDiff: 0 };
-  }
-
-  let targetHeading = autopilot.waypoints.getHeading(
-    autopilot,
-    lat,
-    long,
-    declination
-  );
-
-  ...
-}
-```
-
-And then put the actual heading change logic in the waypoint manager:
-
-```javascript
-...
-import { getDistanceBetweenPoints, getHeadingFromTo } from "../../utils/utils.js";
-import { HEADING_MODE } from "../../utils/constants.js";
-
-export class WayPointManager {
-  ...
-  /**
-   * Have our waypoint manager update the autopilot's
-   * heading mode, if we're not flying in the right
-   * direction at the moment, then return our heading.
-   */
-  getHeading(autopilot, lat, long, declination) {
-    const { modes } = autopilot;
-    const { currentWaypoint } = this;
-    if (currentWaypoint) {
-      const { lat: lat2, long: long2 } = currentWaypoint;
-      let target = getHeadingFromTo(lat, long, lat2, long2);
-      let hdg = parseFloat((target - declination).toFixed(2));
-      if (modes[HEADING_MODE] !== hdg) {
-        autopilot.setParameters({ [HEADING_MODE]: hdg });
-      }
-      this.checkTransition(lat, long);
-    }
-    return modes[HEADING_MODE];
-  }
-
-  /**
-   * Check whether we should transition to the next waypoint
-   * based on the plane's current GPS coordinate. Note that
-   * this is not a good transition policy, but we'll revisit
-   * this code in the next subsection to make it much better.
-   */
-  checkTransition(lat, long) {
-    const { currentWaypoint } = this;
-    const { lat: lat2, long: long2 } = currentWaypoint;
-    const thresholdInKm = 1;
-    const d = getDistanceBetweenPoints(lat, long, lat2, long2);
-
-    if (d < thresholdInKm) {
-      currentWaypoint.deactivate();
-      this.currentWaypoint = currentWaypoint?.complete();
-      this.currentWaypoint?.activate();
-    }
-
-    if (!this.currentWaypoint && this.repeating) {
-      this.resetWaypoints();
-    }
-  }
-}
-```
-
-And that's all we need: if we have waypoints, get the current waypoint, and set the autopilot heading so it points at that waypoint, and then check to see if we need to move on to our next waypoint.
-
-Though we do need a new function in our `utils.js`:
-
-```javascript
-/**
- * Determine the heading from a point 1 to a point 2, using airplane
- * heading (a degree value between 0 and 360).
- */
-export function getHeadingFromTo(lat1, long1, lat2, long2, declination = 0) {
-  lat1 = radians(parseFloat(lat1));
-  long1 = radians(parseFloat(long1));
-  lat2 = radians(parseFloat(lat2));
-  long2 = radians(parseFloat(long2));
-  const dLon = long2 - long1;
-  const x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
-  const y = cos(lat2) * sin(dLon);
-  return (degrees(atan2(y, x)) - declination + 360) % 360;
-}
-```
-
-So that's heading mode, let's also update `altitude-hold.js`:
-
-```javascript
-...
-function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, cruiseSpeed) {
-  ...
-  if (FEATURES.TARGET_TO_HOLD) {
-    targetAlt = autopilot.waypoints.getAltitude();
-    ...
-  }
-  ...
-}
-```
-
-with that `getAltitude` function added to the manager:
-
-```javascript
-...
-import { HEADING_MODE, ALTITUDE_HOLD } from "../../utils/constants.js";
-
-export class WayPointManager {
-  ...
-  /**
-   * Check if we need to set the autopilot's altitude hold
-   * value to something new, and then return our hold alt:
-   */
-  getAltitude(autopilot) {
-    const { modes } = autopilot;
-    const { currentWaypoint } = this;
-    if (currentWaypoint) {
-      const { alt } = currentWaypoint;
-      if (alt && modes[ALTITUDE_HOLD] !== alt) {
-        autopilot.setParameters({ [ALTITUDE_HOLD]: alt });
-      }
-    }
-    return modes[ALTITUDE_HOLD];
-  }
-}
-```
-
-Quite a bit less code, since all we need to do is look up whether the active waypoint has an altitude associated with it, and if so (and it's not the altitude the autopilot is already flying) update the autopilot. And that's it, we have waypoint based flight path flying!
-
-### Testing our flightpath
-
-So let's test this: if we fire up `node api-server.js --mock` and `node web-server --owner --browser` we can place a bunch of waypoints, move them around, set elevations on them, and have our plane fly our flight path! In fact, let's define a little waypoint triangle and turn on "patrol" mode so that the plane keeps flying in circles:
-
-![We're flying a flight path!](./images/waypoints/patrolling.png)
-
-And... hmm. This is where we discover that we're actually ignoring the "path" part in "flight path": even though we're _drawing_ the flight path as a series of connected lines, the code currently only knows about individual waypoints, not the actual lines that connect them, and so it's not actually flying what we're drawing. Which means it's time to have a look at how to refine the way we determine which heading we need to fly. And it's going to involve a bit of maths.
+And that's our quality of life improvements covered, how about we make this "plane" fly our flight path already!
 
 ## How to fly a flight path
 
-Even though we have waypoints, it turns out that (probably unsurprisingly) we need a bit more than just "fly towards a point, and when we get there, fly towards the next point" if we want proper flight path following. So let's have a bit of a think about how we can improve our flight path logic.
+As we saw before, our naïve approach is... not great. Even though we have waypoints, it turns out that just flying towards individual points without regard for the path between those points is a pretty terrible way to fly "a path".  So (probably unsurprisingly) we need a bit more than just "fly towards a point, and when we get there, fly towards the next point" if we want proper flight path following. So let's have a bit of a think about how we can improve our flight path logic.
 
 Let's start with the use case we already have: flying a flight path with a single waypoint. This is what we already implemented: if there's a single point, then that's our target, and that's what we fly towards. So far so good, our plane can already do this!
 

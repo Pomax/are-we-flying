@@ -11,23 +11,11 @@ import {
   LEVEL_FLIGHT,
 } from "../utils/constants.js";
 
-const USE_NEW_HEADING_MODE = true;
-let flyLevel;
-if (USE_NEW_HEADING_MODE) {
-  const lib = await watch(
-    dirname,
-    `heading-mode.js`,
-    (lib) => (flyLevel = lib.flyLevel)
-  );
-  flyLevel = lib.flyLevel
-} else {
-  const lib = await watch(
-    dirname,
-    `fly-level.js`,
-    (lib) => (flyLevel = lib.flyLevel)
-  );
-  flyLevel = lib.flyLevel
-}
+let { flyLevel } = await watch(
+  dirname,
+  `fly-level.js`,
+  (lib) => (flyLevel = lib.flyLevel)
+);
 
 let { autoThrottle } = await watch(
   dirname,

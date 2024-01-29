@@ -33,10 +33,6 @@ export class MockPlane {
     this.data = getInitialState();
   }
 
-  setPlaybackRate(factor) {
-    this.playbackRate = factor;
-  }
-
   setHeading(
     deg,
     lat = degrees(this.data.PLANE_LATITUDE),

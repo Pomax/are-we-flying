@@ -26,13 +26,6 @@ export class WaypointOverlay {
       });
 
     document
-      .querySelector(`#map-controls .revalidate`)
-      .addEventListener(`click`, () => {
-        const { lat, long } = this.plane?.state.flightInformation?.data || {};
-        server.autopilot.revalidate(lat, long);
-      });
-
-    document
       .querySelector(`#map-controls .reset`)
       .addEventListener(`click`, () => {
         server.autopilot.resetWaypoints();
@@ -45,48 +38,6 @@ export class WaypointOverlay {
           server.autopilot.clearWaypoints();
         }
       });
-
-    // Saving our waypoints is actually fairly easy: we throw everything except the lat/long/alt
-    // information away, and then we generate an `<a>` that triggers a file download for that
-    // data in JSON format:
-    document.querySelector(`button.save`).addEventListener(`click`, () => {
-      // Form our "purely lat/long/alt" data:
-      const strip = ({ lat, long, alt }) => ({ lat, long, alt });
-      const stripped = this.waypoints.map(strip);
-      const data = JSON.stringify(stripped, null, 2);
-
-      // Then create our download link:
-      const downloadLink = document.createElement(`a`);
-      downloadLink.textContent = `download this flightplan`;
-      downloadLink.href = `data:text/plain;base64,${btoa(data)}`;
-      downloadLink.download = `flightplan.txt`;
-
-      // And then automatically click it to trigger the download.
-      console.log(`Saving current flight path.`);
-      downloadLink.click();
-    });
-
-    // Loading data is even easier: we load the file using the file picker that is built
-    // into the browser, then we parse the JSON and tell the autopilot to make waypoints:
-    document.querySelector(`input.load`).addEventListener(`change`, (evt) => {
-      const file = evt.target.files[0];
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const data = JSON.parse(reader.result);
-          server.autopilot.clearWaypoints();
-          data.forEach(({ lat, long, alt }) =>
-            server.autopilot.addWaypoint(lat, long, alt)
-          );
-          const { lat, long } = this.plane?.state.flightInformation?.data || {};
-          server.autopilot.revalidate(lat, long);
-          console.log(`Loaded flight path from file.`);
-        } catch (e) {
-          console.error(`Could not parse flight path.`, e);
-        }
-      };
-      reader.readAsText(file);
-    });
   }
 
   manage(waypoints = [], repeating) {
@@ -213,7 +164,14 @@ export class WaypointOverlay {
    * having changed at the server.
    */
   updateWaypoint(waypoint, fromServer) {
-    const { id, lat, long, alt, active, completed } = fromServer;
+    const { id, lat, long, alt, active, completed, next } = fromServer;
+
+    // If we get a `next` property, it'll be an id number, rather
+    // than an actual waypoint, so let's make sure to make that a
+    // waypoint again:
+    if (next && typeof waypoint.next === `number`) {
+      waypoint.next = this.waypoints.find((e) => e.id === next);
+    }
 
     // First, are we currently dragging this point around? If so, don't
     // do anything to this point yet, because we're not done with it.

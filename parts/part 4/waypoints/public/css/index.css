@@ -1,78 +1,81 @@
-fieldset {
-  border: 1px solid black;
-  border-radius: 0.5em;
-  margin: 0;
-  padding: 0.25em 0.5em;
-  display: inline-block;
-
-  & + fieldset {
-    margin-top: 1em;
+body {
+  &:has(#show-labels:not(:checked)) {
+    #map .waypoint-div .waypoint-marker {
+      & .pre,
+      & .post {
+        display: none;
+      }
+    }
   }
 
-  input[type="file"] {
-    color: transparent;
-    width: 6em;
+  &:has(#tiny-waypoints:checked) {
+    #map .waypoint-div .waypoint-marker {
+      & img {
+        transform: translate(0, 10px) scale(0.4);
+      }
+    }
   }
-}
 
-div.modal {
-  width: 100%;
-  position: fixed;
-  display: flex;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  background: #0009;
-  z-index: 1000;
-  justify-content: center;
-  align-items: center;
+  label[for] {
+    cursor: pointer;
+    user-select: none;
+  }
 
-  & div.content {
-    background: white;
+  button.active {
+    background: red;
+    color: white;
+  }
+
+  #map-controls {
+    margin: 0.5em 0;
+  }
+
+  fieldset {
+    border: 1px solid black;
     border-radius: 0.5em;
-    padding: 0 2em 1em 2em;
-    box-shadow: 3px 3px 14px #000;
+    margin: 0;
+    padding: 0.25em 0.5em;
+    display: inline-block;
 
-    & h3 {
-      font-family: sans-serif;
+    input[type="file"] {
+      color: transparent;
+      width: 6em;
     }
+  }
 
-    & fieldset {
+  div.modal {
+    width: 100%;
+    position: fixed;
+    display: flex;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: #0009;
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+
+    & dialog.content {
+      background: white;
       border: none;
-      padding: 0;
-      display: block;
+      border-radius: 0.5em;
+      padding: 0 2em 1em 2em;
+      box-shadow: 3px 3px 14px #000;
+
+      & h3 {
+        font-family: sans-serif;
+      }
+
+      & fieldset {
+        border: none;
+        padding: 0;
+        display: block;
+
+        & + fieldset {
+          margin-top: 1em;
+        }
+      }
     }
   }
-}
-
-label[for] {
-  cursor: pointer;
-  user-select: none;
-}
-
-#map-controls {
-  margin: 0.5em 0;
-}
-
-body:has(#show-labels:not(:checked)) {
-  #map .waypoint-div .waypoint-marker {
-    & .pre,
-    & .post {
-      display: none;
-    }
-  }
-}
-
-body:has(#tiny-waypoints:checked) {
-  #map .waypoint-div .waypoint-marker {
-    & img {
-      transform: translate(0, 10px) scale(0.4);
-    }
-  }
-}
-
-button.active {
-  background: red;
-  color: white;
 }

@@ -103,7 +103,6 @@ export class ServerClass {
       // And allow clients to call this.server.mock.reset(),
       this.mock = {
         reset: (client) => api.reset(`Resetting the mock flight`),
-        setPlaybackRate: (client, v) => api.plane.setPlaybackRate(v),
       };
     }
 
