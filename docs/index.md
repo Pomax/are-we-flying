@@ -7005,7 +7005,7 @@ That's a lot of code to do what we sketched out before, so... does this work?
 
 ![Following our flight path](./images/waypoints/flightpath/basic-flightpath.png)
 
-Well enough to barely even see our plane's flightpath on top of the path polygon... What if we use a slightly more aggressive flight path?
+With our mock plane, well enough to barely even see our plane's flightpath on top of the path polygon... What if we use a slightly more aggressive flight path?
 
 ![A more aggressive flight path](./images/waypoints/flightpath/aggressive-flightpath.png)
 
