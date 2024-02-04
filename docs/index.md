@@ -4719,544 +4719,9 @@ So far we've been looking at what we _call_ an autopilot, but is it? Can we just
 
 If that sounds like too much work: it might be. And no one would blame you if you stopped here. But if that sounds _amazing_... we're not at the bottom of this page yet, let's implement some crazy shit!
 
-## Mocking ourselves an MSFS
-
-Before we jump into all this, let's "quickly" mock ourselves a Microsoft Flight Simulator game, to save ourselves the hassle of needing to run MSFS for some tests that would take forever to run through MSFS, and just... don't need it running? That sounds like a lot of work, but really all we need in this particular case is something that pretends to be the SimConnect API with _only_ as many variables included as gets used by our code, running _The world's worst flight simulation_ because we don't care whether our plane's going to fly "realistically", we just need it to fly in a way that responds "close enough to reality". So let's first define our data pool in a `src/classes/server/mocks/fake-flight-data.js`:
-
-```javascript
-import { radians } from "../../../utils/utils.js";
-
-/**
- * Our starting point will be 1500 feet above runway 27
- * at Victoria Airport on Vancouver Island, BC, Canada.
- */
-const altitude = 1500;
-const static_cg_height = 5;
-const speed = 142;
-const declination = 15.883026056332483;
-const heading = 270;
-const lat = 48.646548831015394;
-const long = -123.41169834136964;
-const trimLimit = 18;
-
-/**
- * All the values that our FlightInformation object needs:
- */
-const data = {
-  AILERON_POSITION: 0,
-  AILERON_TRIM_PCT: 0,
-  AIRSPEED_INDICATED: speed * 0.95,
-  AIRSPEED_TRUE: speed,
-  AUTOPILOT_HEADING_LOCK_DIR: heading,
-  AUTOPILOT_MASTER: 0,
-  BRAKE_PARKING_POSITION: 0,
-  CAMERA_STATE: 2, // cockpit view
-  CAMERA_SUBSTATE: 2, // unlocked view
-  CATEGORY: 2,
-  CRASH_FLAG: 0,
-  CRASH_SEQUENCE: 0,
-  DESIGN_CRUISE_ALT: 12000,
-  DESIGN_SPEED_CLIMB: 100,
-  DESIGN_SPEED_MIN_ROTATION: 100,
-  DESIGN_SPEED_VC: 145,
-  DESIGN_SPEED_VS0: 60,
-  DESIGN_SPEED_VS1: 70,
-  DESIGN_TAKEOFF_SPEED: 100,
-  ELECTRICAL_AVIONICS_BUS_VOLTAGE: 480,
-  ELECTRICAL_TOTAL_LOAD_AMPS: -148.123,
-  ELEVATOR_POSITION: 0,
-  ELEVATOR_TRIM_DOWN_LIMIT: trimLimit,
-  ELEVATOR_TRIM_PCT: 0,
-  ELEVATOR_TRIM_POSITION: 0,
-  ELEVATOR_TRIM_UP_LIMIT: trimLimit,
-  ENG_COMBUSTION: 1, // note that we removed the :<num> suffix
-  ENGINE_TYPE: 1,
-  GEAR_HANDLE_POSITION: 0,
-  GEAR_POSITION: 1, // note that we removed the :<num> suffix
-  GEAR_SPEED_EXCEEDED: 0,
-  GENERAL_ENG_THROTTLE_LEVER_POSITION: 95,
-  GROUND_ALTITUDE: 0,
-  INCIDENCE_ALPHA: 0,
-  INDICATED_ALTITUDE: altitude,
-  IS_GEAR_FLOATS: 0,
-  IS_GEAR_RETRACTABLE: 1,
-  IS_TAIL_DRAGGER: 0,
-  MAGVAR: declination,
-  NUMBER_OF_ENGINES: 1,
-  OVERSPEED_WARNING: 0,
-  PLANE_ALT_ABOVE_GROUND_MINUS_CG: altitude - static_cg_height,
-  PLANE_ALT_ABOVE_GROUND: altitude,
-  PLANE_BANK_DEGREES: 0,
-  PLANE_HEADING_DEGREES_MAGNETIC: radians(heading),
-  PLANE_HEADING_DEGREES_TRUE: radians(heading + declination),
-  PLANE_LATITUDE: radians(lat),
-  PLANE_LONGITUDE: radians(long),
-  PLANE_PITCH_DEGREES: 0,
-  RUDDER_POSITION: 0,
-  RUDDER_TRIM_PCT: 0,
-  SIM_ON_GROUND: 0,
-  STALL_ALPHA: 0,
-  STATIC_CG_TO_GROUND: static_cg_height,
-  TAILWHEEL_LOCK_ON: 0,
-  TITLE: `pretty terrible testing plane`,
-  TOTAL_WEIGHT: 3000,
-  TURN_INDICATOR_RATE: 0,
-  TYPICAL_DESCENT_RATE: 80,
-  VERTICAL_SPEED: 0,
-  WING_AREA: 250,
-  WING_SPAN: 50,
-};
-
-/**
- * And as our export, a function that returns a *copy*
- * of the above data, so that we can reset to it if
- * we need to.
- */
-export function getInitialState() {
-  return Object.assign({}, data);
-}
-```
-
-So far so good, we now have data that can "pretend to be simconnect" data. Let's turn that into "a flight" by creating a `mock-plane.js` in the same dir:
-
-```javascript
-// we'll need something that lets us look up the magnetic declination
-// given a lat/long coordinate so we run "npm install geomag" to get
-// a package installed that lets us do just that:
-import * as geomag from "geomag";
-
-// we'll import the data we just defined...
-import { getInitialState } from "./fake-flight-data.js";
-
-// plus the convenience functions from our FlightInformation work
-import { convertValues, renameData } from "../../../utils/flight-values.js";
-
-// plus some constants and utility functions.
-import { FEET_PER_METER, FPS_PER_KNOT, ONE_KTS_IN_KMS } from "../../../utils/constants.js";
-import { constrainMap, degrees, getPointAtDistance, lerp, radians, runLater } from "../../../utils/utils.js";
-const { abs, sign, tan, PI } = Math;
-
-// Then we're going to be running our flight in 450ms intervals.
-const UPDATE_FREQUENCY = 450;
-
-/**
- * Then our mocked plane: we're going to ignore physics entirely and just fake a flight.
- */
-export class MockPlane {
-  constructor() {
-    this.reset();
-    this.run();
-  }
-
-  // we set up a separate function that lets us call server.api.reset()
-  // from the client in order to reset out "simulation" if we need to.
-  reset() {
-    this.data = getInitialState();
-  }
-
-  // Obviously we'll need a period update:
-  run(previousCallTime = Date.now()) {
-    let callTime = Date.now();
-    const ms = callTime - previousCallTime;
-    if (ms > 10) {
-      this.update(ms);
-    } else {
-      callTime = previousCallTime;
-    }
-    runLater(() => this.run(callTime), UPDATE_FREQUENCY);
-  }
-
-  /**
-   * This is where we run our "world's worst flight simulator":
-   * we're not even going to bother with a simplified flight model
-   * and computing lift and drag forces with simplified math.
-   * We're ust going to constrainMap and interpolate our way to victory.
-   */
-  update(ms) {
-    // If the update interval was too long, "do nothing",
-    // so we don't teleport around when the OS decides
-    // to throttle or suspend a process.
-    if (ms > 5 * UPDATE_FREQUENCY) return
-
-    // For math purposes, we need an interval in seconds.
-    const interval = ms / 1000;
-
-    // First, use the code we already wrote for working
-    // with flight information to make the reset of the
-    // work here a bit easier:
-    const { data } = this;
-    const converted = Object.assign({}, data);
-    convertValues(converted);
-    renameData(converted, this.previousValues);
-    this.previousValues = converted;
-
-    // Then, on to the "simulation":
-
-    // Update the current altitude by turning the current elevator
-    // trim position into a target pitch and vertical speed, and then
-    // applying a partial change so that the plane "takes a while to
-    // get there" because otherwise our autopilot won't work =)
-    const { pitchTrim, lat, long } = converted;
-    const p = sign(pitchTrim) * (abs(pitchTrim) / 100) ** 1.2;
-    const pitchAngle = constrainMap(p, -1, 1, -3, 3);
-    data.PLANE_PITCH_DEGREES = radians(pitchAngle);
-
-    // Okay fine, there's *one* bit of real math: converting
-    // the plane's pitch into a vertical speed, since we know
-    // how fast we're going, and thus how many feet per second
-    // we're covering, and thus how many vertical feet that
-    // works out to. This is, of course, *completely wrong*
-    // compared to the real world, but: this is a mock.
-    // We don't need realistic, we just need "sort of works".
-    const newVS =
-      tan(-data.PLANE_PITCH_DEGREES) *
-      FPS_PER_KNOT *
-      data.AIRSPEED_TRUE *
-      60 *
-      5;
-    data.VERTICAL_SPEED = lerp(0.15, data.VERTICAL_SPEED, newVS);
-
-    // With that, we can update our altitude:
-    const { alt } = converted;
-    const newAltitude = alt + data.VERTICAL_SPEED * interval;
-    this.setAltitude(newAltitude, lat, long);
-
-    // Then we update our current speed, based on the throttle lever,
-    // with a loss (or gain) offset based on the current vertical
-    // speed, so the autothrottle/targetVS code has something to
-    // work with.
-    const throttle = data.GENERAL_ENG_THROTTLE_LEVER_POSITION;
-    const vsOffset = constrainMap(newVS, -16, 16, -10, 10);
-    const speed = constrainMap(throttle, 0, 100, 0, 150) - vsOffset;
-    data.AIRSPEED_TRUE = lerp(0.8, data.AIRSPEED_TRUE, speed);
-    data.AIRSPEED_INDICATED = 0.95 * data.AIRSPEED_TRUE;
-
-    // Update the current bank and turn rate by turning the current
-    // aileron trim position into a values that we then "lerp to" so
-    // that the change is gradual.
-    const { aileronTrim } = converted;
-    const newBankDegrees = constrainMap(aileronTrim, -100, 100, 180, -180);
-    const newBank = 100 * radians(newBankDegrees);
-    data.PLANE_BANK_DEGREES = lerp(0.9, data.PLANE_BANK_DEGREES, newBank);
-    let turnRate = aileronTrim * 30;
-    data.TURN_INDICATOR_RATE = lerp(0.9, data.TURN_INDICATOR_RATE, turnRate);
-
-    // With that, we can update our heading, taking into account that
-    // the slower we go, the faster we can change heading, and the faster
-    // we go, the slower we can change heading:
-    const { heading } = converted;
-    const speedFactor = constrainMap(speed, 100, 150, 4, 1);
-    const updatedHeading = heading + speedFactor * turnRate * interval;
-    this.setHeading(updatedHeading, lat, long);
-
-    // And with our heading set, we can update our current GPS position.
-    const d = data.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
-    const h = degrees(data.PLANE_HEADING_DEGREES_TRUE);
-    const { lat: lat2, long: long2 } = getPointAtDistance(lat, long, d, h);
-    data.PLANE_LATITUDE = radians(lat2);
-    data.PLANE_LONGITUDE = radians(long2);
-
-    // And that's it. This is an absolutely terrible simulation,
-    // is all kinds of wrong, and also does what we need just
-    // well enough that we can run our code against it.
-  }
-
-  /**
-   * When we set our heading we need to update several simconnect
-   * variables at the same time, so it's its own function:
-   */
-  setHeading(
-    deg,
-    lat = degrees(this.data.PLANE_LATITUDE),
-    long = degrees(this.data.PLANE_LONGITUDE),
-    alt = this.data.INDICATED_ALTITUDE / (1000 * FEET_PER_METER)
-  ) {
-    const { data } = this;
-    const declination = geomag.field(lat, long, alt).declination;
-    data.MAGVAR = radians(declination);
-    deg = (deg + 360) % 360;
-    data.PLANE_HEADING_DEGREES_MAGNETIC = radians(deg);
-    data.PLANE_HEADING_DEGREES_TRUE = radians(deg + declination);
-  }
-
-  /**
-   * The same goes for when we change altitudes.
-   */
-  setAltitude(feet, lat, long, groundAlt = this.getGroundAlt(lat, long)) {
-    const { data } = this;
-    data.INDICATED_ALTITUDE = feet;
-    data.PLANE_ALT_ABOVE_GROUND = feet - groundAlt;
-    data.PLANE_ALT_ABOVE_GROUND_MINUS_CG =
-      data.PLANE_ALT_ABOVE_GROUND - data.STATIC_CG_TO_GROUND;
-  }
-
-  /**
-   * if we have an elevation server, we could use that here,
-   * but we don't (...yet...) so we just pretend the grouned
-   * is at sea level.
-   */
-  getGroundAlt(lat, long) {
-    return 0;
-  }
-
-  /**
-   * In order for our autopilot code to affect this "flight" we need
-   * to be able to accept "set" commands, but we only need to worry
-   * about four of them:
-   */
-  set(name, value) {
-    const { data } = this;
-    if (name === `GENERAL_ENG_THROTTLE_LEVER_POSITION`) {
-      if (value < 0.01) value = 0;
-      data.GENERAL_ENG_THROTTLE_LEVER_POSITION = value;
-    }
-    if (name === `ELEVATOR_TRIM_POSITION`) {
-      data.ELEVATOR_TRIM_POSITION = value;
-      data.ELEVATOR_TRIM_PCT = constrainMap(value, -PI / 2, PI / 2, 1, -1);
-    }
-    if (name === `AILERON_TRIM_PCT`) data.AILERON_TRIM_PCT = value / 100;
-    if (name === `AUTOPILOT_HEADING_LOCK_DIR`) data.AUTOPILOT_HEADING_LOCK_DIR = value;
-  }
-}
-```
-
-There are a few new utility functions here that we do need to add to our `utils.js` though:
-
-```javascript
-...
-
-/**
- * Returns new lat/lon coordinate {d}km from initial, in degrees.
- *
- *   lat: initial latitude, in degrees
- *   lon: initial longitude, in degrees
- *   d: target distance from initial in kilometers
- *   heading: (true) heading in degrees
- *   R: optional radius of sphere, defaults to mean radius of earth
- */
-export function getPointAtDistance(lat1, long1, d, heading, R = 6371) {
-  lat1 = radians(lat1);
-  long1 = radians(long1);
-  const a = radians(heading);
-  const lat2 = asin(sin(lat1) * cos(d / R) + cos(lat1) * sin(d / R) * cos(a));
-  const dx = cos(d / R) - sin(lat1) * sin(lat2);
-  const dy = sin(a) * sin(d / R) * cos(lat1);
-  const long2 = long1 + atan2(dy, dx);
-  return { lat: degrees(lat2), long: degrees(long2) };
-}
-
-/**
- * Linear interpolation between values "a" and "b",
- *
- *  r: a value in the internval [0,1], specifying the ratio of a:b,
- *     meaning that r=1 yields a, and r=0 yields b.
- */
-export function lerp(r, a, b) {
-  return r * a + (1-r) * b;
-}
-
-```
-
-And now we're almost done, we just need to create a little "fake MSFS API" class, in `mock-api.js`:
-
-```javascript
-import { watch } from "../../../utils/reload-watcher.js";
-import { runLater } from "../../../utils/utils.js";
-
-// In case we want to change things while a fake flight
-// is running, and we almost certainly will, let's watch
-// this import.
-let plane;
-let { MockPlane } = await watch(
-  import.meta.dirname,
-  "./mock-plane.js",
-  (lib) => {
-    MockPlane = lib.MockPlane;
-    if (plane) {
-      Object.setPrototypeOf(plane, MockPlane.prototype);
-    }
-  }
-);
-
-export class MOCK_API {
-  /**
-   * Let's make sure we are 100% aware of the fact that we're running a mock
-   */
-  constructor() {
-    console.log(`
-      ==========================================
-      =                                        =
-      =        !!! USING MOCKED API !!!        =
-      =                                        =
-      ==========================================
-    `);
-    this.reset();
-  }
-
-  /**
-   * wrap the plane reset in our "API"'s reset
-   */
-  reset(notice) {
-    if (notice) console.log(notice);
-    plane ??= new MockPlane();
-    plane.reset();
-    this.connected = true;
-    this.started = false;
-    const { autopilot } = this;
-    if (autopilot) {
-      autopilot.disable();
-      this.setAutopilot(autopilot);
-    }
-  }
-
-  /**
-   * Because we want to be able to start a controlled
-   * flight automatically, we add a function that, when
-   * given the autopilot, starts a 10 second count down
-   * and then turns it on:
-   */
-  async setAutopilot(autopilot) {
-    if (this.started) return;
-    this.autopilot = autopilot;
-    this.started = true;
-    runLater(
-      () => autopilot.setParameters({ MASTER: true, LVL: true, ALT: 1500, HDG: 270 }),
-      10000,
-      // Normally we don't need these two additional arguments
-      // to runLater, but in this case we really need them. The
-      // first runs a console log, the second is a function
-      // that gets run "in parallel" (which JS can't do, it
-      // actually runs asynchronously interscheduled)
-      `--- Starting autopilot in 10 seconds ---`,
-      () => {
-        for (let i = 1; i < 10; i++) {
-          const msg = `${10 - i}...`;
-          setTimeout(() => console.log(msg), 1000 * i);
-        }
-      }
-    );
-  }
-
-  // The getter pulls values from our plane's data object:
-  async get(...props) {
-    const response = {};
-    props.forEach((name) =>
-      (response[name] = plane.data[name.replace(/:.*/, ``)])
-    );
-    return response;
-  }
-
-  // Setters, we hand off to the plane itself, but triggers
-  // and event registration, we flat out don't care about:
-  set = async (name, value) => plane.set(name.replace(/:.*/, ``), value);
-  trigger = async () => {};
-  on = async () => {};
-
-  // And the connect handler is just "yep, connected" =)
-  connect = async (options) => options.onConnect();
-}
-```
-
-This code should be pretty self-explanatory, although we did update our `runLater` function in our `utils.js` to allow for a convenient "log before scheduling stuff" and "run some code before scheduling stuff":
-
-```javascript
-...
-
-export function runLater(fn, timeoutInMS, notice, preCall) {
-  // Do we have a "label" to print?
-  if (notice) console.log(notice);
-  // Is there some initial code to run?
-  if (preCall) preCall();
-  ...
-}
-```
-
-Then all that's left is to make our server use our mock, when we call it with `node api-server --mock`:
-
-```javascript
-...
-
-// Import our mock API
-import { MOCK_API } from "./mocks/mock-api.js";
-
-// And determine whether we should actually use it
-// based on there being a --mock runtime flag:
-const USE_MOCK = process.argv.includes(`--mock`);
-
-export class ServerClass {
-  ...
-  async init() {
-    const { clients } = this;
-
-    // Load the mock, if we're running a mock:
-    api = USE_MOCK ? new MOCK_API() : new MSFS_API();
-
-    ...
-
-    // Explicitly bind the autopilot if we're running a mock,
-    // because the mock is going to have to turn it on without
-    // any sort of user involvement.
-    if (USE_MOCK) {
-      api.setAutopilot(autopilot);
-      // And expose a "route" that allows clients to call
-      // this.server.mock.reset() in order to restart the
-      // "simulation" without restarting the node process:
-      this.mock = { reset: () => api.reset(`Resetting the mock flight`) };
-    }
-
-    connectServerToAPI(api, async () => {
-      ...
-    });
-  }
-}
-```
-
-Aaaaand we just faked ourselves an MSFS. We can now run this without needing to have the game running. If we run our server with `node api-server.js --mock` we see the following output:
-
-```
-
-      ==========================================
-      =                                        =
-      =        !!! USING MOCKED API !!!        =
-      =                                        =
-      ==========================================
-
-resetting autopilot
---- Starting autopilot in 10 seconds ---
-Connected to MSFS.
-Registering API server to the general sim events.
-new game started, resetting autopilot
-resetting autopilot
-Server listening on http://localhost:8080
-9...
-8...
-7...
-6...
-authenticated client 18d1892f121-1e183
-5...
-4...
-3...
-2...
-1...
-Engaging autopilot
-Engaging heading hold at 270 degrees
-Engaging wing leveler. Initial trim: 0
-Engaging altitude hold at 1500 feet. Initial trim: 0
-```
-
-And our client is none the wiser, either. As far as it knows it's still just connecting to a regular api server:
-
-![A mocked flight](./images/page/mocked-flight.png)
-
-And sure, the science doesn't look the same as for real planes, but that's not what we're interested in: all we care about is that if we change altitude in the autopilot, the plane does that, and if we change heading, the plane does that, too. Which it does:
-
-![Mocked flight science](./images/page/mocked-science.png)
-
-Sure, it's not as responsive as in-game planes, and the graphs look synthetic, but for the waypoint code we're about to write it doesn't matter _how fast_ or even _how well_ the plane can change altitude or turn, what matters is that it does those things _at all_.
-
 ## Waypoint navigation
 
-So now that we have a fake plane that can fly on our autopilot, holding a specific heading and altitude, and is able to switch to new headings and altitudes, the next logical step would be to tell the autopilot to just do that for us based on a flight path. We want to be able to give the autopilot a bunch of coordinates and then make it fly our plane (whether it's mocked or "real") towards waypoints, and then when it gets close, transition to flying towards the next waypoint, and so on, until we run out of waypoints. Something like this:
+Our goal is going to be able to give the autopilot a bunch of coordinates and then make it fly our plane towards waypoints, and then when it gets close, transition to flying towards the next waypoint, and so on, until we run out of waypoints. Something like this:
 
 ![Doing some waypoint flying](./images/page/map-with-waypoints.png)
 
@@ -5656,7 +5121,7 @@ export class WayPointManager {
 }
 ```
 
-That looks like a lot of code, but most of it's fairly standard boilerplate. The parts that are _really_ waypoint specific are the `getHeading` and `getAltitude` functions, which actually "set and get": they update the autopilot to the appropriate heading and altitude respectively, and then return that new value. Both use fairly "naïve" approaches: `getHeading` simply returns the heading towards the next waypoint (which is a _terrible_ flight policy, as we'll see in a bit) and `getAltitude` returns either our current waypoint's elevation, or the next elevation's, depending on which is higher. Picking the highest (hopefully) prevents us from flying into a hill side.
+That looks like a lot of code, but most of it's pretty "boilerplate" in that we want this class to be able to do a few things, and each has an obvious implementation that mostly just makes the code take up more lines. The parts that are actually _interesting_ are the `getHeading` and `getAltitude` functions, which don't just "get" things, they actually update the autopilot to the appropriate heading and altitude respectively, and then return that new value. Both use fairly "naïve" approaches: `getHeading` simply returns the heading towards the next waypoint (which is a _terrible_ flight policy, as we'll see in a bit) and `getAltitude` returns either our current waypoint's elevation, or the next elevation's, depending on which is higher. Picking the highest (hopefully) prevents us from flying into a hill side.
 
 This does mean we have a new functions in our `utils.js` file for getting the heading from one point to another:
 
@@ -6189,7 +5654,7 @@ export class Plane {
 
 And we're done, if we reload our page and drag the map around, we no longer auto-center on our plane until we tick that checkbox again (or click its associated label, which counts as ticking the checkbox).
 
-### Toggle waypoint visualization
+### Toggle label visualization
 
 Things can get a bit hard to see with a large flightpath with lots of labels, so let's add a tiny bit more HTML and CSS to toggle waypoint labels. We'll add a checkbox to our `index.html` similar to what we just did for centering the map on the plane:
 
@@ -6220,11 +5685,11 @@ body {
 }
 ```
 
-What we've done here is created a conditional bit of CSS for `#map .waypoint-div .waypoint-marker` that will only kick in when `#show-labels:not(:checked)` is true _anywhere on the page_. This kind of CSS only works in browsers that support `:has`, but as of 2024 that's "all of them" so that's handy, because now we don't need to set any classes on the JS side: this immediately works:
+What we've done here is created a conditional bit of CSS for `#map .waypoint-div .waypoint-marker` that will only kick in when `#show-labels:not(:checked)` is true _anywhere on the page_. This kind of CSS only works in browsers that support `:has`, but as of 2024 that's "all of them" so that's handy: no classes that need to be set, and no JavaScript needed.
 
 ![Hiding our waypoint labels](./images/waypoints/hide-labels.png)
 
-In fact, let's take that one step further:
+In fact, let's take that one step further by also adding an option that lets us scale our markers down:
 
 ```html
     <div id="map-controls">
@@ -6266,14 +5731,12 @@ And now we can toggle between full size waypoints and mini waypoints, which is s
 
 ![image-20240120115225767](./image-20240120115225767.png)
 
-Because sometimes you just want to see your flight, rather than your flight plan.
+### Waypoint management buttons
 
-### Control buttons
+Next up: some buttons for waypoint management things:
 
-Next up: some buttons for "waypoint management" things:
-
-1. a "patrol" button for turning a flightpath into a closed path,
-2. a "reset" button to reset the flight path to "not flown yet".
+1. a "patrol" button for turning a flightpath into a repeating path,
+2. a "reset" button to reset the flight path to "not flown yet", and
 3. a "clear" button to remove all waypoints.
 
 Much like before, let's start with the HTML:
@@ -6468,12 +5931,10 @@ And now we can "open" or "close" a flight path!
 
 Finally, we're still missing something that lets us edit a waypoint. We can click-drag them to move them on the map but we still need UI for:
 
-1. changing the elevation
-2. duplicating a waypoint
+1. changing the elevation,
+2. duplicating a waypoint,
 3. making a waypoint the current target, and
 4. removing a waypoint.
-
-And if you remember the `addWaypoint` function in our `waypoint-overlay.js`, it has
 
 So let's make a little modal that then let's make sure we can also edit and/or remove waypoints, by adding some code that gives us an edit modal when we click on waypoints. And edit to our `waypoint-overlay.js`:
 
@@ -6502,9 +5963,10 @@ And then we write a bunch of fairly straight-forward JS in a new `waypoint-modal
 export function showWaypointModal(server, waypoint) {
   const { id, alt, lat, long, active, completed } = waypoint;
 
-  // Previously we use `fetch` to template HTML into our page,
-  // but since we're adding and deleting this one, let's use
-  // a template string instead:
+  // Previously we used `fetch` to template HTML into our page,
+  // but since we're not just permanently adding this modal and
+  // instead want to remove it from the page when we're done,
+  // let's use a template string instead:
   const modal = document.createElement(`div`);
   modal.close = () => modal.remove();
   modal.classList.add(`modal`);
@@ -6527,7 +5989,7 @@ export function showWaypointModal(server, waypoint) {
       </dialog>
     `;
 
-  // Add the modal and get the elevation input field
+  // Add the modal to the page and get the elevation input field:
   document.body.appendChild(modal);
   const input = modal.querySelector(`input.altitude`);
 
@@ -6538,8 +6000,8 @@ export function showWaypointModal(server, waypoint) {
     if (target === modal) {
       evt.preventDefault();
       evt.stopPropagation();
-      modal.close();
       const alt = parseFloat(input.value);
+      modal.close();
       if (!isNaN(alt) && alt > 0) {
         server.autopilot.setWaypointElevation(id, alt);
       } else if (input.value.trim() === ``) {
@@ -6549,8 +6011,8 @@ export function showWaypointModal(server, waypoint) {
   });
 
   // Also add key-based dismissal:
-  // - `Esc` cancels,
-  // - `Enter` saves.
+  // - `Esc` cancels the modal without doing anything
+  // - `Enter` applies and closes.
   const controller = new AbortController();
   document.addEventListener(
     `keydown`,
@@ -6645,7 +6107,7 @@ And that's our quality of life improvements covered, how about we make this "pla
 
 ## How to fly a flight path
 
-As we saw before, our naïve approach is... not great. Even though we have waypoints, it turns out that just flying towards individual points without regard for the path between those points is a pretty terrible way to fly "a path".  So (probably unsurprisingly) we need a bit more than just "fly towards a point, and when we get there, fly towards the next point" if we want proper flight path following. So let's have a bit of a think about how we can improve our flight path logic.
+As we saw before, our naïve approach of flying waypoints is... not great. Even though we have waypoints, it turns out that just flying towards individual points without regard for the path between those points is a pretty terrible way to fly "a path".  So (probably unsurprisingly) we need a bit more than just "fly towards a point, and when we get there, fly towards the next point" if we want proper flight path following. So let's have a bit of a think about how we can improve our flight path logic.
 
 Let's start with the use case we already have: flying a flight path with a single waypoint. This is what we already implemented: if there's a single point, then that's our target, and that's what we fly towards. So far so good, our plane can already do this!
 
@@ -7019,7 +6481,7 @@ But before we do, let's make sure we can fly the same flight path with lots of d
 
 ## Saving and loading flight plans
 
-Before we move on to testing, let's make sure we can _repeat_ flights, otherwise testing is going to be quite the challenge. Thankfully, this is going to be super simple. First, we add some save and load buttons to our `index.html`:
+Before we move on to testing, let's make sure we can actually have different planes fly the same flight path, across multiple game sessions, otherwise testing is going to be quite the challenge. Thankfully, this is going to be super simple. First, we add some save and load buttons to our `index.html`:
 
 ```html
   ...
@@ -7040,7 +6502,7 @@ Before we move on to testing, let's make sure we can _repeat_ flights, otherwise
   ...
 ```
 
-With just enough CSS to hide the filename when we pick a file (which is, annoyingly, not something you just just... remove) in our `index.css:
+With just enough CSS to hide the filename that file input elements insist on showing you when you've pick a file (and which is, annoyingly, not something you just just... remove) in our `index.css:
 
 ```css
 fieldset {
@@ -7058,7 +6520,7 @@ fieldset {
 ...
 ```
 
-And some extra JS added to our waypoint overlay event handling function:
+And some extra JS added to our waypoint overlay event handling function that will turn our list of waypoints into a JSON document that you can save, and can read in those documents in order to recreate a flight path:
 
 ```javascript
 ...
@@ -7084,19 +6546,21 @@ export class WaypointOverlay {
     // information away, and then we generate an `<a>` that triggers a file download for that
     // data in JSON format:
     document.querySelector(`button.save`).addEventListener(`click`, () => {
-      // Form "purely lat/long/alt" data:
-      const strip = ({ lat, long, alt }) => ({ lat, long, alt });
-      const stripped = this.waypoints.map(strip);
-      const data = JSON.stringify(stripped, null, 2);
+      // We only need the latitude, longitude, and elevation for each waypoint:
+      const simplify = ({ lat, long, alt }) => ({ lat, long, alt });
+      const simplified = this.waypoints.map(simplify);
+      const data = JSON.stringify(simplified, null, 2);
 
       // Then create a download link:
       const downloadLink = document.createElement(`a`);
       downloadLink.textContent = `download this flightplan`;
       downloadLink.href = `data:text/plain;base64,${btoa(data)}`;
-      downloadLink.download = `flightplan.txt`;
-
-      // And then automatically click it to trigger a download.
-      console.log(`Saving current flight path.`);
+      // And ask the user what to call this file:
+      const defaultFilename = `flightplan.json`;
+      let filename = prompt(`Name this path:`, defaultFilename);
+      if (!filename.endsWith(`.json`)) filename += `.json`;
+      downloadLink.download = btoa(filename);
+      // Then click the link to trigger a download:
       downloadLink.click();
     });
 
@@ -7106,17 +6570,23 @@ export class WaypointOverlay {
       const file = evt.target.files[0];
       const reader = new FileReader();
       reader.onload = () => {
+        const response = reader.result;
         try {
-          const data = JSON.parse(reader.result);
+          const data = JSON.parse(response);
           server.autopilot.clearWaypoints();
           data.forEach(({ lat, long, alt }) =>
             server.autopilot.addWaypoint(lat, long, alt)
           );
-          const { lat, long } = this.plane?.state.flightInformation?.data || {};
-          server.autopilot.revalidate(lat, long);
-          console.log(`Loaded flight path from file.`);
+          // Are we already flying? If so, we don't want to fly all the way back to the
+          // start of the flight plan: target the nearest point on it, instead.
+          if (!plane.state.flightInformation?.data.onGround) {
+            const { lat, long } = this.plane?.state.flightInformation?.data || {};
+            server.autopilot.revalidate(lat, long);
+          }
         } catch (e) {
-          console.error(`Could not parse flight path.`, e);
+          console.error(`An error occurred while parsing the flight path data.`)
+          console.error(e);
+          console.log(`file data:`, response);
         }
       };
       reader.readAsText(file);
@@ -7184,47 +6654,83 @@ export class AutopilotRouter {
 }
 ```
 
-And with that, saving and loading's sorted.
+And with that, saving and loading's sorted, although we want to add one more button to our page now that we can load up an entire flight plan: an "arm" button.
 
-Which means it's time to say goodbye to our mocked MSFS and its janky fake plane, and test things properly with a plane loaded up in MSFS!
+### "Get ready to fly this path"
+
+When we load a flight plan, it would be super useful if we could "prime" the autopilot so that when we turn it on, we don't then also have to enabled every single feature manually. This should be a quick fix in our `autopilot.html`:
+
+```html
+  ...
+  <button class="MASTER">AP</button>
+  <button class="arm-all">(arm all)</button>
+  ...
+```
+
+and our `public/js/autopilot.js`:
+
+```javascript
+...
+export class Autopilot {
+  constructor(owner) {
+    ...
+
+    domAP.querySelector(`.arm-all`).addEventListener(`click`, () => {
+      Object.entries(AP_OPTIONS).forEach(([key, value]) => {
+        if (key === `MASTER`) return;
+        if (!value) {
+          domAP.querySelector(`.${key}`).click();
+        }
+      });
+    });
+  }
+```
+
+Done, one button now presses every other button, if they're not already pressed. Now we can load a flight path, click "arm all", so that when we're ready to start flying our flight path, we only have to turn on the autopilot with everything else already set correctly.
+
+![One click, four buttons](./image-20240202120537200.png)
+
+Which means it's time to test things properly by loading up some planes and flying a plan!
 
 # Part 5: Testing and refining our code
 
 Now that we can load a flight path, we can load up [this one](https://gist.githubusercontent.com/Pomax/4bee1457ff3f33fdb1bb314908ac271b/raw/537b01ebdc0d3264ae7bfdf357b94bd963d20b3f/vancouver-island-loop.txt), which expects us to start on [runway 27 at Victoria Airport on Vancouver Island](https://www.google.com/maps/place/48%C2%B038'48.0%22N+123%C2%B024'44.4%22W/@48.6466197,-123.4125952,202m/data=!3m1!1e3!4m4!3m3!8m2!3d48.646658!4d-123.41234?entry=ttu), taking us on a round trip of East Vancouver Island by flying us over [Shawnigan Lake](https://www.tourismcowichan.com/explore/about-cowichan/shawnigan-lake/) and [Sooke Lake](https://www.canoevancouverisland.com/canoe-kayak-vancouver-island-directory/sooke-lake/), turning right into the mountains at [Kapoor regional park](https://www.crd.bc.ca/parks-recreation-culture/parks-trails/find-park-trail/kapoor), following the valley down to the coast, turning over [Port Renfrew](https://www.portrenfrew.com/) into the [San Juan river](<https://en.wikipedia.org/wiki/San_Juan_River_(Vancouver_Island)>) valley and then following that all the way west to the [Kinsol Tressle](https://www.cvrd.ca/1379/Kinsol-Trestle), where we take a quick detour north towards [Cowichan Station](https://vancouverisland.com/plan-your-trip/regions-and-towns/vancouver-island-bc-islands/cowichan-station/), then back to Victoria Airport (which is actually in [Sidney](http://www.sidney.ca/), a good hour north of BC's capital of [Victoria](https://www.tourismvictoria.com/)):
 
-![It's Zero, the ghost dog!](./images/ghost-dog.png)
+![It's Zero, the ghost dog!](./image-20240202122620692.png)
 
 And I don't know about you, but that looks a lot like "Zero", the ghost dog from "The Nightmare Before Christmas" to me, so this is now the ghost dog tour. Let's fly some planes!
 
-## De Havilland DHC-2 "Beaver"
+## Initial test flights
 
-![image-20240119180054615](./images/waypoints/tests/beaver/beaver-start.png)
+### De Havilland DHC-2 "Beaver"
 
-We start the beaver mid-flight, at 1500 feet (because we have no control over that, thanks MSFS) and then load up our ghost dog tour, and turn on the autopilot with all of our features turned on:
+![Departing the airport to start our journey](./image-20240202123251197.png)
 
-![image-20240119180337212](./images/waypoints/tests/beaver/ghost-dog-beaver.png)
+We'll start the beaver on the runway, load our flight plan, arm the autopilot, then pilot our plane manually for _just_ long enough to get airborne, and then we'll turn on the autopilot and let it run the rest of the flight while we sit back, make a coffee, maybe grab some snacks, and enjoy the view:
 
-And then we just enjoy the flight and wait for the result!
+![image-20240202123743228](./image-20240202123743228.png)
 
-![The ghost dog tour](./images/waypoints/tests/beaver/ghost-dog-tour.png)
+Except not for long: looking at the first few turns, it's obvious we need to refine out heading mode code a little, because we're already overshooting our transitions at low speeds:
 
-This might _look_ good, but it actually isn't. This is one of the slowest planes, and it's already overshooting some turns even with a full minute of transition time, so anything going faster may have serious problems flying our flight path. So let's test with a faster aircraft.
+![image-20240202125225656](./image-20240202125225656.png)
 
-## Cessna 310R
+Which means we'll _really_ overshoot our transitions at high speeds. In fact, let's try a faster plane to see how wrong things go...
 
-The 310R is considerably faster than the Beaver, with a cruise speed that's almost double that of the Beaver, so those aggressive short turns should be interesting...
+### Cessna 310R
+
+The 310R is considerably faster than the Beaver, with a cruise speed that's almost double that of the Beaver, so how do we-
 
 ![image-20240120130749555](./image-20240120130749555.png)
 
-Or, okay, we can't even make the first real turn. What happened?
+Oh, okay. We can't even make the first real turn. What happened?
 
 ![image-20240120104424564](./image-20240120104424564.png)
 
 Ah. We plotted a course around a little 1200' hill, and thanks to our transition logic and turn behaviour, rather than going _around_ it, we tried to go _through_ it. Earth vs. Plane: Earth wins. One obvious thing we can change is the transition time: a full minute is far too long when we're going fast, but let's also have a look at our banking behaviour:
 
-![{B85CE689-324B-4E11-A15F-6D075C1FA7D8}](./{B85CE689-324B-4E11-A15F-6D075C1FA7D8}.png)
+![image-20240202125414273](./image-20240202125414273.png)
 
-This shows a max bank that's only half of what what planes are generally capable of, so it might be time to tweak some values in `fly-level.js`:
+This shows a max bank that's only half of what we wanted our plane to do, so it might be time to tweak some values in `fly-level.js`:
 
 ```javascript
 // First off, the counter-steering that we've got going on will
@@ -7297,65 +6803,21 @@ export class WayPointManager {
 }
 ```
 
-Right, let's see how we do now:![image-20240120162923173](./image-20240120162923173.png)
+![image-20240202130332581](./image-20240202130332581.png)
 
-_So_ much better. Which means we'll have to rerun the Beaver with these new settings, because we need to make sure we didn't add "fixes" that _only_ fix the 310R...
+Hmm. Well, we didn't crash, but I struggle to call this "better". In fact, let's see what happens when try this with a plane that has a roughly similar cruise speed but doesn't have aileron trim...
 
-## De Havilland DHC-2 "Beaver", take 2
+### Piper Turbo Arrow III
 
-Let's rerun the entire flight and see how we do...
+Things aren't looking too hot for our heading mode already, what if fly the same route on the stick?
 
-![image-20240120135231797](./image-20240120135231797.png)
+![image-20240202175023483](./image-20240202175023483.png)
 
-Night and day, compared to the previous flight. By taking our speed into account, we can far more accurately follow our flight plan.
+Yeah... so... we're about to fall out of the sky, and I'm gonna go with "we need to rewrite our heading mode" because this just feels pretty under-performant. The map suggests we're not turning as fast as we should So: what if we start over, and write a heading mode that turns the plane not based on bank angle, but based on turn rate?
 
-## Top Rudder Solo 103
+## Updating our heading mode
 
-So... if the Beaver works, what about an _even slower_ aircraft? Let's see if our flight plan works for the Top Rudder!
-
-![image-20240120135731554](./image-20240120135731554.png)
-
-Although of course, with a cruise speed of 47 knots, _this is going to take a while_... I'll see you back here after I do shop grocery shopping.
-
-...and I'm not kidding, groceries took about an hour, and when I came back, this is how much progress we'd made:
-
-![image-20240120150216759](./image-20240120150216759.png)
-
-And I'd love to say it took another hour to get back to the start, but as we were flying the "back of the head" of ghost dog....
-
-![image-20240120154952707](./image-20240120154952707.png)
-
-We didn't make it. But we mostly didn't make it because we walked away. I had intervened twice during this flight; once because Windows decided to sort-of-sleep, and waking it added a million to the trim values:
-
-![image-20240120153303094](./image-20240120153303094.png)
-
-Which isn't great (and it's interesting that MSFS doesn't consider "rotating like a rotisserie chicken at 100 kilometers per hour" a game-over condition) but by tactically resetting the trim to all-zeroes and taking control of the stick and rudders, it was relatively easy to get us back on track. The second time we had to intervene, we _probably_ didn't need to, because the Top Rudder did what we already knew was going to happen:
-
-![image-20240120153102253](./image-20240120153102253.png)
-
-On the long climb up from 1500 to 3000 feet, the Top Rudder started to lose enough speed that it couldn't comfortably hold its course. Still fast enough to keep going at around 35 knnots, and it _would_ have made it all the way up to 3000 feet because we already saw it do that before, but it would have been _incredibly scary and uncomfortable_, so, again: we quickly grabbed the stick, and manually kept the Top Rudder level until it'd finished its climb to 3000 feet, which took about 2 minutes. Not too terrible for "flying an ultralight on autopilot"!
-
-But the last one was simply me not being near the computer: we got slammed by side wind, the autopilot was not able to recover, and I wasn't there to regain control in what would have probably been a few seconds. That said, based on where we were when this happened, I'm still calling this a success:
-
-![image-20240120155233826](./image-20240120155233826.png)
-
-Asking an ultralight to fly this route is _kind of_ ridiculous, but if we'd been at the computer even just a little more, we'd have made it back to the start.  So let's try another "real" airplane.
-
-## Beechcraft Model 18
-
-The Twin Beech is a lumbering beauty, but it responds to trim really well, and with our fixes in place, it flies this route spectacularly:
-
-![image-20240120170829688](./image-20240120170829688.png)
-
-## Piper Turbo Arrow III
-
-So what about a plane that doesn't have aileron trim? Do we need to fix anything, or will this work "out of the box"?
-
-![image-20240120172920473](./image-20240120172920473.png)
-
-Yeah.. so... I'm gonna go with "no, it doesn't". Clearly, this is not going to work, and our elevator-specific code changes are going to need some... well... more changes.
-
-The map shows us that we're both allowed to turn way more than we should be, with a rate of change that's way faster than should be allowed. So let's write some code that turns the plane directly, based on rate of turn...
+Let's replace the code we had for stick-based trimming with this:
 
 ```javascript
 export async function flyLevel(autopilot, state) {
@@ -7371,15 +6833,21 @@ export async function flyLevel(autopilot, state) {
   if (useStickInstead) {
     const targetTurnRate = constrainMap(headingDiff, -20, 20, -3, 3);
     const turnDiff = targetTurnRate - turnRate;
-    // But we do need ot boost stick changes the closer to zero
+    
+    // But we do need to boost stick changes the closer to zero
     // we get, because otherwise ramp-up and ramp-down takes too long:
     let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
-    proportion = sign(proportion) * abs(proportion) ** 0.5;
+    proportion = sign(proportion) * abs(proportion);
+
     // And we may want to base the "max stick deflection" value on
-    // flight model properties, but for now this will do:
+    // flight model properties, but for now this will do. The maximum
+    // deflection of the stick is +/- 2**14, but giving a plane that
+    // much stick generally makes it do a barrel roll, so let's not,
+    // and instead set our max deflection to 1/5th of that.
     const maxStick = -16384 / 5;
     const newAileron = proportion * maxStick;
-    // "eary exit" when we're flying on stick.
+    
+    // Then we "early exit" after setting the new stick value.
     return api.trigger("AILERON_SET", newAileron | 0);
   }
 
@@ -7387,27 +6855,11 @@ export async function flyLevel(autopilot, state) {
 }
 ```
 
-How did we do?
+How does that perform?
 
-![image-20240121115422685](./image-20240121115422685.png)
+![image-20240202140606069](./image-20240202140606069.png)
 
-Hot diggity daffodil, that looks perfect.
-
-## De Havilland DHC-2 "Beaver", take 3
-
-So, remember all that code we wrote for aileron trim? What happens if we just... don't use that, and instead use the less-than-10-lines-of-code we just wrote to fix the Turbo Arrow for all planes? Because throwing away a ton of code while still having things work would be _fantastic_!
-
-![image-20240121125332710](./image-20240121125332710.png)
-
-That's... really good actually. Let's try the 310R, hopefully that one is just as good.
-
-## Cessna 310R, take 2
-
-![image-20240121132852115](./image-20240121132852115.png)
-
-Aaaaand I guess we're swapping our code because this just works great. Time to delete all the stuff we no longer need!
-
-## Updating our heading mode
+...feels like we might want to replace our original bank based heading code with this turn rate based heading code. What if we just make _every_ plane use this? Let's throw away all the heading mode code we wrote before, because science told us it wasn't all that great, and let's use the following code for all planes, instead:
 
 ```javascript
 import { constrainMap, getCompassDiff } from "../utils/utils.js";
@@ -7417,30 +6869,23 @@ const FEATURES = {
   FLY_SPECIFIC_HEADING: true,
 };
 
+// Our updated "fly leve" function
 export async function flyLevel(autopilot, state) {
-  const { trim, api } = autopilot;
+  const { api } = autopilot;
   const { data: flightData, model: flightModel } = state;
-  const { vs1, cruiseSpeed } = flightModel;
-  const { lat, long, declination, speed, heading, turnRate } = flightData;
-  const parameters = { autopilot, heading, lat, long, declination, speed, vs1, cruiseSpeed };
+  const { turnRate } = flightData;
+  const parameters = Object.assign({ autopilot }, flightModel, flightData);
   const { headingDiff } = getTargetHeading(parameters);
 
-  // Use trim vector as a deflection bias instead
-  if (abs(headingDiff) < 5) trim.roll -= constrainMap(headingDiff, -3, 3, -10, 10);
-  const offset = trim.roll;
   const targetTurnRate = constrainMap(headingDiff, -20, 20, -3, 3);
   const turnDiff = targetTurnRate - turnRate;
 
-  // Boost how much the stick changes near zero (sqrt boost), but dampen
-  // the overall stick deflection the closer we are to our target heading.
   let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
-  proportion = sign(proportion) * abs(proportion) ** 0.5;
-  proportion = constrainMap(abs(headingDiff), 0, 20, proportion/10, proportion);
+  proportion = sign(proportion) * abs(proportion);
 
-  // We may want to base this value on flight model properties:
-  const maxStick = -16384 / constrainMap(speed, 100, 200, 5, 8);
-  const newAileron = offset + proportion * maxStick;
-  return api.trigger("AILERON_SET", newAileron | 0);
+  const maxStick = -16384 / 5;
+  const newAileron = proportion * maxStick;
+  api.trigger("AILERON_SET", newAileron | 0);
 }
 
 // And our updated heading function
@@ -7459,37 +6904,481 @@ function getTargetHeading(parameters) {
 
 ```
 
-...heck let's try this on the Top Rudder again, and see if we still need to intervene or not.
+...and then let's see what the 310R does for us.
 
-## Top Rudder Solo 103, take 2
+### Cessna 310R, take 2
 
-![image-20240121174841487](./image-20240121174841487.png)
+![image-20240202141213784](./image-20240202141213784.png)
 
-Even the previously problematic climb works "almost perfectly" now:
+Amazing! But the map doesn't tell the whole story, because if we look at the game (which was the whole point of course), the plane's wobbling again, with lots of tiny back and forth corrections. So let's smooth those out by not just setting "the new stick" in one go, but instead using a value "between the old and new stick position", based on how big the difference between the two is: barely any difference? Bias towards the current stick value. Big difference? Bias towards the new value:
 
-![image-20240121174907420](./image-20240121174907420.png)
+```javascript
+export async function flyLevel(autopilot, state) {
+  ...
+  const { aileron, turnRate } = flightData;
+  const currentAileron = (aileron / 100) * -16384;
+  
+  ...
+
+  const maxStick = -16384 / 5;
+  const newAileron = proportion * maxStick;
+
+  // Get the difference in stick position
+  const aileronDiff = abs(currentAileron - newAileron);
+  
+  // turn that into a "how much old vs. new" ratio, raised to a power in order
+  // to turn the normally linear constrainMap result into a result that stays
+  // near 1 much longer, so that we mix in much less of the new stick position
+  // if the difference is a small amount.
+  const aileronDiff = abs(currentAileron - newAileron);
+  const ratio = constrainMap(aileronDiff, 0, abs(maxStick), 1, 0) ** 0.5;
+  const mixed = lerp(ratio, currentAileron, newAileron);
+
+  api.trigger("AILERON_SET", mixed | 0);
+}
+```
+
+You may have noticed that `... ** 0.5`, which is pretty important: it lets us turn a nice, linear constrain mapping into a non-linear mapping:
+
+![image-20240202143546089](./image-20240202143546089.png)
+
+On the left is the usual constrain map behaviour, but that `... ** 0.5` takes the square root of the result, which means our ratio will favour being "near 1", which means our mixing ratio will favour our current stick position more, the close to "no difference" we get, which means we jostle the stick less if we're near our target turn rate. Now, if we look at how the plane flies in-game, we can confirm that indeed looks better, but let's look at our graphs: what's the difference between flying without that mixing ration, flying with a linear ratio, and flying with a non-linear ration?
+
+![image-20240202145354300](./image-20240202145354300.png)
+
+As it turns out, we made one thing better by making another thing worse: we've reduced the frequency of our wobbling, but we've increased the _amount_ of wobble. So what we really want is some way to control how much we're "allowed" to deflect the stick, in a way that we start with a safe (far too) low maximum, and bump that up if we're not turning fast enough (based on our turn rate), until we are. With, of course, a little bit of code that pushes it back down when we're flying the heading we're supposed to.
+
+And wouldn't you know it, we have a handy place to put that value: our now unused `trim.roll`. No code changes required for that at least. Then, we need some new code to let us "grow" and "shrink" the maximum allowed deflection:
+
+```javascript
+...
+
+export async function flyLevel(autopilot, state) {
+  const { trim, api } = autopilot;
+  const { data: flightData, model: flightModel } = state;
+
+  // Get our turn rate...
+  const { turnRate } = flightData;
+  const aTurnRate = abs(turnRate);
+
+  // ...and our target heading...
+  const parameters = Object.assign({ autopilot }, flightModel, flightData);
+  const { headingDiff } = getTargetHeading(parameters);
+  const aHeadingDiff = abs(headingDiff);
+
+  // ...so that we can get our target turn rate.
+  const targetTurnRate = constrainMap(headingDiff, -20, 20, -3, 3);
+  const turnDiff = targetTurnRate - turnRate;
+  const aTurnDiff = abs(turnDiff);
+
+  // And we'll use those to increase the maximum allowed deflection
+  // if it turns out the current maximum is insufficient for getting
+  // the plane to turn fast enough to cover the heading change it
+  // needs to cover.
+  if (aHeadingDiff > 1) {
+    const threshold = constrainMap(aTurnDiff, 0, 3, 0, 1);
+    const regularTurn = aTurnRate < threshold;
+    const hardTurn = aHeadingDiff > 30 && aTurnRate < 2.5;
+    const wrongWay = sign(turnRate) !== sign(headingDiff);
+    if (regularTurn || hardTurn || wrongWay) {
+      updateMaxDeflection(trim, aHeadingDiff);
+    }
+  }
+
+  // Conversely, we also want to decrease the maximum allowed stick
+  // if we're flying nice and straight along our heading, so that
+  // we end up slowly easing back towards neutral.
+  else updateMaxDeflection(trim, -10);
+
+  // And then we'll use the same code we used before our "mixing".
+  let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
+  proportion = sign(proportion) * abs(proportion);
+  
+  // Rather than some fixed amount, we now get our maximum
+  // deflection from the roll "trim" vector.
+  const maxStick = -trim.roll;
+  const newAileron = proportion * maxStick;
+  api.trigger("AILERON_SET", newAileron | 0);
+}
+
+...
+
+// And a little helper function that lets us change the
+// maximum stick deflection allowed per autopilot iteration.
+function updateMaxDeflection(trim, byHowMuch) {
+  let { roll: value } = trim;
+  // We don't actually want to ever allow full stick, max out at "half that":
+  const maxValue = 2**13;
+  value = constrain(value + byHowMuch, 0, maxValue) | 0;
+  if (value !== trim.roll) {
+    trim.roll = value;
+    const prefix = byHowMuch > 0 ? `In` : `De`;
+    console.log(`${prefix}creased aileronMaxStick to ${value}`);
+  }
+}
+
+```
+
+And that should be a lot better, let's try this again:
+
+### Cessna 310R, take 3
+
+Let's run a take-off with this new code, where we prime the autopilot before we start, and then turn it on the moment the wheels come off the ground, without interfering with the stick afterwards:
+
+![image-20240202181817642](./image-20240202181817642.png)
+
+Not bad, but the map alludes to something that's _super_ obvious in-game: because we start with a maximum allowed deflection of 0, the plane doesn't actually succeed at turning for a while, so "this works" but it's a nervous first few seconds that we can avoid by starting with a better trim value. We have a few options, none of them perfect, so let's go with this: the more inertial mass a plane has, i.e. the more it weighs, the more energy it needs to change course. Likewise, the larger the wings and ailerons are, the more a plane will be able to turn at the same aileron angle. So let's combine those into "weight over wing area" and use that value to set an initial trim that's very low for planes with a very low weight, very high wing area, or both, and is much higher for planes with a lot of weight, a small wing area, or both. Looking at a few planes, that gives the following table of data:
+
+| plane | &nbsp;&nbsp;weight<br><span style="border-top:1px solid black;">wing area</span> |
+| ---|---|
+| Top Rudder 103 Solo | 3.5 |
+| Pitts Special S1 | 9.6 |
+| Gee Bee R3 Special | 13.2 |
+| Piper Turbo Arrow III | 14.5 |
+| DeHavilland DHC-2 Beaver | 15.8 |
+| Beechcraft Model 18 | 18.8 |
+| Daher Kodiak 100 | 21.5 |
+| Cessna 310R    | 23 |
+| Douglas DC-3    | 23.9 |
+| Daher TMB 930   | 30.5 |
+| Beechcraft King Air 350i | 41.22 |
+| Boeing 747-8    | 126.5 |
+
+This makes an intuitive kind of sense: the lighter planes are at or near the top, the heavier planes are at or near the bottom, but we also see that even though the Beaver and the D18 are wildly different weight classes, their weight over wing area is pretty similar, and so we'd expect them to need a similar amount of max aileron deflection during flight.
+
+So let's add the code that sets up our initial deflection value:
+
+
+```javascript
+...
+export class Autopilot {
+  ...
+  
+  resetTrim() {
+    // 1: Figure out a sensible "start value" for working the
+    // aileron, based on the plane's weight to wing area ratio.
+    const { weight, wingArea } = this.flightInformation?.model ?? {
+      weight: 0,
+      wingArea: 1,
+    };
+    const wpa = weight / wingArea;
+    const initialRollValue = constrainMap(wpa, 4, 25, 0, 5000);
+    console.log(
+      `initial roll value for ${title}: ${initialRollValue} (${weight}/${wingArea} ≈ ${wpa|0} psf)`
+    );
+
+    // 2: "zero out" the trim vector, but not the aileron:
+    this.trim = {
+      pitch: 0,
+      roll: initialRollValue,
+      yaw: 0,
+    };
+  }
+  
+  ...
+  
+  async setTarget(key, value) {
+    ...
+
+    // And 3: we need to remember to *remove* the code we
+    // wrote that saves the current aileron trim to trim.roll!
+
+    // if (key === LEVEL_FLIGHT && value === true) {
+    //  we don't want any "trim.roll = roll" here anymore
+    // }
+    ...
+  }
+  ...
+}
+```
+
+If we run this with the 310R, we see the following notice in the server logs:
+
+```
+new game started, resetting autopilot
+resetting autopilot
+initial roll value for Milviz 310R CGTER: 3000 (4496/186.395 ≈ 24 psf)
+```
+
+And we see the following flight path behaviour at takeoff ("Cessna 310R, take 4"?):
+
+![image-20240203095727441](./image-20240203095727441.png)
+
+Much nicer!
+
+## Rerunning our test flights
+
+### Cessna 310R, take 4
+
+Okay, yes: this is just the previous take, but now we're looking at the whole flight. And the plane, of course:
+
+![image-20240202194102466](./image-20240202194102466.png)
+
+Very nice. So, what about that flight path?
+
+![image-20240203100301040](./image-20240203100301040.png)
+
+And it's looking good! Much better than before!
+
+### DeHavilland DHC-2 Beaver
+
+Which means it's Beaver time! ...that's not a thing. Is it? It could be thing... anyway. It's Beaver time.
+
+![image-20240202191143592](./image-20240202191143592.png)
+
+And even the Beaver flies better now:
+
+![image-20240203100434634](./image-20240203100434634.png)
+
+### Piper Turbo Arrow III
+
+We already did some limited testing with this plane, but not a full flight, so... let's fly!
+
+![image-20240203100658381](./image-20240203100658381.png)
+
+Looking pretty, but how did we do?
+
+![image-20240203103817431](./image-20240203103817431.png)
+
+We did very well indeed. The turbo arrow wants a bit more initial aileron trim (ramping to about 6800 on the turns) but we end up turning pretty soon after takeoff and we just fly parallel to the runway for a bit.
+
+### Beechcraft Model 18
+
+![image-20240203104153301](./image-20240203104153301.png)
+
+Let's fly a leisure cruise.
+
+![image-20240203111332518](./image-20240203111332518.png)
+
+Overall, pretty good, but there's an interesting overshoot happening at the left-most transition, caused by having a transition radius based on a fixed amount of time. Instead, since we're now "trimming" on turn rate, what we really want is to see how many degrees we'll need to cover, and thus how many seconds that's going to take, given a maximum turn rate of 3 degrees per second.
+
+Let's modify the `getHeading` in our `waypoint-manager.js` just a tiny bit:
+
+```javascript
+...
+export class WaypointManager {
+  ...
+  getHeading({...}) {
+    const { modes } = autopilot;
+
+    // Get all our points up front, because we'll need all of them to
+    // determine how many seconds we're going to need for a transition:
+    let { currentWaypoint: p1 } = this;
+    let p2 = p1?.next;
+    let p3 = p2?.next;
+
+    // So: how many seconds will we need for the upcoming transition
+    // given a turn rate of 3 degrees per second?
+    let seconds = 10;
+    if (p1 && p2 && p3) {
+      const aHeadingDiff = abs(getCompassDiff(p1.heading, p2.heading));
+      seconds = aHeadingDiff / 3;
+      seconds = constrainMap(speed, vs1, cruiseSpeed, seconds/10, seconds);
+    }
+    const radiusInKM = speed * ONE_KTS_IN_KMS * seconds;
+
+    let target;
+    let targets = [];
+    ...
+  }
+  ...
+}
+```
+
+And if we draw our transition radius on the map with a quick Leaflet `Circle`, that's quite a difference:
+
+![image-20240203112324179](./image-20240203112324179.png)
+
+That's a considerably longer transition time, so we should have a much better turn now:
+
+![image-20240203112453153](./image-20240203112453153.png)
+
+... wait, what happened? The turn starts nice and early with a good path into the turn, but then it gets what looks like a kink in the path, and then we overshoot the next transition with a tiny radius?
+
+What happened is that as we transition from flying along the coast to flying towards Port Renfrew, we switched our current waypoint from Botanical Beach to Port Renfrew, and suddenly our radius started getting computed based on the path into the valley, rather than up to Port Renfrew. We don't want that: we want to base our transition radius on "the point we're nearest", rather than "the current active waypoint" because those might not be the same point!
+
+So: let's make that change in our `waypoint-manager.js`:
+
+```javascript
+...
+
+const { abs, max } = Math;
+
+// We'll put a lower limit on how late we can start
+// a turn: even if the transition is barely a turn,
+// start turning in when we're 20 seconds away, at
+// the latest.
+const MIN_RADIUS_IN_SECONDS = 20;
+
+...
+
+export class WaypointManager {
+  ...
+
+  /**
+   * Then we update our getHeading function so that it pulls the
+   * transition radius from a function that calculates it:
+   */
+  getHeading({...}) {
+    const { modes } = autopilot;
+    let { currentWaypoint: p1 } = this;
+    const radiusInKM = this.getTransitionRadius(lat, long, speed, vs1, cruiseSpeed, p1);
+    ...
+  }
+
+  /**
+   * And then we declare that function: it needs to figure out how
+   * many "seconds long" our transition radius needs to be, bearing
+   * in mind that if we're coming out of a transition, we need to
+   * work with the *previous* set of waypoints, not the new set of
+   * waypoints.
+   */
+  getTransitionRadius(lat, long, speed, vs1, cruiseSpeed, p1) {
+    const { points } = this;
+    const minRadiusInKM = MIN_RADIUS_IN_SECONDS * speed * ONE_KTS_IN_KMS;
+    let p2 = p1?.next;
+
+    // Are we closer to p1 than p2?
+    if (!p2) return minRadiusInKM;
+    const d1 = getDistanceBetweenPoints(lat, long, p1.lat, p1.long);
+    const d2 = getDistanceBetweenPoints(lat, long, p2.lat, p2.long);
+    if (d1 < d2) {
+      const prevPos = points.findIndex((e) => e === p1) - 1;
+      if (prevPos > -1) {
+        p1 = points[prevPos];
+        p2 = p1.next;
+      }
+    }
+
+    // Once we've figured that out, see if we have three
+    // waypoints to work with, or there won't be a "transition":
+    const p3 = p2?.next;
+    const minRadiusInKM = MIN_RADIUS_IN_SECONDS * speed * ONE_KTS_IN_KMS;
+    if (!p1 || !p2 || !p3) return minRadiusInKM;
+
+    // If we have three points, see what the heading difference is,
+    // and then turn that into a second amount based on a turn rate
+    // of 3 degrees per second, then turn that into an actual distance
+    // value based on our current air speed:
+    const aHeadingDiff = abs(getCompassDiff(p1.heading, p2.heading));
+    let seconds = aHeadingDiff / 3;
+    seconds = constrainMap(speed, vs1, cruiseSpeed, seconds / 10, seconds);
+    const radiusInKM = seconds * speed * ONE_KTS_IN_KMS;
+    return max(minRadiusInKM, radiusInKM);
+  }
+
+  ...
+}
+```
+
+Alright, what does this do for our transition radius throughout the flight?
+
+![image-20240203123640205](./image-20240203123640205.png)
+
+We see a small radius as we transition over a gentle turn, with that radius persisting until we're closer to the next point, at which point our transition radius switches to the much larger one, because the turn needs to cover far more degrees. Then, once we're turning we maintain that large radius even after the flight plan has transitioned to the next waypoint, and we don't switch to the next, smaller, radius until we're closer to our next point than the one we transitioned over. Leading a much better flight path behaviour:
+
+![image-20240203132121404](./image-20240203132121404.png)
+
+### Daher Kodiak 100
+
+![image-20240203160034983](./image-20240203160034983.png)
+
+This is the plane that we ended up needing to write the auto-throttle code for, so how does it fare?
+
+![image-20240203163044676](./image-20240203163044676.png)
+
+That'll do it.
+
+### Top Rudder Solo 103
+
+So... how about we fly some of the other "edge-case" planes we looked at before? Like: what happens when we, say, try the Top Rudder ultralight again?
+
+![image-20240203132439900](./image-20240203132439900.png)
+
+This is either going to go wrong pretty quickly, or it's going to be _amazing_
+
+![image-20240203132620555](./image-20240203132620555.png)
+
+But first, let's adjust our lower bound for the initial maximum deflection, because "zero" was clearly too low. Even this ultralight wants more than that, so let's set it to 1500 and retry.
+
+![image-20240203133020926](./image-20240203133020926.png)
+
+Much better. So.. time to sit back for an hour? This one's going to take a while!
+
+![image-20240203134954318](./image-20240203134954318.png)
+
+Or not?
+
+![image-20240203135113853](./image-20240203135113853.png)
+
+Looks like we might need some extra help to make the top rudder less... wibbly. And this is a special enough plane that it feels okay to add a dedicated, hard coded fix in our `fly-level.js`:
+
+```javascript
+export async function flyLevel(autopilot, state) {
+  const { trim, api } = autopilot;
+  const { data: flightData, model: flightModel } = state;
+  const { weight, wingArea } = flightModel;
+  const wpa = weight / wingArea;
+  
+  ...
+
+  // We'll add a special affordance for ultralights, where we don't
+  // want a lower maximum turn rate. 2 degrees per second instead of 2.
+  const maxTurn = wpa < 5 ? 2 : 3;
+  const targetTurnRate = constrainMap(headingDiff, -20, 20, -maxTurn, maxTurn);
+
+  ...
+
+  if (aHeadingDiff > 1) {
+    ...
+  }
+  // And we also want the maximum deflection to drop a lot faster:
+  else updateMaxDeflection(trim, wpa < 5? -50 : -10);
+
+    ...
+}
+
+// And a change to our update function, so that ultralights can't get "the full stick":
+function updateMaxDeflection(wpa, trim, byHowMuch) {
+  let { roll: value } = trim;
+  // Change the max value to only 4096 for ultralights, with 8192 for regular planes:
+  const maxValue = 2 ** (wpa < 5 ? 12 : 13);
+  value = constrain(value + byHowMuch, 0, maxValue) | 0;
+  ...
+}
+```
+
+Which gives us:
+
+![image-20240203141607701](./image-20240203141607701.png)
+
+Much better. And if you look at our altitude, whereas we were barely keeping 1200' before because of all the wobbling, this update keeps us at the intended 1400', which is rather necessary as this part of the flight path takes us over a hill that's just a few feet shy of 1400'!
+
+Mind you, wind gusts and up- and downdrafts will still "punch us" off-course, but at least we should be able to recover from those reasonably well. So, back to flying the rest of the flight. The two hour flight. See you in a bit...
+
+![image-20240203155113450](./image-20240203155113450.png)
+
+Overall, pretty good! The little "lump" just behind the plane in this picture is from having gotten blown off course, which we knew was going to be a possibility. Bottom line: don't walk away from your plane, an autopilot might still kill you, especially when the plane was never designed to use one =)
 
 In fact, let's try some more of our edge cases. What about acrobatic planes?
 
-## Pitts Special S1
+### Pitts Special S-1S
 
-While it works, sharp turns are not great. It would be nice to have the old code available to switch back to.
+Let's jump back into our stunting plane!
 
-## Piper Turbo Arrow III
+![image-20240203163344913](./image-20240203163344913.png)
 
-Works just fine.
+Whereas previously these were... twitchy, the new code made them much more behaved.
 
-## Daher Kodiak 100
 
-I fucking hate this plane so much. So we're going to keep our old plane, but now we're definitely going to add a toggle that defaults to the new code, but lets us switch back to the old code if the new code doesn't work well enough (and ideally, in a way where the autopilot can detect that our new code is not having the effect it should be, and automatically falls back to the original code we wrote.
 
-That said, the King Air needs the same correction so let's figure out how to do that automatically.
+In fact, what about a much _more_ twitchy stunting plane?
 
-## Gee Bee R3 Special
+### Gee Bee R3 Special
 
 It can fly the route just fine.
 
-## Flying upside down
+## ...Flying upside-down?
 
 Amazing
 

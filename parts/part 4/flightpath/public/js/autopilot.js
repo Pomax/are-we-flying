@@ -118,11 +118,13 @@ export class Autopilot {
       });
 
       if (this.planeRadius) this.planeRadius.remove();
-      this.planeRadius = L.circle(
-        [flightData.lat, flightData.long],
-        radius * 1000
-      );
-      this.planeRadius.addTo(this.map);
+      if (radius) {
+        this.planeRadius = L.circle(
+          [flightData.lat, flightData.long],
+          radius * 1000
+        );
+        this.planeRadius.addTo(this.map);
+      }
     }
   }
 }

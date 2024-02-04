@@ -11,7 +11,7 @@ export class WaypointOverlay {
   }
 
   addEventHandling() {
-    const { map, server } = this;
+    const { map, server, plane } = this;
 
     // Set up the event handling for the map:
     map.on(`click`, ({ latlng }) => {
@@ -59,7 +59,16 @@ export class WaypointOverlay {
       const downloadLink = document.createElement(`a`);
       downloadLink.textContent = `download this flightplan`;
       downloadLink.href = `data:text/plain;base64,${btoa(data)}`;
-      downloadLink.download = `flightplan.txt`;
+      downloadLink.addEventListener(
+        `click`,
+        () => {
+          const defaultFilename = `flightplan.json`;
+          let filename = prompt(`Name this path:`, defaultFilename);
+          if (!filename.endsWith(`.json`)) filename += `.json`;
+          downloadLink.download = filename;
+        },
+        true
+      );
 
       // And then automatically click it to trigger the download.
       console.log(`Saving current flight path.`);
@@ -72,27 +81,30 @@ export class WaypointOverlay {
       const file = evt.target.files[0];
       const reader = new FileReader();
       reader.onload = () => {
+        const response = reader.result;
         try {
-          const data = JSON.parse(reader.result);
+          const data = JSON.parse(response);
           server.autopilot.clearWaypoints();
           data.forEach(({ lat, long, alt }) =>
             server.autopilot.addWaypoint(lat, long, alt)
           );
-          const { lat, long } = this.plane?.state.flightInformation?.data || {};
-          server.autopilot.revalidate(lat, long);
-          console.log(`Loaded flight path from file.`);
+          // Are we already flying? If so, we don't want to fly all the way back to the
+          // start of the flight plan: target the nearest point on it, instead.
+          if (!plane.state.flightInformation?.data.onGround) {
+            const { lat, long } =
+              this.plane?.state.flightInformation?.data || {};
+            server.autopilot.revalidate(lat, long);
+          }
         } catch (e) {
-          console.error(`Could not parse flight path.`, e);
+          console.error(
+            `An error occurred while parsing the flight path data.`
+          );
+          console.error(e);
+          console.log(`file data:`, response);
         }
       };
       reader.readAsText(file);
     });
-  }
-
-  addNewTrail(lat, long, lat2, long2) {
-    const trail = new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
-    trail.add(lat2, long2);
-    return trail;
   }
 
   manage(waypoints = [], repeating) {
@@ -131,52 +143,6 @@ export class WaypointOverlay {
     waypoint.marker.remove();
     waypoint.trail?.remove();
     waypoint.next?.trail?.remove();
-  }
-
-  /**
-   * Make sure that cosmetically, the first waypoint is labeled
-   * as waypoint 1, the next is waypoint 2, etc, irrespective of
-   * the waypoint's internal id number.
-   */
-  resequence(repeating) {
-    this.waypoints.forEach((waypoint, pos) => {
-      if (pos > 0) {
-        const { lat, long } = waypoint;
-        const prev = (waypoint.prev = this.waypoints[pos - 1]);
-        waypoint.trail?.remove();
-        waypoint.trail = this.addNewTrail(prev.lat, prev.long, lat, long);
-      }
-      this.setWaypointLabel(waypoint, pos + 1);
-    });
-    this.updateClosingTrail(repeating);
-  }
-
-  /**
-   * make sure we have a trail connecting the first and last
-   * waypoint, if we need to repeat the flightpath. Note that
-   * we also call this when we *move* the first or last point,
-   * so we indiscriminantly remove the trail first, then
-   * selectively add it back in.
-   */
-  updateClosingTrail(repeating) {
-    const { waypoints } = this;
-    if (waypoints.length < 2) return;
-
-    if (this.closingTrail) {
-      this.closingTrail.remove();
-      this.closingTrail = undefined;
-    }
-
-    if (repeating && !this.closingTrail) {
-      const first = waypoints[0];
-      const last = waypoints.at(-1);
-      this.closingTrail = this.addNewTrail(
-        first.lat,
-        first.long,
-        last.lat,
-        last.long
-      );
-    }
   }
 
   /**
@@ -313,5 +279,60 @@ export class WaypointOverlay {
     classes.toggle(`active`, !!active);
     waypoint.completed = completed;
     classes.toggle(`completed`, !!completed);
+  }
+
+  /**
+   * Make sure that cosmetically, the first waypoint is labeled
+   * as waypoint 1, the next is waypoint 2, etc, irrespective of
+   * the waypoint's internal id number.
+   */
+  resequence(repeating) {
+    this.waypoints.forEach((waypoint, pos) => {
+      if (pos > 0) {
+        const { lat, long } = waypoint;
+        const prev = (waypoint.prev = this.waypoints[pos - 1]);
+        waypoint.trail?.remove();
+        waypoint.trail = this.addNewTrail(prev.lat, prev.long, lat, long);
+      }
+      this.setWaypointLabel(waypoint, pos + 1);
+    });
+    this.updateClosingTrail(repeating);
+  }
+
+  /**
+   * make sure we have a trail connecting the first and last
+   * waypoint, if we need to repeat the flightpath. Note that
+   * we also call this when we *move* the first or last point,
+   * so we indiscriminantly remove the trail first, then
+   * selectively add it back in.
+   */
+  updateClosingTrail(repeating) {
+    const { waypoints } = this;
+    if (waypoints.length < 2) return;
+
+    if (this.closingTrail) {
+      this.closingTrail.remove();
+      this.closingTrail = undefined;
+    }
+
+    if (repeating && !this.closingTrail) {
+      const first = waypoints[0];
+      const last = waypoints.at(-1);
+      this.closingTrail = this.addNewTrail(
+        first.lat,
+        first.long,
+        last.lat,
+        last.long
+      );
+    }
+  }
+
+  /**
+   * A little helper for "drawing lines" between waypoints
+   */
+  addNewTrail(lat, long, lat2, long2) {
+    const trail = new Trail(this.map, [lat, long], `var(--flight-path-colour)`);
+    trail.add(lat2, long2);
+    return trail;
   }
 }

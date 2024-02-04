@@ -13,12 +13,14 @@ export const AP_OPTIONS = {
   ALT: false,
   HDG: false,
   ATT: false,
+  HeadingTargets: false,
 };
 
 export class Autopilot {
   constructor(owner) {
     console.log(`Hooking up the autopilot controls`);
     this.owner = owner;
+    this.map = owner.map;
     const server = (this.server = owner.server);
     Object.keys(AP_OPTIONS).forEach((key) => {
       const e = document.querySelector(`#autopilot .${key}`);
@@ -100,5 +102,29 @@ export class Autopilot {
     // pushing a course or altitude change through.
     if (!params[`ALT`]) altitude.value = round(flightData.alt);
     if (!params[`HDG`]) heading.value = round(flightData.heading);
+
+    // what are we even doing?
+    if (params[`HeadingTargets`]) {
+      const { targets, radius } = params[`HeadingTargets`];
+
+      this.tmarkers?.forEach((t) => t.remove());
+      this.tmarkers = [];
+      targets?.forEach((t) => {
+        const { lat, long } = t;
+        if (!lat) return;
+        t = L.circle([lat, long], 50, { color: `red` });
+        t.addTo(this.map);
+        this.tmarkers.push(t);
+      });
+
+      if (this.planeRadius) this.planeRadius.remove();
+      if (radius) {
+        this.planeRadius = L.circle(
+          [flightData.lat, flightData.long],
+          radius * 1000
+        );
+        this.planeRadius.addTo(this.map);
+      }
+    }
   }
 }

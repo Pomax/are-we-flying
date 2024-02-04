@@ -8,12 +8,12 @@ const DEFAULT_TARGET_BANK = 0;
 
 // And we want to make sure not to turn more than 30 degrees (the
 // universal "safe bank angle") when we're correcting the plane.
-const DEFAULT_MAX_BANK = 40;
+const DEFAULT_MAX_BANK = 30;
 
 // And, importantly, we also don't want our bank to change by
 // more than 3 degrees per second, or we might accelerate past
 // zero or our max bank angle too fast.
-const DEFAULT_MAX_D_BANK = 5;
+const DEFAULT_MAX_D_BANK = 3;
 
 // Now, we have no "additional features" yet, since this is going
 // to be our first pass at writing the wing leveler, but we'll be
@@ -40,19 +40,20 @@ export async function flyLevel(autopilot, state) {
   // that lets us update pitch, roll, and yaw trim values on an ongoing basis.
   const { trim, api } = autopilot;
   const { data: flightData, model: flightModel } = state;
+  const parameters = Object.assign({}, flightModel, flightData);
 
   // Get our current bank/roll information:
-  const { lat, long, declination, bank, speed, heading } = flightData;
+  const { bank, speed } = flightData;
   const { bank: dBank } = flightData.d ?? { bank: 0 };
 
   // And our model data
-  const { hasAileronTrim, weight, isAcrobatic, vs1, cruiseSpeed } = flightModel;
+  const { hasAileronTrim, weight, isAcrobatic } = flightModel;
   const useStickInstead = hasAileronTrim === false;
 
   // Then, since we're running this over and over, how big should
   // our corrections be at most this iteration? The faster we're going,
   // the bigger a correction we're going to allow:
-  let step = constrainMap(speed, vs1, cruiseSpeed, radians(0.1), radians(5));
+  let step = constrainMap(speed, 20, 150, radians(0.1), radians(5));
 
   // Are we "trimming" on the stick?
   let aileron = 0;
@@ -66,18 +67,7 @@ export async function flyLevel(autopilot, state) {
   // be a number that may change every iteration.
   const maxBank = constrainMap(speed, 50, 200, 10, DEFAULT_MAX_BANK);
   const { targetBank, maxDBank, targetHeading, headingDiff } =
-    getTargetBankAndTurnRate({
-      autopilot,
-      heading,
-      maxBank,
-      isAcrobatic,
-      lat,
-      long,
-      declination,
-      speed,
-      vs1,
-      cruiseSpeed,
-    });
+    getTargetBankAndTurnRate(autopilot, maxBank, parameters);
   const aHeadingDiff = abs(headingDiff);
   const diff = targetBank - bank;
 
@@ -95,7 +85,7 @@ export async function flyLevel(autopilot, state) {
   // more than "max bank", correct based off the max bank value instead.
   // Also, we'll restrict how much that max bank is based on how fast we're
   // going. Because a hard bank at low speeds is a good way to crash a plane.
-  let bankDiff = constrainMap(diff, -maxBank, maxBank, -step, step);
+  let bankDiff = constrainMap(diff, -maxBank, maxBank, -2 * step, 2 * step);
 
   // boost the heck out of "slowing down" as we reach our target heading.
   if (FEATURES.SNAP_TO_HEADING) {
@@ -126,23 +116,6 @@ export async function flyLevel(autopilot, state) {
     if (aDiff < 2) update /= 2;
   }
 
-  // console.log({
-  //   aileronTrim,
-  //   speed,
-  //   heading,
-  //   targetHeading,
-  //   headingDiff,
-  //   bank,
-  //   maxBank,
-  //   dBank,
-  //   maxDBank,
-  //   targetBank,
-  //   diff,
-  //   turnRate,
-  //   step,
-  //   update,
-  // });
-
   // If we're banking too hard, counter trim by "a lot".
   if (FEATURES.EMERGENCY_PROTECTION) {
     if (bank < -maxBank || bank > maxBank) {
@@ -165,20 +138,11 @@ export async function flyLevel(autopilot, state) {
 }
 
 // And our new function:
-function getTargetBankAndTurnRate({
+function getTargetBankAndTurnRate(
   autopilot,
-  heading,
   maxBank,
-  isAcrobatic,
-  lat,
-  long,
-  declination,
-  speed,
-  vs1,
-  cruiseSpeed,
-}) {
-  const { modes } = autopilot;
-
+  { heading, isAcrobatic, lat, long, declination, speed, vs1, cruiseSpeed }
+) {
   let targetBank = DEFAULT_TARGET_BANK;
   let maxDBank = DEFAULT_MAX_D_BANK;
 
@@ -188,6 +152,7 @@ function getTargetBankAndTurnRate({
 
   let targetHeading = autopilot.waypoints.getHeading({
     autopilot,
+    heading,
     lat,
     long,
     declination,
@@ -199,15 +164,9 @@ function getTargetBankAndTurnRate({
   let headingDiff;
   if (targetHeading) {
     headingDiff = getCompassDiff(heading, targetHeading);
-    headingDiff = constrainMap(
-      speed,
-      vs1,
-      cruiseSpeed,
-      headingDiff / 2,
-      headingDiff
-    );
+    if (!isAcrobatic) headingDiff /= 2;
     targetBank = constrainMap(headingDiff, -30, 30, maxBank, -maxBank);
-    maxDBank = constrainMap(abs(headingDiff), 0, 2, maxDBank / 10, maxDBank);
+    maxDBank = constrainMap(abs(headingDiff), 0, 10, 0, maxDBank);
   }
 
   return { targetBank, maxDBank, targetHeading, headingDiff };

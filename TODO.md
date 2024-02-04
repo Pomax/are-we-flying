@@ -21,12 +21,13 @@
   - waypoint control buttons
   - waypoint updates -> autopilot onChange
   - CSS changes for button bars
-  - the heading mode code =_=
+  - the heading mode code =\_=
   - try/catch the autopilot run() function
   - charts: dual plotting
 
 [ UPDATE CODE]
 
 - teleport detection doesn't work
-- trim update based on weight/wingarea
--
+- add some UI for "how long the flight is expected to take" based on current speed.
+
+- call out the fact that we won't be writing perfect code from the get go. This is a programming journey, not "copy this code". If you want to copy the code, just clone the repo and run `run.bat`.
