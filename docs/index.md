@@ -6813,7 +6813,9 @@ Things aren't looking too hot for our heading mode already, what if fly the same
 
 ![image-20240202175023483](./image-20240202175023483.png)
 
-Yeah... so... we're about to fall out of the sky, and I'm gonna go with "we need to rewrite our heading mode" because this just feels pretty under-performant. The map suggests we're not turning as fast as we should So: what if we start over, and write a heading mode that turns the plane not based on bank angle, but based on turn rate?
+Yeah... so... look at our plane's attitude: we're about to fall out of the sky.
+
+II'm gonna go with "we need to rewrite our heading mode" because this just feels pretty under-performant. The map suggests we're not turning as fast as we should So: what if we start over, and write a heading mode that turns the plane not based on bank angle, but based on turn rate?
 
 ## Updating our heading mode
 
@@ -6859,7 +6861,7 @@ How does that perform?
 
 ![image-20240202140606069](./image-20240202140606069.png)
 
-...feels like we might want to replace our original bank based heading code with this turn rate based heading code. What if we just make _every_ plane use this? Let's throw away all the heading mode code we wrote before, because science told us it wasn't all that great, and let's use the following code for all planes, instead:
+...feels like we might want to replace our original bank-based heading code with this turn rate based heading code. What if we just make _every_ plane use this? Let's throw away all the heading mode code we wrote before, because science told us it wasn't all that great, and let's use the following code for all planes, instead:
 
 ```javascript
 import { constrainMap, getCompassDiff } from "../utils/utils.js";
@@ -7100,7 +7102,7 @@ resetting autopilot
 initial roll value for Milviz 310R CGTER: 3000 (4496/186.395 ≈ 24 psf)
 ```
 
-And we see the following flight path behaviour at takeoff ("Cessna 310R, take 4"?):
+And we see the following flight path behaviour at takeoff ("*Cessna 310R, take 4*"?):
 
 ![image-20240203095727441](./image-20240203095727441.png)
 
@@ -7237,9 +7239,9 @@ export class WaypointManager {
     const { points } = this;
     const minRadiusInKM = MIN_RADIUS_IN_SECONDS * speed * ONE_KTS_IN_KMS;
     let p2 = p1?.next;
+    if (!p2) return minRadiusInKM;
 
     // Are we closer to p1 than p2?
-    if (!p2) return minRadiusInKM;
     const d1 = getDistanceBetweenPoints(lat, long, p1.lat, p1.long);
     const d2 = getDistanceBetweenPoints(lat, long, p2.lat, p2.long);
     if (d1 < d2) {
@@ -7287,7 +7289,7 @@ This is the plane that we ended up needing to write the auto-throttle code for, 
 
 ![image-20240203163044676](./image-20240203163044676.png)
 
-That'll do it.
+That'll do.
 
 ### Top Rudder Solo 103
 
@@ -7382,11 +7384,9 @@ Let's goooooo
 
 It's like flying a bullet. This is going to be amazing!
 
+#### [[ IMAGE SHOULD GO HERE ]]
 
-
-...or not? As it turns out, allowing the max aileron to go all the way down to zero is not a good plan, nor is allowing it to go all the way up to 50% of the physical stick tolerances, so we're going to need some extra rules for _properly_ twitchy planes if we want to keep them in the air.
-
-On the `autopilot.js` side:
+...or not? As it turns out, allowing the max aileron to go all the way down to zero, nor is allowing it to go all the way up to 50% of the physical stick tolerances, so we're going to need some extra rules for _properly_ twitchy planes if we want to keep them in the air. On the `autopilot.js` side we make the code "acrobatics-aware":
 
 ```javascript
   resetTrim() {
@@ -7400,7 +7400,10 @@ On the `autopilot.js` side:
 
     // Then make sure acrobatic planes start at "just above zero" rather than "quite a lot above zero":
     const wpa = weight / wingArea;
-    const initialRollValue = isAcrobatic ? 300 : constrainMap(wpa, 4, 20, 1500, 5000);
+    let initialRollValue = 300;
+    if (!isAcrobatic) {
+      initialRollValue = constrainMap(wpa, 4, 20, 1500, 5000);
+    }
 
     this.trim = {
       pitch: 0,
@@ -7410,7 +7413,7 @@ On the `autopilot.js` side:
   }
 ```
 
-And then in our `fly-level.js`:
+And then we add some acrobatics-awareness to our `fly-level.js`:
 
 ```javascript
 ...
@@ -7423,7 +7426,7 @@ export async function flyLevel(autopilot, state) {
   const wpa = weight / wingArea;
   
   // And then: does this qualify as a twitchy plane?
-  const isTwitchy = wpa < 5 || isAcrobatic;
+  const isTwitchy = isAcrobatic || wpa < 5;
 
   ...
   
@@ -7472,7 +7475,7 @@ Looks like it. Of course, that does mean we now need to also retest the Pitts Sp
 
 ![image-20240203195206604](./image-20240203195206604.png)
 
-Looks like we're good.
+Looks like we're still good.
 
 ## ...But can we fly upside-down?
 
