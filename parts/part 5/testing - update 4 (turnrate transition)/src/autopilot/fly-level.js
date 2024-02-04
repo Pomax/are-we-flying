@@ -14,8 +14,9 @@ export async function flyLevel(autopilot, state) {
   const { trim, api } = autopilot;
   const { data: flightData, model: flightModel } = state;
 
-  const { weight, wingArea } = flightModel;
+  const { weight, wingArea, isAcrobatic } = flightModel;
   const wpa = weight / wingArea;
+  const isTwitchy = wpa < 5 || isAcrobatic;
 
   // get our turn rate
   const { turnRate } = flightData;
@@ -39,11 +40,15 @@ export async function flyLevel(autopilot, state) {
     const hardTurn = aHeadingDiff > 30 && aTurnRate < 2.5;
     const wrongWay = sign(turnRate) !== sign(headingDiff);
     if (regularTurn || hardTurn || wrongWay) {
-      updateMaxDeflection(wpa, trim, 50);
+      const howMuch = isAcrobatic ? 10 : 50;
+      updateMaxDeflection(trim, howMuch, isTwitchy);
     }
   }
   // Otherwise just ease it back down, with a special affordance for the Top Rudder:
-  else updateMaxDeflection(wpa, trim, wpa < 5 ? -50 : -10);
+  else {
+    const howMuch = isTwitchy ? -50 : -10;
+    updateMaxDeflection(trim, howMuch, isTwitchy);
+  }
 
   let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
   proportion = sign(proportion) * abs(proportion);
@@ -69,10 +74,10 @@ function getTargetHeading(parameters) {
 
 // A little helper function that lets us change the maximum stick
 // deflection allowed per autopilot iteration.
-function updateMaxDeflection(wpa, trim, byHowMuch) {
+function updateMaxDeflection(trim, byHowMuch, isTwitchy) {
   let { roll: value } = trim;
-  const maxValue = 2 ** (wpa < 5 ? 12 : 13);
-  value = constrain(value + byHowMuch, 0, maxValue) | 0;
+  const maxValue = 2 ** (isTwitchy ? 12 : 13);
+  value = constrain(value + byHowMuch, 300, maxValue) | 0;
   if (value !== trim.roll) {
     trim.roll = value;
     const prefix = byHowMuch > 0 ? `In` : `De`;

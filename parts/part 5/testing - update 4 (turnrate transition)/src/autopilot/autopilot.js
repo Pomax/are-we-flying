@@ -70,14 +70,21 @@ export class AutoPilot {
   resetTrim() {
     // Figure out a sensible "start value" for working
     // the aileron, based on the plane's weight/wingArea
-    const { weight, wingArea, title } = this.flightInformation?.model ?? {
+    const { isAcrobatic, weight, wingArea, title } = this.flightInformation
+      ?.model ?? {
+      isAcrobatic: true,
       weight: 0,
       wingArea: 1,
+      title: `unknown`,
     };
     const wpa = weight / wingArea;
-    const initialRollValue = constrainMap(wpa, 4, 20, 1500, 5000);
+    const initialRollValue = isAcrobatic
+      ? 300
+      : constrainMap(wpa, 4, 20, 1500, 5000);
     console.log(
-      `initial roll value for ${title}: ${initialRollValue} (${weight}/${wingArea} ≈ ${wpa|0} psf)`
+      `initial roll value for ${title}: ${initialRollValue} (${weight}/${wingArea} ≈ ${
+        wpa | 0
+      } psf)`
     );
 
     // zero out the trim vector, except for the aileron stick value.

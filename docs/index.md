@@ -7368,19 +7368,117 @@ Let's jump back into our stunting plane!
 
 ![image-20240203163344913](./image-20240203163344913.png)
 
-Whereas previously these were... twitchy, the new code made them much more behaved.
+Whereas previously these were... twitchy, the new code made them much more behaved. It's almost like flying a regular plane!
 
+![image-20240203171231542](./image-20240203171231542.png)
 
-
-In fact, what about a much _more_ twitchy stunting plane?
+In fact, what about a plane that's even _more_ twitchy, normally?
 
 ### Gee Bee R3 Special
 
-It can fly the route just fine.
+Let's goooooo
 
-## ...Flying upside-down?
+![image-20240203182449270](./image-20240203182449270.png)
 
-Amazing
+It's like flying a bullet. This is going to be amazing!
+
+
+
+...or not? As it turns out, allowing the max aileron to go all the way down to zero is not a good plan, nor is allowing it to go all the way up to 50% of the physical stick tolerances, so we're going to need some extra rules for _properly_ twitchy planes if we want to keep them in the air.
+
+On the `autopilot.js` side:
+
+```javascript
+  resetTrim() {
+    // We want to further reduce the stick values that acrobatic planes get, so: get that flag:
+    const { isAcrobatic, weight, wingArea, title } = this.flightInformation?.model ?? {
+      isAcrobatic: true,
+      weight: 0,
+      wingArea: 1,
+      title: `unknown`,
+    };
+
+    // Then make sure acrobatic planes start at "just above zero" rather than "quite a lot above zero":
+    const wpa = weight / wingArea;
+    const initialRollValue = isAcrobatic ? 300 : constrainMap(wpa, 4, 20, 1500, 5000);
+
+    this.trim = {
+      pitch: 0,
+      roll: initialRollValue,
+      yaw: 0,
+    };
+  }
+```
+
+And then in our `fly-level.js`:
+
+```javascript
+...
+
+export async function flyLevel(autopilot, state) {
+  ...
+
+  // Again: let's get that flag:
+  const { weight, wingArea, isAcrobatic } = flightModel;
+  const wpa = weight / wingArea;
+  
+  // And then: does this qualify as a twitchy plane?
+  const isTwitchy = wpa < 5 || isAcrobatic;
+
+  ...
+  
+  // If this is an acrobatic plane, it gets a tiny step,
+  // and we forward the isAcrobatic flag on, so we can
+  // set the lower and upper limit for our deflection:
+  if (aHeadingDiff > 1) {
+    ...
+    if (regularTurn || hardTurn || wrongWay) {
+      const howMuch = isAcrobatic ? 10 : 50;
+      updateMaxDeflection(trim, howMuch, isTwitchy);
+    }
+  }
+
+  else {
+    // likewise, we make sure to step *down* a lot when we're
+    // flying an acrobatic plane, too:
+    const howMuch = isTwitchy ? -50 : -10;
+    updateMaxDeflection(trim, howMuch, isTwitchy);
+  }
+
+  ...
+}
+
+// We use the isAcrobatic flag to set the same upper limit as
+// for ultralights, and then we bump up the lower limit from 0 to 300:
+function updateMaxDeflection(trim, byHowMuch, isTwitchy) {
+  let { roll: value } = trim;
+  const maxValue = 2 ** (isTwitchy ? 12 : 13);
+  value = constrain(value + byHowMuch, 300, maxValue) | 0;
+  if (value !== trim.roll) {
+    trim.roll = value;
+    const prefix = byHowMuch > 0 ? `In` : `De`;
+    console.log(`${prefix}creased aileronMaxStick to ${value}`);
+  }
+}
+```
+
+That should hopefully do it, so... did it?
+
+![image-20240203184436143](./image-20240203184436143.png)
+
+Looks like it. Of course, that does mean we now need to also retest the Pitts Special S-1S, since that's also has its `isAcrobatic` flight model flag set...
+
+### Pitts Special S-1S, take 2
+
+![image-20240203195206604](./image-20240203195206604.png)
+
+Looks like we're good.
+
+## ...But can we fly upside-down?
+
+Think about it. They're acrobatic planes. They fly upside down at airshows all the time. Can we just... make them do that? On autopilot??
+
+
 
 
 # Part 6: "Let's just have JavaScript fly the plane for us"
