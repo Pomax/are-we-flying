@@ -1,10 +1,8 @@
-import { execSync } from "node:child_process";
-import { existsSync, readFileSync, copyFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { readFileSync } from "node:fs";
 import tiff from "tiff";
-import { ALOS_VOID_VALUE, CACHE_DIR } from "./alos-constants.js";
+import { ALOS_VOID_VALUE, NO_ALOS_DATA_VALUE } from "./alos-constants.js";
 
-const { max } = Math;
+const { abs, max, sign } = Math;
 
 export class ALOSTile {
   constructor(tilePath) {
@@ -23,13 +21,15 @@ export class ALOSTile {
   load(filename) {
     const file = readFileSync(filename);
     const image = tiff.decode(file.buffer);
-    const { data, fields } = image[0];
+    const { data, fields, width, height } = image[0];
     let [sx, sy, sz] = fields.get(33550);
     let [px, py, k, gx, gy, gz] = fields.get(33922);
     sy = -sy;
     this.forward = [gx, sx, 0, gy, 0, sy];
     this.reverse = [-gx / sx, 1 / sx, 0, -gy / sy, 0, 1 / sy];
     this.pixels = data;
+    this.width = width;
+    this.height = height;
   }
 
   /**
@@ -59,7 +59,7 @@ export class ALOSTile {
    */
   lookup(lat, long) {
     const [x, y] = this.geoToPixel(lat, long);
-    const pos = (x | 0) + (y | 0) * this.block.width;
+    const pos = (x | 0) + (y | 0) * this.width;
     let value = this.pixels[pos];
     // the highest point on earth is 8848m
     if (value === undefined || value > 10000) value = ALOS_VOID_VALUE;
@@ -79,17 +79,27 @@ export class ALOSTile {
    */
   getMaxElevation(geoPoly) {
     const pixelPoly = geoPoly.map((pair) => this.geoToPixel(...pair));
+    let result = {
+      elevation: ALOS_VOID_VALUE,
+      lat: 0,
+      long: 0,
+    };
     const scanLines = formScanLines(pixelPoly);
-    const maxElevation = -9999;
     scanLines.forEach(([start, end], y) => {
       const line = this.pixels.slice(
         this.width * y + start,
         this.width * y + end
       );
-      const localMaxElevation = max(...line);
-      if (localMaxElevation > maxElevation) maxElevation = localMaxElevation;
+      line.forEach((elevation, i) => {
+        if (elevation >= NO_ALOS_DATA_VALUE) return;
+        let x = i + start;
+        if (elevation > result.elevation) {
+          const [lat, long] = this.pixelToGeo(x, y);
+          result = { lat, long, elevation };
+        }
+      });
     });
-    return maxElevation;
+    return result;
   }
 }
 
@@ -111,7 +121,7 @@ function formScanLines(poly) {
     const n = line.length;
     if (n > 2) line.splice(1, n - 2);
   });
-  console.log(scanLines);
+  return scanLines;
 }
 
 /**

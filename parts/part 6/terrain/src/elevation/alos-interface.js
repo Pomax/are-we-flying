@@ -7,9 +7,7 @@ dotenv.config({ path: `${__dirname}/../../.env` });
 
 const DATA_FOLDER = process.env.DATA_FOLDER;
 
-import { getDistanceBetweenPoints } from "../utils/utils.js";
 import {
-  SEA_LEVEL,
   ALOS_VOID_VALUE,
   NO_ALOS_DATA_VALUE,
   INDEX_FILE,
@@ -19,7 +17,6 @@ import { ALOSTile } from "./alos-tile.js";
 
 export { DATA_FOLDER, NO_ALOS_DATA_VALUE };
 
-const COARSE_LEVEL = 10;
 const { floor, ceil, max } = Math;
 await mkdir(CACHE_DIR, { recursive: true });
 
@@ -104,9 +101,9 @@ export class ALOSInterface {
    * by 1 degree "rectangle" on the map).
    */
   getTileFor(lat, long) {
-    const { loaded, tileFolder } = this;
+    const { loaded } = this;
     if (!loaded) return;
-    const [tileName, tilePath] = this.getTileFromFolder(tilesFolder, lat, long);
+    const [tileName, tilePath] = this.getTileFromFolder(lat, long);
     if (!tileName) return;
     return new ALOSTile(tilePath);
   }
@@ -121,7 +118,7 @@ export class ALOSInterface {
    * or "W", with xxx being the degree of longitude (again,
    * with leading zeroes if necessary).
    */
-  getTileFromFolder(basedir, lat, long) {
+  getTileFromFolder(lat, long) {
     // Form the latitude portions of our path:
     const latDir = lat >= 0 ? "N" : "S";
     let latStr = `` + (latDir == "N" ? floor(lat) : ceil(-lat));
@@ -139,11 +136,13 @@ export class ALOSInterface {
     // given that fragment, by looking at our filename index:
     const fullPath = this.files.find((f) => f.endsWith(tileName));
     if (!fullPath) return [false, false];
-    return [tileName, join(basedir, fullPath)];
+    return [tileName, join(this.tilesFolder, fullPath)];
   }
 
   getMaxElevation(geoPoly) {
-    // We may need to split this polygon up if it crosses a degree longitude or latitude (or both)
-    return 0;
+    // FIXME: this needs to become "potentially chop up this polygon"
+    const tile = this.getTileFor(...geoPoly[0]);
+    const elevation = tile?.getMaxElevation(geoPoly) ?? ALOS_VOID_VALUE;
+    return elevation;
   }
 }

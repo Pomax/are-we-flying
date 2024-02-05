@@ -1,6 +1,4 @@
-import express from "express";
-import cors from "cors";
-import helmet from "helmet";
+import http from "node:http";
 import dotenv from "dotenv";
 dotenv.config({ path: "../../.env" });
 
@@ -8,58 +6,70 @@ const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
 import { ALOSInterface } from "./alos-interface.js";
 const ALOS = new ALOSInterface(DATA_FOLDER);
 
-// Boilerplate express server:
-const app = express();
-app.disable("view cache");
-app.set("etag", false);
-app.use((_req, res, next) => {
-  res.set("Cache-Control", "no-store");
-  next();
-});
-app.use(helmet({ crossOriginEmbedderPolicy: false }));
-app.use(cors());
+http.ServerResponse.prototype.status = function (num, type = `text/plain`) {
+  this.writeHead(num, {
+    "Content-Type": type,
+    "Cache-Control": `no-store`,
+    "Access-Control-Allow-Origin": `*`,
+  });
+  return this;
+};
 
-// And then we define one route, which we can call with
-// a `?locations=lat1,long1,lat2,long2,...` query argument
-// and responds with a JSON object that gives the elevation
-// for each coordinate in the list.
-app.get(`/`, async (req, res) => {
-  // Did we get a bad request?
-  const { locations } = req.query;
-  if (!locations) {
-    return res
-      .status(400)
-      .json({ reason: `Missing "locations" query parameter.` });
+http.ServerResponse.prototype.text = function (data) {
+  this.status(200).write(data);
+  this.end();
+};
+
+http.ServerResponse.prototype.json = function (data) {
+  this.status(200, `application/json`).write(JSON.stringify(data));
+  this.end();
+};
+
+http.ServerResponse.prototype.fail = function (reason) {
+  this.status(400).text(reason);
+};
+
+// Boilerplate http server:
+function processRequest(req, res) {
+  const url = new URL(`http://localhost:${PORT}${req.url}`);
+
+  if (url.pathname !== `/`) return fail(res, `bad url`);
+
+  const query = new URLSearchParams(url.search);
+  const { locations, poly } = Object.fromEntries(query.entries());
+  if (!locations && !poly) {
+    return res.fail(`missing "locations" or "poly" query argument`);
   }
 
-  // What about the wrong number of values?
-  const values = locations.split(`,`).map((v) => parseFloat(v));
+  const values = (locations || poly).split(`,`).map((v) => parseFloat(v));
   if (values.length % 2 !== 0) {
-    return res
-      .status(400)
-      .json({ reason: `Wrong number of "locations" values.` });
+    return res.fail(`Wrong number of "locations" values.`);
   }
 
-  // Or the wrong type?
-  if (values.some((v) => isNaN(v))) {
-    return res
-      .status(400)
-      .json({ reason: `Bad "locations" values (something's not a number).` });
-  }
-
-  console.log(values);
-
-  // If we're good, look up each coordinate's elevation
-  const results = [];
+  const coords = [];
   for (let i = 0, e = values.length; i < e; i += 2) {
-    const [lat, long] = values.slice(i, i + 2);
-    console.log(lat, long);
-    const elevation = ALOS.lookup(lat, long);
-    results.push({ lat, long, elevation });
+    coords.push(values.slice(i, i + 2));
   }
-  res.json(results);
-});
 
-app.listen(PORT, () => {
+  if (locations) {
+    console.log(`processing locations`)
+    return res.json(
+      coords.map(([lat, long]) => ({
+        lat,
+        long,
+        elevation: ALOS.lookup(lat, long),
+      }))
+    );
+  }
+
+  if (poly) {
+    console.log(`processing poly`)
+    return res.json({
+      maxElevation: ALOS.getMaxElevation(coords),
+    });
+  }
+}
+
+http.createServer(processRequest).listen(PORT, () => {
   console.log(`Elevation server listening on http://localhost:${PORT}`);
 });
