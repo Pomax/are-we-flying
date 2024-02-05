@@ -104,7 +104,7 @@ export class Autopilot {
     if (!params[`HDG`]) heading.value = round(flightData.heading);
 
     // what are we even doing?
-    if (false && params[`HeadingTargets`]) {
+    if (params[`HeadingTargets`]) {
       const { targets, radius } = params[`HeadingTargets`];
 
       this.tmarkers?.forEach((t) => t.remove());

@@ -7479,42 +7479,254 @@ Looks like we're still good.
 
 ## ...But can we fly upside-down?
 
-Think about it. They're acrobatic planes. They fly upside down at airshows all the time. Can we just... make them do that? On autopilot??
+Think about it. They're acrobatic planes. They fly upside down at airshows all the time. Can we just... make them do that? On autopilot?? Obviously, step one is to just yank the throttle hard left or right a few times to get our plane in an inverted orientation and seeing what happens:
 
+![image-20240204082034304](./image-20240204082034304.png)
 
+What happens is that things work... but only ever so briefly.
 
+Despite being a stunt plane, the forces acting on it really want to push it back into a "wheels down" orientation, so we're going to have to write a bit more code that prevents the plane from righting itself, based on how much we're tipping over. Our ideal bank angle when going straight is zero (we know it's almost never _actually_ zero, but we're tweaking an upside-down autopilot at this point, so let's just go with the simplest approach), and we don't want the plane to bank any more than 30 degrees on either side of that, no matter how steep a turn we need to make. And, of course, our altitude hold doesn't understand "upside down" so it'll trim us into the ground.
+
+So let's sort this all out, starting with adding an `upsideDown` flag to our flight information:
+
+```javascript
+...
+
+export class FlightInformation {
+  ...
+
+  // And our "update the current flight information" code:
+  async updateFlight() {
+    ...
+
+    // Are we upside down?
+    data.upsideDown = abs(data.bank) > 90;
+    
+    // Did we flip orientations between now an the previous iteration?
+    data.flipped = this.data.upsideDown !== data.upsideDown;
+
+    this.setGeneralProperties(data);
+    return (this.data = data);
+  }
+
+  ...
+}
+```
+
+And now the rest of our code can hook into that flag to do the right thing when we're flying inverted, like our `altitude-hold.js`:
+
+```javascript
+...
+
+export async function altitudeHold(autopilot, flightInformation) {
+  const { api, trim } = autopilot;
+  const { data: flightData, model: flightModel } = flightInformation;
+
+  // get the upsideDown flag:
+  const { VS, alt, pitch, speed, bank, upsideDown } = flightData;
+
+  ...
+  
+  // And then set our trim step, but invert it if we're flying upside
+  // down, and double it because we'll need to more aggressively trim
+  // while the plane is upside-down.
+  let trimStep = trimLimit / 10_000;
+  if (upsideDown) trimStep = -2 * trimStep;
+  
+  ...
+}
+```
+
+And, of course, our `fly-level.js`:
+
+```javascript
+...
+
+export async function flyLevel(autopilot, state) {
+  ...
+  
+  // Get our flag:
+  const { bank, turnRate, upsideDown } = flightData;
+
+  // And allocate an offset for our aileron position:
+  let offset = 0;
+
+  ...
+  
+  // Then, are we flying upside down? If so, we're going to counteract
+  // physics by adding an offset to our stick adjustments, so that we
+  // can "catch" the plane trying to roll out of inverted orientation.
+  if (upsideDown) {
+    // How much are we currently deviating from 180?
+    const tipAngle = bank < 0 ? bank + 180 : bank - 180;
+    const aTipAngle = abs(tipAngle);
+
+    // If we're tipping too much, reduce our max stick
+    // because we were clearly giving it too much:
+    if (aTipAngle > 30) updateMaxDeflection(trim, -50, isTwitchy);
+
+    // Then determine how much offset on the stick we need in order to
+    // prevent us from "rolling out of inversion", based on heading:
+    // if we're flying straight along our flightpath, we don't want
+    // our bank to be more than 1 degree off center, and if we're in
+    // a turn, we can be out by up to 30 degrees:
+    const s = sign(bank);
+    const maxBankAngle = s * constrainMap(aHeadingDiff, 0, 10, 179, 150);
+    offset += constrainMap(bank, s * 90, maxBankAngle, s * 2 ** 13, 0);
+
+    // Also, because this is *such* an unstable way to fly, we need
+    // an additional correction for when we're getting blown off
+    // course by even the smallest gust or draft:
+    if (aHeadingDiff > 1) {
+      offset -= constrainMap(headingDiff, -10, 10, -500, 500);
+    }
+  }
+
+  ...
+ 
+  // And then to make things work, we add this offset to our aileron:
+  const newAileron = proportion * maxStick + offset;
+  api.trigger("AILERON_SET", newAileron | 0);
+}
+```
+
+And with that...
+
+![image-20240204093136389](./image-20240204093136389.png)
+
+We can fly our autopilot... upside down! Which, incidentally, is absolutely terrifying viewed from the cockpit. 
+
+![image-20240204093540784](./image-20240204093540784.png)
+
+And just because "why not", what does the flight path look like going around Ghost Dog?
+
+![image-20240204095802436](./image-20240204095802436.png)
+
+We just flew a tour of South-East Vancouver Island upside down. Need I say more?
 
 # Part 6: "Let's just have JavaScript fly the plane for us"
 
+So now we get to the part where we've implemented an autopilot, and we've made planes fly upside down, and we could stop there, _or we could keep going_. What if we just make JavaScript fly the plane, start to finish? Because in the immortal words of Jeremy Clarkson: how hard could it be?
+
 ## Terrain follow mode
 
-Normally, most planes don't come with a mode that lets them "hug the landscape", but we're not flying real planes, we're flying virtual planes, and hugging the landscape would be pretty sweet to have if we just want to fly around on autopilot and enjoy the view. Conceptually, there's nothing particularly hard about terrain follow:
+Normally, most planes don't come with a mode that lets them "hug the landscape", but we're not flying real planes, we're flying virtual planes, and hugging the landscape would be pretty sweet to have if we just want to fly around on autopilot and enjoy the view without having to meticulously set altitudes on every waypoint and then fly the route until we crash so we can refine those values. Having a terrain-follow mode would be so much nicer!
 
-1. Scan our flight path up to a few nautical miles ahead of us,
+Conceptually, there's nothing particularly hard about terrain follow:
+
+1. Scan our flight path up to a several nautical miles ahead of us,
 2. find the highest point along that path,
 3. set the autopilot altitude to something that lets us safely clear that highest point, and
 4. keep repeating this check for as long as the autopilot is running the show.
 
-The problem is with point (2) in that list: there is nothing baked into MSFS that lets us "query landscape elevation". We'd instead need to create a dummy object, spawn it into the world, then move it across the landscape and ask MSFS what its x, y, and z coordinates are. That's pretty annoying, and quite a bit of work. However, since the whole selling point of MSFS is that you can fly anywhere on Earth, as an alternative we could also just query some out-of-game resource for elevation data based on GPS coordinates.
+The problem is with point (2) in that list: there is nothing baked into MSFS that lets us "query landscape elevation" using SimConnect. The only method it (currently) offers for finding elevations is to create a dummy object, spawn it into the world, then move it across the landscape and ask MSFS what its lat, long, and elevation values are, which is both quite a bit of work, and _slow_.
 
-Back in the day, Google offered that as a free web API, but they decided to charge quite a bit of money for that starting back in 2018, so that's out. There is also https://www.open-elevation.com, which _is_ free, but because they're not Google they're also frequently down, making them an admirable but highly unreliable resource. Which leaves "writing our own elevation API", which is surprisingly doable. We just need a good source of elevation data. Covering the entire planet. At a high enough resolution.
+However, since the whole selling point of MSFS is that you can fly anywhere on Earth -as in, the actual Earth- we have an alternative: we could also just query some out-of-game resource for elevation data based on GPS coordinates.
 
-Enter the Japanese Aerospace eXploration Agency, or [JAXA](https://global.jaxa.jp/), and their freely available ALOS (Advanced Land Observing Satellite) [Digital Surface Model](https://en.wikipedia.org/wiki/Digital_elevation_model) datasets. Specifically, their [30 meter dataset](https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d30/aw3d30_e.htm), which has elevation data for the entire planet's land surface at a resolution finer than MSFS uses, and can be downloaded for free after signing up for an (again, free) account and agreeing to their [data license](https://earth.jaxa.jp/en/data/policy). One downside: it's 450GB of on-disk data hosted as a 150GB download spread out over hundreds of files. On the upside, we know how to program, so scripting the downloads isn't terribly hard, and a 1TB SSD is $50 these days, so that's unlikely to _really_ be a problem.
+Back in the day, Google offered that as a free web API, but they decided that it would be more profitable if they charged (quite a bit of) money for elevation API access back in 2018, so that's out. There is also https://www.open-elevation.com, which is technically free, but because they're don't have Google money, they're more for incidental work rather than constant polling. If the website is up at all. Which realistically only leaves "writing our own elevation API service".
 
-What _will_ be a problem is that the ALOS data uses the GeoTIFF data format: TIFF images with metadata that describes what section of planet they map to, and which mapping you need to use to go from pixel-coordinate to geo-coordinate. The TIFF part is super easy, we can just use the [tiff](https://www.npmjs.com/package/tiff) package to load those in, and ALOS thankfully has its files organized in directories with filenames that indicate which whole-angle GPS bounding box they're for, so finding the file we need to look up any GPS coordinate is also pretty easy... it's finding the pixel in the image that belongs to a _specific_ GPS coordinate that's a little more work.
+### Time for another server
 
-Of course, [I already did this work so you don't have to](https://stackoverflow.com/questions/47951513#75647596), so let's dive in: what do we need?
+I know, this sounds ludicrous, but what do we even need? 
+
+1. a server that we can send elevation requests to,
+2. code that can turn GPS coordinates into elevation values, and
+3. geo data for the entire planet.
+
+Of these three, the first is trivial, the last is surprisingly easy, and really the only actual work we'll have to do is point 2.
+
+***"Whoa, hold up. Point 3 is easy?" —you, probably***
+
+I know, geodata for the entire planet? Where do you even get that? Enter the Japanese Aerospace eXploration Agency, or [JAXA](https://global.jaxa.jp/), and their freely available ALOS ("Advanced Land Observing Satellite") [Digital Surface Model](https://en.wikipedia.org/wiki/Digital_elevation_model) datasets. Specifically, their [30 meter dataset](https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d30/aw3d30_e.htm), which has elevation data for the entire planet's land surface at a resolution finer than MSFS uses, and can be downloaded for free after signing up for an (also, free) account and agreeing to their [data license](https://earth.jaxa.jp/en/data/policy).
+
+There, however, one downside: an entire planet's worth of data isn't a small download: it's 450GB of on-disk data hosted as 150GB of downloads spread out over a few hundred files. But, on the upside, we know how to program, so scripting the downloads isn't terribly hard, and a 1TB SSD is cheap these days. So as long as you have an internet plan without a data cap (which, if you game: you probably do) then that's unlikely to _really_ be a problem.
+
+What _won't_ be easy is step 2, though: all that ALOS data is in the form of GeoTIFF files, which are TIFF images with metadata that describes what section of the planet they map to, and which mapping you need to use to go from pixel-coordinate to geo-coordinate. Again, perhaps unexpectedly, it's not the TIFF part that's going to be the problem (we can just use the [tiff](https://www.npmjs.com/package/tiff) package to load those in), and it's not the "which section of the planet" part that's going to be the problem (the data is neatly organized in directories and filenames that indicate which whole-angle GPS bounding box they're for) it's finding the pixel in the image that belongs to a _specific_ GPS coordinate that's going to require some work.
+
+Or, it would, if [I hadn't already done that work for us](https://stackoverflow.com/questions/47951513#75647596), so let's dive in: what do we need?
+
+### An express server
+
+let's create a `src/elevation` dir, and run `npm init` inside of that (accepting all defaults), then edit the `package.json` to add `"type": "module"` much like we did all the way at the start of this journey. Then we'll run `npm install express cors helmet dotenv` to install... well, those four things. And then it's time for a new server, in `src/elevation/alos-server.js`:
+
+```javascript
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import dotenv from "dotenv";
+dotenv.config({ path: "../../.env" });
+
+// We already had an API and WEB port, so
+// now we need an ALOS port, too:
+const { ALOS_PORT: PORT } = process.env;
+
+// Boilerplate express server:
+const app = express();
+app.disable("view cache");
+app.set("etag", false);
+app.use((_req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+app.use(helmet({ crossOriginEmbedderPolicy: false }));
+app.use(cors());
+
+// And then we define one route, which we can call with
+// a `?locations=lat1,long1,lat2,long2,...` query argument
+// and responds with a JSON object that gives the elevation
+// for each coordinate in the list.
+app.get(`/`, async (req, res) => {
+  // Did we get a bad request?
+  const { locations } = req.query;
+  if (!locations) {
+    return res
+      .status(400)
+      .json({ reason: `Missing "locations" query parameter.` });
+  }
+
+  // What about the wrong number of values?
+  const values = locations.split(`,`).map((v) => parseFloat(v));
+  if (values.length % 2 !== 0) {
+    return res
+      .status(400)
+      .json({ reason: `Wrong number of "locations" values.` });
+  }
+
+  // Or the wrong type?
+  if (values.some((v) => isNaN(v))) {
+    return res
+      .status(400)
+      .json({ reason: `Bad "locations" values (something's not a number).` });
+  } 
+
+  // If we're good, look up each coordinate's elevation
+  const results = [];
+  for (let i=0, e=locations.length; i<e; i += 2) {
+    const [lat, long] = locations.slice(i, i + 2);
+    const elevation = 123;
+    results.push({ lat, long, elevation });
+  }
+  res.json(results);
+});
+
+app.listen(PORT, () => {
+  console.log(`Elevation server listening on http://localhost:${PORT}`);
+});
+```
+
+As long as we don't forget to add that new `ALOS_PORT` value to our `.env` file (I'm using `ALOS_PORT=9000` but obviously pick whichever port you like best) this should start up, and calling URLs like http://localhost:9000/?locations=48.8,-123.8,48.9,-123.9,49,-124 will give us a JSON object with an elevation of `123` for each of those three coordinates.
+
+Which isn't super useful yet, so let's write the code we need to actually work with that ALOS data.
 
 ### Working with ALOS data
 
 We're going to split our ALOS code up into three parts: a querying object, a tile class, and a really simple caching system.
 
-First, some ALOS constants:
+First, some ALOS constants that we'll put in `src/elevation/alos-constants.js`:
 
 ```javascript
-import { join, resolve } from "path";
-import url from "node:url";
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+import { join, resolve } from "node:path";
+const __dirname = import.meta.dirname;
 
 export const SEA_LEVEL = 0;
 export const ALOS_VOID_VALUE = -9999;
@@ -7523,167 +7735,28 @@ export const INDEX_FILE = resolve(join(__dirname, `alos-index.json`));
 export const CACHE_DIR = resolve(join(__dirname, `cache`));
 ```
 
-Then, our querying object:
+Then, our querying object, which we'll put in `src/elevation/alos-interface.js`:
 
 ```javascript
-import { getDistanceBetweenPoints } from "../api/autopilot/utils/utils.js";
-import {
-  SEA_LEVEL,
-  ALOS_VOID_VALUE,
-  NO_ALOS_DATA_VALUE,
-} from "./alos-constants.js";
+import { getDistanceBetweenPoints } from "../utils/utils.js";
+import { SEA_LEVEL, ALOS_VOID_VALUE, NO_ALOS_DATA_VALUE, INDEX_FILE, CACHE_DIR } from "./alos-constants.js";
+const { floor, ceil, max } = Math;
+
+// We'll look at implementing this after we flesh out our ALOS interface
 import { ALOSTile } from "./alos-tile.js";
 
-const { floor, ceil, max } = Math;
-
-// JAXA ALOS World 3D (30m) dataset manager
-// homepage: https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d30/aw3d30_e.htm
-// data format: https://www.eorc.jaxa.jp/ALOS/en/aw3d30/aw3d30v11_format_e.pdf
-// license: https://earth.jaxa.jp/en/data/policy/
-
+/**
+ * JAXA ALOS World 3D (30m) dataset manager
+ *
+ * Homepage: https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d30/aw3d30_e.htm
+ * Data format: https://www.eorc.jaxa.jp/ALOS/en/aw3d30/aw3d30v11_format_e.pdf
+ * Data license: https://earth.jaxa.jp/en/data/policy/
+ */
 export class ALOSInterface {
   constructor(tilesFolder) {
-    this.tilesFolder = tilesFolder;
     this.loaded = false;
     this.files = [];
-    if (!this.tilesFolder) {
-      console.log(
-        `No ALOS data folder specified, elevation service will not be available.`
-      );
-    } else {
-      this.findFiles();
-      this.loaded = true;
-      console.log(`ALOS loaded, using ${this.files.length} tiles.`);
-    }
-  }
-
-  findFiles(dir = this.tilesFolder) {
-    readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
-      const fullPath = join(dir, entry.name);
-      if (entry.isFile() && fullPath.endsWith(".tif"))
-        this.files.push(fullPath);
-      if (entry.isDirectory()) this.findFiles(fullPath);
-    });
-  }
-
-  getTileFor(lat, long) {
-    if (!this.loaded) return;
-
-    const [tileName, tilePath] = this.getTileFromFolder(
-      this.tilesFolder,
-      lat,
-      long
-    );
-    if (!tileName) return;
-    return new ALOSTile(tilePath);
-  }
-
-  getTileFromFolder(basedir, lat, long) {
-    // ALOS tiles are named ALPSMKC30_UyyyWxxx_DSM.tif, where
-    // U is either "N" or "S", yyy is the degree of latitude
-    // (with leading zeroes if necessary), W is either "E" or
-    // "W", and xxx is the degree of longitude (again with
-    // leading zeroes if necessary).
-    const latDir = lat >= 0 ? "N" : "S";
-    const longDir = long >= 0 ? "E" : "W";
-    lat = `` + (latDir == "N" ? floor(lat) : ceil(-lat));
-    long = `` + (longDir == "E" ? floor(long) : ceil(-long));
-    const tileName = `ALPSMLC30_${latDir}${lat.padStart(
-      3,
-      "0"
-    )}${longDir}${long.padStart(3, "0")}_DSM.tif`;
-
-    // find the full path for this file in the list of
-    // known files we built in findFiles().
-    const fullPath = this.files.find((f) => f.endsWith(tileName));
-    if (!fullPath) return [false, false];
-
-    return [tileName, join(basedir, fullPath)];
-  }
-
-  // And finally the function we care about the most:
-  lookup(lat, long) {
-    if (!this.loaded) return NO_ALOS_DATA_VALUE;
-
-    lat = +lat;
-    long = +long;
-    const tile = this.getTileFor(lat, long);
-    if (!tile) console.warn(`no tile for ${lat},${long}...`);
-    const elevation = tile?.lookup(lat, long) ?? ALOS_VOID_VALUE;
-    return elevation === ALOS_VOID_VALUE ? SEA_LEVEL : elevation;
-  }
-}
-```
-
-And then our tile class:
-
-```javascript
-import { existsSync, readFileSync, copyFileSync } from "fs";
-import { basename, join } from "path";
-import tiff from "tiff";
-import { ALOS_VOID_VALUE } from "./alos-constants.js";
-
-const { floor, ceil, max } = Math;
-
-export class ALOSTile {
-  constructor(tilePath, coarseLevel = 10) {
-    this.tilePath = tilePath;
-    this.coarseLevel = coarseLevel;
-    this.init(tilePath);
-  }
-
-  init(filename) {
-    const file = readFileSync(filename);
-    const image = tiff.decode(file.buffer);
-    const block = (this.block = image[0]);
-    const fields = block.fields;
-    // See https://stackoverflow.com/questions/47951513#75647596
-    let [sx, sy, sz] = fields.get(33550);
-    let [px, py, k, gx, gy, gz] = fields.get(33922);
-    sy = -sy;
-    this.reverse = [-gx / sx, 1 / sx, 0, -gy / sy, 0, 1 / sy];
-    this.pixels = block.data;
-  }
-
-  // Get an [x, y] pixel coordinate, given a GPS coordinate
-  geoToPixel(lat, long) {
-    const R = this.reverse;
-    return [R[0] + R[1] * long + R[2] * lat, R[3] + R[4] * long + R[5] * lat];
-  }
-
-  // Get the elevation for some GPS coordinate
-  lookup(lat, long) {
-    const [x, y] = this.geoToPixel(lat, long);
-    const pos = (x | 0) + (y | 0) * this.block.width;
-    let value = this.pixels)[pos];
-    // the highest point on earth is ~8848m
-    if (value === undefined || value > 8900) value = ALOS_VOID_VALUE;
-    return value;
-  }
-}
-```
-
-And now we have a way to query elevations for GPS coordinates, without having to use an external service, or messing around with object spawning in-game. Except... it's not very efficient at the moment. Let's fix that by adding tile caching, as well as "coarse" tiles, where we scale down each time by a factor of ten, but rather than averaging the pixels, we only keep "the brightest ones" so that we get a maximum elevation map for 300x300m rather than 30x30m, effectively making our lookups faster while keeping our plane just as safe:
-
-```javascript
-import { join } from "path";
-import { mkdir } from "fs/promises";
-import { ALOSTile } from "./alos-tile.js";
-import { getDistanceBetweenPoints } from "../api/autopilot/utils/utils.js";
-import { SEA_LEVEL, ALOS_VOID_VALUE, INDEX_FILE, CACHE_DIR } from "./alos-constants.js";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
-
-const { floor, ceil, max } = Math;
-
-// Ensure our cache directory exists before we try writing files to it.
-await mkdir(CACHE_DIR, { recursive: true });
-
-export class ALOSInterface {
-  constructor(tilesFolder) {
     this.tilesFolder = tilesFolder;
-    this.loaded = false;
-    this.files = [];
-    this.cache = {};
     if (!this.tilesFolder) {
       console.log(
         `No ALOS data folder specified, elevation service will not be available.`
@@ -7695,115 +7768,217 @@ export class ALOSInterface {
     }
   }
 
+	/**
+   * We don't want to hold up our elevation server to index a directory
+   * containing some twenty three thousand files, so we'll build an index
+   * instead, and load that when it exists.
+   */
   loadIndex() {
-    // To prevent us from having to run through a file tree every single time we
-    // start, we build an index file instead, so we can load that directly.
+    // Build our index if it doesn't exist:
     if (!existsSync(INDEX_FILE)) {
       console.log(`Indexing dataset...`);
       const mark = Date.now();
       this.findFiles();
-      const json = JSON.stringify(
-        this.files.map((v) => v.replace(this.tilesFolder, ``))
-      );
+      const fileCount = this.files.length;
+      const json = JSON.stringify(this.files.map((v) => v.replace(this.tilesFolder, ``)));
       writeFileSync(INDEX_FILE, json);
-      console.log(
-        `Dataset indexed in ${((Date.now() - mark) / 1000).toFixed(2)}s (${
-          this.files.length
-        } tiles found)`
-      );
+      console.log(`Dataset indexed in ${((Date.now() - mark) / 1000).toFixed(2)}s (${fileCount} tiles found)`);
     }
-    this.files = JSON.parse(readFileSync(INDEX_FILE));
-    console.log(`ALOS loaded, using ${this.files.length} tiles.`);
+    // Or, if it does, load in the index instead of trawling the file system:
+    else {
+	    this.files = JSON.parse(readFileSync(INDEX_FILE)).map((v) => v.split(win32.sep).join(sep));
+    }
   }
 
-  ...
-
-  getTileFor(lat, long) {
-    if (!this.loaded) return;
-
-    const [tileName, tilePath] = this.getTileFromFolder(this.tilesFolder, lat, long);
-    if (!tileName) return;
-    // Instead of constantly loading the tile from file, we cache it in memory.
-    this.cache[tilePath] ??= new ALOSTile(tilePath);
-    return this.cache[tilePath];
+  /**
+   * In order to build our index, we recursively read the
+   * data directory in order to find all filenames.
+   */
+  findFiles(dir = this.tilesFolder) {
+    readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+      const fullPath = join(dir, entry.name);
+      if (entry.isFile() && fullPath.endsWith(".tif"))
+        this.files.push(fullPath);
+      if (entry.isDirectory()) this.findFiles(fullPath);
+    });
   }
-
-  lookup(lat, long, coarse = false) {
+  
+  /**
+   * Then, the function we care about the most:
+   */
+  lookup(lat, long) {
     if (!this.loaded) return NO_ALOS_DATA_VALUE;
-
-    lat = +lat;
-    long = +long;
     const tile = this.getTileFor(lat, long);
     if (!tile) console.warn(`no tile for ${lat},${long}...`);
-    // pass the "coarse" flag along so we perform a more efficient, but lower resolution, lookup.
-    const elevation = tile?.lookup(lat, long, coarse) ?? ALOS_VOID_VALUE;
-    return elevation === ALOS_VOID_VALUE ? SEA_LEVEL : elevation;
+    const elevation = tile?.lookup(lat, long) ?? ALOS_VOID_VALUE;
+    return elevation;
+  }  
+
+  /**
+   * Which requires a way to get a tile (which is a 1 degree
+   * by 1 degree "rectangle" on the map).
+   */
+  getTileFor(lat, long) {
+    const { loaded, tileFolder } = this;
+    if (!loaded) return;
+    const [tileName, tilePath] = this.getTileFromFolder(tilesFolder, lat, long);
+    if (!tileName) return;
+    return new ALOSTile(tilePath);
+  }
+
+  /**
+   * Which in turn requires knowing which file we need to
+   * "wrap a tile around".
+   *
+   * ALOS tiles are named ALPSMKC30_UyyyVxxx_DSM.tif, where
+   * U is either "N" or "S", yyy is the degree of latitude
+   * (with leading zeroes if necessary), and V is either "E"
+   * or "W", with xxx being the degree of longitude (again,
+   * with leading zeroes if necessary).
+   */
+  getTileFromFolder(basedir, lat, long) {
+    // Form the latitude portions of our path:
+    const latDir = lat >= 0 ? "N" : "S";
+    let latStr = `` + (latDir == "N" ? floor(lat) : ceil(-lat));
+    latStr = latStr.padStart(3, "0");
+
+    // Form the longitude portions of our path:
+    const longDir = long >= 0 ? "E" : "W";
+    let longStr = `` + (longDir == "E" ? floor(long) : ceil(-long));
+    longStr = longStr.padStart(3, "0");
+    
+    // Then assemble them into an ALOS path fragment:
+    const tileName = `ALPSMLC30_${latDir}${latStr}${longDir}${longStr}_DSM.tif`;
+
+    // And finally, find the fully qualified file path
+    // given that fragment, by looking at our filename index:
+    const fullPath = this.files.find((f) => f.endsWith(tileName));
+    if (!fullPath) return [false, false];
+    return [tileName, join(basedir, fullPath)];
   }
 }
 ```
 
-and our tile update:
+#### Updating our server
+
+Now that we have an interface to work with, let's add that into our serer:
 
 ```javascript
-import tiff from "tiff";
-import { basename, join } from "path";
-import { ALOS_VOID_VALUE, CACHE_DIR } from "./alos-constants.js";
+...
+
+// New variable: DATA_FOLDER points to the root directory for all our ALOS data.
+const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
+import { ALOSInterface } from "./alos-interface.js";
+const ALOS = new ALOSInterface(DATA_FOLDER);
+
+...
+
+app.get(`/`, async (req, res) => {
+  ...
+  const results = [];
+  for (let i=0, e=locations.length; i<e; i += 2) {
+    const [lat, long] = locations.slice(2*i, 2*i+2);
+    // Let's swap out our "123" for an actual lookup:
+    const elevation = ALOS.lookup(lat, long);
+    results.push({ lat, long, elevation });
+  }
+  res.json(results);
+});
+
+app.listen(PORT, () => {
+  console.log(`Elevation server listening on http://localhost:${PORT}`);
+});
+```
+
+Neato!
+
+### Working with Geo tiles
+
+Back to the ALOS data: we still need something that turns "tiff images" into a Tile object that we can work with, so let's write a `src/elevation/alos-tile.js` for that:
+
+```javascript
 import { existsSync, readFileSync, copyFileSync } from "fs";
+import { basename, join } from "path";
+import tiff from "tiff";
+import { ALOS_VOID_VALUE } from "./alos-constants.js";
 
 const { floor, ceil, max } = Math;
 
 export class ALOSTile {
-  constructor(tilePath, coarseLevel = 10) {
+  constructor(tilePath) {
     this.tilePath = tilePath;
-    this.coarseLevel = coarseLevel;
-    // copy the file itself to our local cache dir for faster loading in the future
-    const filename = join(`.`, CACHE_DIR, basename(tilePath));
-    if (!existsSync(filename)) copyFileSync(tilePath, filename);
-    this.init(filename);
+    this.load(tilePath);
   }
 
-  init(filename) {
-    ...
-    this.pixels = block.data;
-    this.formCoarseTile(block.width, block.height, [sx, sy, gx, gy]);
+  /**
+   * Load in a GeoTIFF and parse the metadata so we can set
+   * up our matrix transforms for geo-to-pixel and pixel-to-geo
+   * coordinate conversions.
+   *
+   * See https://stackoverflow.com/questions/47951513#75647596
+   * if you want the full details on how that works.
+   */
+  load(filename) {
+    const file = readFileSync(filename);
+    const image = tiff.decode(file.buffer);
+    const { data, fields } = image[0];
+    let [sx, sy, sz] = fields.get(33550);
+    let [px, py, k, gx, gy, gz] = fields.get(33922);
+    sy = -sy;
+    this.forward = [gx, sx, 0, gy, 0, sy];
+    this.reverse = [-gx / sx, 1 / sx, 0, -gy / sy, 0, 1 / sy];
+    this.pixels = data;
   }
 
-  formCoarseTile(width, height, [sx, sy, gx, gy]) {
-    // form a much smaller, coarse lookup map
-    const { coarseLevel, pixels: p } = this;
-    this.coarsePixels = [];
-    for (let i = 0; i < p.length; i += coarseLevel) {
-      this.coarsePixels[i / coarseLevel] = max(...p.slice(i, i + coarseLevel));
-    }
-    for (let i = 0, w = width / coarseLevel; i < w; i += coarseLevel) {
-      let list = [];
-      for (let j = 0; j < coarseLevel; j++) list.push(p[i + j * w]);
-      this.coarsePixels[i / coarseLevel] = max(...list);
-    }
-    this.coarsePixels = new Uint16Array(this.coarsePixels);
-    const [sxC, syC] = [sx * coarseLevel, sy * coarseLevel];
-    this.coarseForward = [gx, sxC, 0, gy, 0, syC];
-    this.coarseReverse = [-gx / sxC, 1 / sxC, 0, -gy / syC, 0, 1 / syC];
+  /**
+   * convert a pixel (x,y) coordinate to a [lat, long] value.
+   * Note that it does NOT return [long, lat], even though
+   * the (x,y) ordering generally maps to (long,lat) values.
+   */
+  pixelToGeo(x, y) {
+    const { forward: F } = this;
+    return [F[3] + F[4] * x + F[5] * y, F[0] + F[1] * x + F[2] * y];
   }
 
-  geoToPixel(lat, long, coarse = false) {
-    const R = coarse ? this.coarseReverse : this.reverse;
+  /**
+   * convert a geo (lat,long) coordinate to an [x,y] value.
+   */
+  geoToPixel(lat, long) {
+    const { reverse: R } = this;
     return [R[0] + R[1] * long + R[2] * lat, R[3] + R[4] * long + R[5] * lat];
   }
 
-  lookup(lat, long, coarse = false) {
-    const [x, y] = this.geoToPixel(lat, long, coarse);
+  /**
+   * Find the pixel that maps to a given lat/long coordinate,
+   * and return its greyscalevalue as the elevation in meters
+   * at that coordinate on the planet.
+   *
+   * Note: this might not be a real elevation!
+   */
+  lookup(lat, long) {
+    const [x, y] = this.geoToPixel(lat, long);
     const pos = (x | 0) + (y | 0) * this.block.width;
-    let value = (coarse ? this.coarsePixels : this.pixels)[pos];
-    if (value === undefined || value > 8900) value = ALOS_VOID_VALUE;
+    let value = this.pixels[pos];
+    // the highest point on earth is 8848m
+    if (value === undefined || value > 10000) value = ALOS_VOID_VALUE;
     return value;
   }
 }
 ```
 
-We scale down our image data by first picking the brightest (and therefore highest) pixel out of every 10 pixels horizontally, then doing the same to that new data, but vertically. What we're left with is a 100x smaller image that encodes the max elevation over 300x300 meter blocks, rather than the original 30x30 meter blocks.
+And suddenly we have a way to query elevations for GPS coordinates, without having to use some third party online service, or messing around with object spawning in-game.  Asking for http://localhost:9000/?locations=48.8,-123.8,48.9,-123.9,49,-124 now yields:
 
-Which takes care of our original point (2) in our four point list, let's tackle the rest of our points:
+```json
+[
+  { "lat": 48.8, "long": -123.8, "elevation": 152 },
+  { "lat": 48.9, "long": -123.9, "elevation": 840 },
+  { "lat": 49, "long": -124, "elevation": 0 }
+]
+```
+
+### Working with strips
+
+In order for this to be useful to our autopilot, though, we'll need to be able to query "a shape" rather than individual coordinates, where we're interested in finding the highest elevation inside that shape.
 
 ### Finishing up
 

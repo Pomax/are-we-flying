@@ -269,6 +269,7 @@ export class WayPointManager {
           if (this.checkTransition(lat, long, fp)) {
             target = fp;
           } else {
+            // do the reflecty trick?
           }
         }
       }

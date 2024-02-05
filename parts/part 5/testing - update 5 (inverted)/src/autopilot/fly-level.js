@@ -19,7 +19,7 @@ export async function flyLevel(autopilot, state) {
   const isTwitchy = wpa < 5 || isAcrobatic;
 
   // get our turn rate
-  const { turnRate } = flightData;
+  const { bank, turnRate, upsideDown } = flightData;
   const aTurnRate = abs(turnRate);
 
   // get our target heading
@@ -50,11 +50,34 @@ export async function flyLevel(autopilot, state) {
     updateMaxDeflection(trim, howMuch, isTwitchy);
   }
 
+  // Are we flying upside down?
+  let offset = 0;
+  if (upsideDown) {
+    // how much are we deviating from 180?
+    const tipAngle = bank < 0 ? bank + 180 : bank - 180;
+
+    // If we're tipping too much, reduce our max stick
+    // because we were clearly giving it too much:
+    if (abs(tipAngle) > 30) updateMaxDeflection(trim, -50, isTwitchy);
+
+    // And restrict our bank angle to 30 degrees on either side of 180:
+    const s = sign(bank);
+    const maxBankAngle = s * constrainMap(aHeadingDiff, 0, 10, 179, 150);
+    offset += constrainMap(bank, s * 90, maxBankAngle, s * 2 ** 13, 0);
+
+    // And because this is *such* an unstable way to fly, we need
+    // an additional correction for when we're getting blown off
+    // course by even the smallest gust or draft:
+    if (aHeadingDiff > 2) {
+      offset -= constrainMap(headingDiff, -10, 10, -500, 500);
+    }
+  }
+
   let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
   proportion = sign(proportion) * abs(proportion);
 
   const maxStick = -trim.roll;
-  const newAileron = proportion * maxStick;
+  const newAileron = proportion * maxStick + offset;
   api.trigger("AILERON_SET", newAileron | 0);
 }
 

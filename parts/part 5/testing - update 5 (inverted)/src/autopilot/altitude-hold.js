@@ -50,7 +50,7 @@ export async function altitudeHold(autopilot, flightInformation) {
 
   // are we upside down?
   if (upsideDown) {
-    trimStep = -trimStep;
+    trimStep = -2 * trimStep;
   }
 
   // And what should those parameters be instead, if we want to
@@ -61,9 +61,7 @@ export async function altitudeHold(autopilot, flightInformation) {
     maxVS,
     alt,
     speed,
-    climbSpeed,
-    cruiseSpeed,
-    upsideDown
+    climbSpeed
   );
   const diff = targetVS - VS;
 
@@ -71,18 +69,6 @@ export async function altitudeHold(autopilot, flightInformation) {
   if (isStubborn) {
     trimStep *= constrainMap(abs(diff), 0, 100, 1, 3);
   }
-
-  // console.log({
-  //   alt,
-  //   targetAlt,
-  //   altDiff,
-  //   VS,
-  //   dVS,
-  //   targetVS,
-  //   diff,
-  //   pitch,
-  //   dPitch,
-  // });
 
   // Just like in the flyLevel code, we first determine an update
   // to our trim, and then apply that only once we're done figuring out
