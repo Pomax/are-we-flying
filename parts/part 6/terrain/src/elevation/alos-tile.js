@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import tiff from "tiff";
 import { ALOS_VOID_VALUE, NO_ALOS_DATA_VALUE } from "./alos-constants.js";
 
-const { abs, max, sign } = Math;
+const { abs, ceil, max, sign } = Math;
 
 export class ALOSTile {
   constructor(tilePath) {
@@ -80,9 +80,12 @@ export class ALOSTile {
   getMaxElevation(geoPoly) {
     const pixelPoly = geoPoly.map((pair) => this.geoToPixel(...pair));
     let result = {
-      elevation: ALOS_VOID_VALUE,
       lat: 0,
       long: 0,
+      elevation: {
+        feet: ALOS_VOID_VALUE,
+        meter: ALOS_VOID_VALUE,
+      },
     };
     const scanLines = formScanLines(pixelPoly);
     scanLines.forEach(([start, end], y) => {
@@ -93,9 +96,16 @@ export class ALOSTile {
       line.forEach((elevation, i) => {
         if (elevation >= NO_ALOS_DATA_VALUE) return;
         let x = i + start;
-        if (elevation > result.elevation) {
+        if (elevation > result.elevation.meter) {
           const [lat, long] = this.pixelToGeo(x, y);
-          result = { lat, long, elevation };
+          result = {
+            lat,
+            long,
+            elevation: {
+              feet: ceil(elevation * 3.28084),
+              meter: elevation,
+            },
+          };
         }
       });
     });
@@ -105,7 +115,9 @@ export class ALOSTile {
 
 /**
  * convert a polygon into a set of scan lines, then find the
- * maximum elevation across those scan lines.
+ * maximum elevation across those scan lines. This is similar
+ * to the work we'd do if we wanted to "flood fill" a shape
+ * without cutouts, https://en.wikipedia.org/wiki/Flood_fill
  */
 function formScanLines(poly) {
   poly = poly.slice();

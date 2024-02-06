@@ -17,7 +17,7 @@ import { ALOSTile } from "./alos-tile.js";
 
 export { DATA_FOLDER, NO_ALOS_DATA_VALUE };
 
-const { floor, ceil, max } = Math;
+const { floor, ceil, min, max } = Math;
 await mkdir(CACHE_DIR, { recursive: true });
 
 // JAXA ALOS World 3D (30m) dataset manager
@@ -140,9 +140,78 @@ export class ALOSInterface {
   }
 
   getMaxElevation(geoPoly) {
-    // FIXME: this needs to become "potentially chop up this polygon"
-    const tile = this.getTileFor(...geoPoly[0]);
-    const elevation = tile?.getMaxElevation(geoPoly) ?? ALOS_VOID_VALUE;
-    return elevation;
+    const quadrants = splitAsQuadrants(geoPoly);
+    let result = {
+      lat: 0,
+      long: 0,
+      elevation: { feet: ALOS_VOID_VALUE, meter: ALOS_VOID_VALUE },
+    };
+    quadrants.forEach((poly) => {
+      if (!poly.length) return;
+      const tile = this.getTileFor(...poly[0]);
+      const qResult = tile?.getMaxElevation(poly) ?? ALOS_VOID_VALUE;
+      if (qResult && qResult.elevation.meter > result.elevation.meter) {
+        result = qResult;
+      }
+    });
+    return result;
   }
+}
+
+// We can use a nice animated graphic here
+function splitAsQuadrants(coords) {
+  // Figure out which "horizontal" and "vertical"
+  // lines we may need to cut our polygon with:
+  const lats = [],
+    longs = [];
+  coords.forEach(([lat, long]) => {
+    lats.push(lat | 0);
+    longs.push(long | 0);
+  });
+  const LAT = ceil((min(...lats) + max(...lats)) / 2);
+  const LONG = ceil((min(...longs) + max(...longs)) / 2);
+
+  // Then perform a three-way polygon split: first a left/right
+  // split across the longitudinal divider, then a top/bottom
+  // split for (potentially) both shapes that yields, so that
+  // we end up with either 1, 2, or 4 tiles we need to check.
+  coords = [...coords, coords[0]];
+  const [left, right] = splitAlong(coords, `long`, LONG);
+  const [tl, bl] = splitAlong(left, `lat`, LAT);
+  const [tr, br] = splitAlong(right, `lat`, LAT);
+  return [tr, br, bl, tl];
+}
+
+function splitAlong(coords, dim, threshold) {
+  const lt = [];
+  const ge = [];
+  for (let i = 1, e = coords.length, a = coords[0], b; i < e; i++) {
+    b = coords[i];
+    const r = (threshold - a[dim]) / (b[dim] - a[dim]);
+    const x = dim === `x` ? threshold : (1 - r) * a.x + r * b.x;
+    const y = dim === `y` ? threshold : (1 - r) * a.y + r * b.y;
+    const p = { x, y };
+    if (a[dim] < threshold && b[dim] >= threshold) {
+      // console.log(`-> crossing`, a, b, X);
+      lt.push(a);
+      lt.push({ x: p.x - cm, y: p.y });
+      ge.push(p);
+    } else if (b[dim] < threshold && a[dim] >= threshold) {
+      // console.log(`<- crossing`, a, b, X);
+      ge.push(a);
+      ge.push(p);
+      lt.push({ x: p.x - cm, y: p.y });
+    } else if (a[dim] < threshold) {
+      // console.log(`<- no crossing`, a, b, X);
+      lt.push(a);
+    } else {
+      // console.log(`-> no crossing`, a, b, X);
+      ge.push(a);
+    }
+    a = b;
+  }
+
+  if (lt.length) lt.push(lt[0]);
+  if (ge.length) ge.push(ge[0]);
+  return [lt, ge];
 }

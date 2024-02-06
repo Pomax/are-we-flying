@@ -1,7 +1,7 @@
 const { dirname } = import.meta;
 
 import dotenv from "dotenv";
-dotenv.config({ path: `${dirname}/.env` });
+dotenv.config({ path: `${dirname}/../../../.env` });
 const { API_PORT, WEB_PORT } = process.env;
 
 import { ClientClass } from "./src/classes/client/client.js";
