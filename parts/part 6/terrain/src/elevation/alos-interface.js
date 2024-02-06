@@ -140,13 +140,15 @@ export class ALOSInterface {
   }
 
   getMaxElevation(geoPoly) {
+    // console.log(`splitting`);
     const quadrants = splitAsQuadrants(geoPoly);
     let result = {
       lat: 0,
       long: 0,
       elevation: { feet: ALOS_VOID_VALUE, meter: ALOS_VOID_VALUE },
     };
-    quadrants.forEach((poly) => {
+    quadrants.forEach((poly, i) => {
+      // console.log(`checking quadrant ${i + 1}`);
       if (!poly.length) return;
       const tile = this.getTileFor(...poly[0]);
       const qResult = tile?.getMaxElevation(poly) ?? ALOS_VOID_VALUE;

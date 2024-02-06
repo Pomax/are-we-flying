@@ -13,8 +13,7 @@ const ALOS = new ALOSInterface(DATA_FOLDER);
 // Boilerplate http server:
 function processRequest(req, res) {
   const url = new URL(`http://localhost:${PORT}${req.url}`);
-
-  if (url.pathname !== `/`) return res.fail(`bad url`);
+  if (url.pathname !== `/`) return res.fail(`unsupported endpoint`);
 
   const query = new URLSearchParams(url.search);
   const { points, poly } = Object.fromEntries(query.entries());

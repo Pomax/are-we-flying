@@ -15,6 +15,13 @@ import {
   runLater,
 } from "../../../utils/utils.js";
 
+const dirname = import.meta.dirname;
+import dotenv from "dotenv";
+dotenv.config({ path: `${dirname}/../../../../../../../.env` });
+const { DATA_FOLDER } = process.env;
+import { ALOSInterface } from "../../../elevation/alos-interface.js";
+const alos = new ALOSInterface(DATA_FOLDER);
+
 const { abs, sign, tan, PI } = Math;
 const UPDATE_FREQUENCY = 450;
 
@@ -50,17 +57,12 @@ export class MockPlane {
     data.PLANE_HEADING_DEGREES_TRUE = radians(deg + declination);
   }
 
-  setAltitude(feet, lat, long, groundAlt = this.getGroundAlt(lat, long)) {
+  setAltitude(feet, groundAlt) {
     const { data } = this;
     data.INDICATED_ALTITUDE = feet;
-    data.PLANE_ALT_ABOVE_GROUND = feet - groundAlt;
+    data.PLANE_ALT_ABOVE_GROUND = feet - groundAlt * FEET_PER_METER;
     data.PLANE_ALT_ABOVE_GROUND_MINUS_CG =
       data.PLANE_ALT_ABOVE_GROUND - data.STATIC_CG_TO_GROUND;
-  }
-
-  getGroundAlt(lat, long) {
-    // if we have an elevation server, we could use that here.
-    return 0;
   }
 
   run(previousCallTime = Date.now()) {
@@ -85,11 +87,11 @@ export class MockPlane {
     // If the interval is too long, "do nothing",
     // so we don't teleport around when the OS decides
     // to throttle or suspend a process.
-    if (ms > 5 * UPDATE_FREQUENCY) return
+    if (ms > 5 * UPDATE_FREQUENCY) return;
 
     // allow "fast forward"
-    const interval = ms / 1000 * this.playbackRate;
-    
+    const interval = (ms / 1000) * this.playbackRate;
+
     // First, use the code we already wrote to data-fy the flight.
     const { data } = this;
     const converted = Object.assign({}, data);
@@ -151,7 +153,8 @@ export class MockPlane {
     // Update our altitude values...
     const { alt } = converted;
     const newAltitude = alt + data.VERTICAL_SPEED * interval;
-    this.setAltitude(newAltitude, lat, long);
+    const groundAlt = (data.GROUND_ALTITUDE = alos.lookup(lat, long));
+    this.setAltitude(newAltitude, groundAlt * FEET_PER_METER);
 
     // And update our GPS position.
     const d = data.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;

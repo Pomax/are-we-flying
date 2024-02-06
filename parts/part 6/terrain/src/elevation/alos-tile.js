@@ -47,7 +47,11 @@ export class ALOSTile {
    */
   geoToPixel(lat, long) {
     const { reverse: R } = this;
-    return [R[0] + R[1] * long + R[2] * lat, R[3] + R[4] * long + R[5] * lat];
+    return [
+      // remember: there are no fractional pixels
+      (R[0] + R[1] * long + R[2] * lat) | 0,
+      (R[3] + R[4] * long + R[5] * lat) | 0,
+    ];
   }
 
   /**
@@ -87,8 +91,13 @@ export class ALOSTile {
         meter: ALOS_VOID_VALUE,
       },
     };
+
+    // console.log(`forming scanlines`);
     const scanLines = formScanLines(pixelPoly);
+
+    // console.log(`checking scanlines`);
     scanLines.forEach(([start, end], y) => {
+      if (start === end) return;
       const line = this.pixels.slice(
         this.width * y + start,
         this.width * y + end
@@ -123,11 +132,15 @@ function formScanLines(poly) {
   poly = poly.slice();
   poly.push(poly[0]);
   const scanLines = [];
+
+  // console.log(`running fillScanLines`);
   for (let i = 1, e = poly.length, a = poly[0], b; i < e; i++) {
     const b = poly[i];
     fillScanLines(a[0], a[1], b[0], b[1], scanLines);
     a = b;
   }
+
+  // console.log(`reducing scanlines to start/end`);
   scanLines.forEach((line) => {
     line.sort((a, b) => a - b);
     const n = line.length;
@@ -141,6 +154,7 @@ function formScanLines(poly) {
  * https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm
  */
 function fillScanLines(x0, y0, x1, y1, scanLines) {
+  // console.log(x0, y0, x1, y1);
   const dx = abs(x1 - x0);
   const dy = abs(y1 - y0);
   const sx = sign(x1 - x0);

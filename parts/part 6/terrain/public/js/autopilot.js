@@ -14,6 +14,7 @@ export const AP_OPTIONS = {
   HDG: false,
   ATT: false,
   HeadingTargets: false,
+  TER: false,
 };
 
 export class Autopilot {

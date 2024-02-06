@@ -9,6 +9,7 @@ import {
   HEADING_MODE,
   LEVEL_FLIGHT,
   HEADING_TARGETS,
+  TERRAIN_FOLLOW,
 } from "../utils/constants.js";
 
 let { flyLevel } = await watch(
@@ -27,6 +28,11 @@ let { altitudeHold } = await watch(
   dirname,
   `altitude-hold.js`,
   (lib) => (altitudeHold = lib.altitudeHold)
+);
+let { terrainFollow } = await watch(
+  dirname,
+  `terrain-follow.js`,
+  (lib) => (terrainFollow = lib.terrainFollow)
 );
 
 let { WayPointManager } = await import(`./waypoints/waypoint-manager.js`);
@@ -62,6 +68,7 @@ export class AutoPilot {
       [HEADING_MODE]: false,
       [HEADING_TARGETS]: false,
       [AUTO_THROTTLE]: false,
+      [TERRAIN_FOLLOW]: false,
     };
     this.resetTrim();
     this.onChange();
@@ -221,6 +228,7 @@ export class AutoPilot {
       if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
       if (modes[ALTITUDE_HOLD]) altitudeHold(this, flightInformation);
       if (modes[AUTO_THROTTLE]) autoThrottle(this, flightInformation);
+      if (modes[TERRAIN_FOLLOW]) terrainFollow(this, flightInformation);
     } catch (e) {
       console.warn(e);
     }

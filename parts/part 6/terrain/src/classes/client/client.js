@@ -1,6 +1,6 @@
 // Load in our environment variables now we have
 import dotenv from "dotenv";
-dotenv.config({ path: `${import.meta.dirname}/../../../.env` });
+dotenv.config({ path: `${import.meta.dirname}/../../../../../../.env` });
 
 // Do we have a flight owner key that we need to authenticate with?
 let username, password;
