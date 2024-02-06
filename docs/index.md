@@ -7980,230 +7980,33 @@ And suddenly we have a way to query elevations for GPS coordinates, without havi
 
 In order for this to be useful to our autopilot, though, we'll need to be able to query "a shape" rather than individual coordinates, where we're interested in finding the highest elevation inside that shape.
 
-### Finishing up
+- no flight plan: probe spike from plane
+- with flight plan: form shape around flight plan (12 NM along the flight poly?)
+- updates: 
+  - server: autopilot.js (add new mode), terrain-folow.js, waypoint-manager.js (ignore if terrain follow active), server mock (if we want to add that back in), utils.js, constants.js
+  - client: autopilot.html, autopilot.js, autopilot.css
 
-1. we can generate a path from our current location and a point for a miles ahead of us by using "the wrong" math in our ALOS interface, pretending that paths between two GPS coordinates are straight lines, instead of lying on a [great circle](https://en.wikipedia.org/wiki/Great_circle):
+![image-20240206085233024](./image-20240206085233024.png)
 
-   ```javascript
-   const COARSE_LEVEL = 10;
-
-   export class ALOSInterface {
-     ...
-
-     getTileFor(lat, long) {
-       ...
-       this.cache[tilePath] ??= new ALOSTile(tilePath, COARSE_LEVEL);
-       return this.cache[tilePath];
-     }
-
-     ...
-
-     getHighestPointBetween(lat1, long1, lat2, long2, coarse = false) {
-       if (!this.loaded) return { lat: 0, long: 0, elevation: NO_ALOS_DATA_VALUE };
-
-       const distance = getDistanceBetweenPoints(lat1, long1, lat2, long2);
-       const s = (coarse ? COARSE_LEVEL * 0.3 : 0.03) / distance;
-       let maxValue = { elevation: ALOS_VOID_VALUE, lat: lat2, long: long2 };
-       for (let i = s, lat, long, elevation; i <= 1; i += s) {
-         lat = (1 - i) * lat1 + i * lat2;
-         long = (1 - i) * long1 + i * long2;
-         elevation = this.lookup(lat, long, coarse);
-         if (elevation > maxValue.elevation) maxValue = { elevation, lat, long };
-       }
-       return maxValue;
-     }
-   }
-   ```
-
-   Which just leaves the question of how to get the GPS coordinate "given our current location, heading, and distance", which is one of those things we can just look up the code for:
-
-   ```javascript
-   function getPointAtDistance(lat1, long1, d, heading) {
-     const R = 6371; // the average radius of Earth
-     lat1 = radians(lat1);
-     long1 = radians(long1);
-     const angle = radians(heading);
-     const lat2 = asin(
-       sin(lat1) * cos(d / R) + cos(lat1) * sin(d / R) * cos(angle)
-     );
-     const dx = cos(d / R) - sin(lat1) * sin(lat2);
-     const dy = sin(angle) * sin(d / R) * cos(lat1);
-     const long2 = long1 + atan2(dy, dx);
-     return { lat: degrees(lat2), long: degrees(long2) };
-   }
-   ```
-
-2. We already wrote the code for this step!
-
-3. We basically wrote the code for this already, too: we just update the value for `autopilot.modes[ALTITUDE_HOLD]` and the autopilot does the rest.
-
-4. And this isn't even code: the autopilot will just keep running for as long as we don't turn it off.
-
-Now we just need to add "terrain follow" as an autopilot mode (making sure it runs only when vertical hold is engaged):
+utls:
 
 ```javascript
-export const LEVEL_FLIGHT = `LVL`;
-export const ALTITUDE_HOLD = `ALT`;
-export const HEADING_MODE = `HDG`;
-export const AUTO_THROTTLE = `ATT`;
-export const TERRAIN_FOLLOW = `TER`;
-```
-
-With the new mode added to the autopilot code:
-
-```javascript
-...
-import { ... TERRAIN_FOLLOW } from "./utils/constants.js";
-import { followTerrain } from "./terrain-follow.js";
-
-class AutoPilot {
-  ...
-  constructor() {
-    ...
-    this.modes = {
-      [LEVEL_FLIGHT]: false,
-      [ALTITUDE_HOLD]: false,
-      [HEADING_MODE]: false,
-      [AUTO_THROTTLE]: true,
-      [TERRAIN_FOLLOW]: false
-    };
-    ...
-  }
-
-  ...
-
-  getAutoPilotParameters() {
-    const state = {
-      MASTER: this.autoPilotEnabled,
-      // we add the terrain follow "max elevation" information to our autopilot parameters
-      elevation: this.modes[TERRAIN_FOLLOW] ? this.elevation : false,
-    };
-    Object.entries(this.modes).forEach(([key, value]) => (state[key] = value));
-    return state;
-  }
-
-  ...
-
-  // And when terrain follow is on, follow that terrain!
-  async runAutopilot() {
-    ...
-
-    if (this.modes[ALTITUDE_HOLD]) {
-      if (this.modes[TERRAIN_FOLLOW] !== false && this.alos.loaded) {
-        followTerrain(this, state);
-      }
-      altitudeHold(this, state);
-    }
-
-    this.prevState = state;
-  }
-}
-```
-
-And of course, with a new file called `terrain-follow.js`:
-
-```javascript
-const { ceil } = Math;
-import { degrees, getPointAtDistance } from "./utils/utils.js";
-import { ALTITUDE_HOLD, FEET_PER_METER } from "./utils/constants.js";
-
-const ALOS_VOID_VALUE = -9999;
-
-export async function followTerrain(autopilot, state, altitude = 500) {
-  const { latitude: lat, longitude: long, trueHeading } = state;
-  const distance = 12; // in kilometers
-  const { lat: lat2, long: long2 } = getPointAtDistance(
-    lat,
-    long,
-    distance,
-    degrees(trueHeading)
+function getPointAtDistance(lat1, long1, d, heading) {
+  const R = 6371; // the average radius of Earth
+  lat1 = radians(lat1);
+  long1 = radians(long1);
+  const angle = radians(heading);
+  const lat2 = asin(
+    sin(lat1) * cos(d / R) + cos(lat1) * sin(d / R) * cos(angle)
   );
-  const coarseLookup = true;
-  const maxValue = autopilot.alos.getHighestPointBetween(
-    lat,
-    long,
-    lat2,
-    long2,
-    coarseLookup
-  );
-  if (maxValue.elevation === ALOS_VOID_VALUE) maxValue.elevation = 0;
-
-  // We'll add these values to our autopilot parameters
-  autopilot.elevation = maxValue;
-  autopilot.elevation.lat2 = lat2;
-  autopilot.elevation.long2 = long2;
-
-  // Rememeber: ALOS data is in meters, but MSFS is in feet.
-  // We'll crash really fast if we don't convert units =)
-  let targetAltitude = maxValue.elevation * FEET_PER_METER + altitude;
-
-  // We don't want to constantly change altitude, so we use elevation brackets:
-  let bracketSize = 100;
-  if (targetAltitude > 1000) bracketSize = 200;
-  if (targetAltitude > 10000) bracketSize = 500;
-  if (targetAltitude > 30000) bracketSize = 1000;
-  targetAltitude = ceil(targetAltitude / bracketSize) * bracketSize;
-
-  // Set the ALT value and let the autopilot do the rest
-  autopilot.modes[ALTITUDE_HOLD] = targetAltitude;
+  const dx = cos(d / R) - sin(lat1) * sin(lat2);
+  const dy = sin(angle) * sin(d / R) * cos(lat1);
+  const long2 = long1 + atan2(dy, dx);
+  return { lat: degrees(lat2), long: degrees(long2) };
 }
 ```
 
-Of course this does require so extra code to make sure waypoint elevation and terrain follow altitudes don't clash, so we're going to add an early return in `altitude-hold.js`:
 
-```javascript
-function updateAltitudeFromWaypoint(autopilot, state) {
-  if (autopilot.modes[TERRAIN_FOLLOW]) return;
-
-  const { waypoints } = autopilot;
-  const waypointAltitude = waypoints.getAltitude(state);
-  if (waypointAltitude) {
-    autopilot.setTarget(ALTITUDE_HOLD, waypointAltitude);
-  }
-}
-```
-
-The last thing we'll do is add a bit of cosmetic code so that we can see the "terrain scan line" on our map while we're flying. First we update our `plane.js`:
-
-```javascript
-export class Plane {
-  ...
-
-  async setElevationProbe(value) {
-    if (this.elevationProbe) this.elevationProbe.remove();
-    if (!value) return;
-    this.elevationProbe = new Trail(
-      this.map,
-      [this.state.lat, this.state.long],
-      `#4F87`,
-      { weight: 30, lineCap: `butt` }
-    );
-    this.elevationProbe.add(value.lat2, value.long2);
-  }
-
-  ...
-}
-```
-
-And then we call this function in our client-side autopilot code:
-
-```javascript
-...
-
-  bootstrap(params) {
-    Object.entries(params).forEach(([key, value]) => {
-      // draw our elevation scan line on the map
-      if (key === `elevation`) return this.owner.setElevationProbe(value);
-      ...
-    });
-  }
-
-...
-```
-
-Which will give us the following visualization:
-
-![image-20230527222138987](./images/page/flight-with-alos.png)
 
 ### Testing our code
 

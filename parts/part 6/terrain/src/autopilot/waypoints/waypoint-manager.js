@@ -14,6 +14,7 @@ import {
   HEADING_TARGETS,
   KM_PER_ARC_DEGREE,
   ONE_KTS_IN_KMS,
+  TERRAIN_FOLLOW,
 } from "../../utils/constants.js";
 
 const { abs, max } = Math;
@@ -336,6 +337,9 @@ export class WayPointManager {
     const { modes } = autopilot;
     const { currentWaypoint: p1 } = this;
 
+    // Terrain follow "wins"
+    if (modes[TERRAIN_FOLLOW]) return modes[ALTITUDE_HOLD];
+
     // If we don't have a waypoint, then our current heading
     // becomes our current autopilot heading parameter.
     if (!p1) {
@@ -364,6 +368,7 @@ export class WayPointManager {
         autopilot.setParameters({ [ALTITUDE_HOLD]: alt });
       }
     }
+
     return modes[ALTITUDE_HOLD];
   }
 

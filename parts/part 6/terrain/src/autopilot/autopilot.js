@@ -10,7 +10,8 @@ import {
   LEVEL_FLIGHT,
   HEADING_TARGETS,
   TERRAIN_FOLLOW,
-} from "../utils/constants.js";
+  TERRAIN_FOLLOW_SHAPE,
+} from "../utils/constants.js?t=2";
 
 let { flyLevel } = await watch(
   dirname,
@@ -69,6 +70,7 @@ export class AutoPilot {
       [HEADING_TARGETS]: false,
       [AUTO_THROTTLE]: false,
       [TERRAIN_FOLLOW]: false,
+      [TERRAIN_FOLLOW_SHAPE]: false,
     };
     this.resetTrim();
     this.onChange();
