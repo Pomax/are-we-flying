@@ -132,14 +132,17 @@ export class Autopilot {
       this.terrainProbe.remove();
     }
 
-    const { TerrainFollowShape, TER } = params;
-    if (TER) {
-      const coords = TerrainFollowShape.map((p) => [p.lat, p.long]);
-      this.terrainProbe = L.polyline([...coords, coords[0]], {
-        className: `terrain-probe`,
-        fill: true,
-      });
-      this.terrainProbe.addTo(this.map);
+    const { TerrainFollowShape: coords, TER } = params;
+    try {
+      if (TER) {
+        this.terrainProbe = L.polyline([...coords, coords[0]], {
+          className: `terrain-probe`,
+          fill: true,
+        });
+        this.terrainProbe.addTo(this.map);
+      }
+    } catch (err) {
+      console.log(TER, coords);
     }
   }
 }

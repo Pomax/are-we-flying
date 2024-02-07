@@ -25,6 +25,7 @@ export class Waypoint {
     this.completed = false;
     this.distance = 0;
     this.next = undefined;
+    this.passedTransitionMidpoint = false;
   }
 
   setPosition(lat, long) {

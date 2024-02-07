@@ -21,6 +21,10 @@ export class AutopilotRouter {
     return autopilot.waypoints.getWaypoints();
   }
 
+  setFlightPlan(client, waypoints) {
+    autopilot.waypoints.setFlightPlan(waypoints);
+  }
+
   addWaypoint(client, lat, long, alt) {
     autopilot.waypoints.add(lat, long, alt);
   }

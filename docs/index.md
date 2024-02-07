@@ -7937,7 +7937,10 @@ export class ALOSTile {
    */
   pixelToGeo(x, y) {
     const { forward: F } = this;
-    return [F[3] + F[4] * x + F[5] * y, F[0] + F[1] * x + F[2] * y];
+    return [
+      F[3] + F[4] * x + F[5] * y,
+      F[0] + F[1] * x + F[2] * y,
+    ];
   }
 
   /**
@@ -7945,7 +7948,12 @@ export class ALOSTile {
    */
   geoToPixel(lat, long) {
     const { reverse: R } = this;
-    return [R[0] + R[1] * long + R[2] * lat, R[3] + R[4] * long + R[5] * lat];
+    return [
+      // We round down so that pixels coordinates are
+      // always integers, with (0,0) as "lowest" value.
+      (R[0] + R[1] * long + R[2] * lat) | 0,
+      (R[3] + R[4] * long + R[5] * lat) | 0,
+    ];
   }
 
   /**
@@ -7957,7 +7965,7 @@ export class ALOSTile {
    */
   lookup(lat, long) {
     const [x, y] = this.geoToPixel(lat, long);
-    const pos = (x | 0) + (y | 0) * this.block.width;
+    const pos = x + y * this.block.width;
     let value = this.pixels[pos];
     // the highest point on earth is 8848m
     if (value === undefined || value > 10000) value = ALOS_VOID_VALUE;
@@ -7976,15 +7984,50 @@ And suddenly we have a way to query elevations for GPS coordinates, without havi
 ]
 ```
 
-### Working with strips
+### Working with shapes
 
-In order for this to be useful to our autopilot, though, we'll need to be able to query "a shape" rather than individual coordinates, where we're interested in finding the highest elevation inside that shape.
+In order for this to be useful to our autopilot, though, we want to know what the maximum elevation is inside "some shape" rather than looking up individual points, which requires writing some more code to make that work, in three steps:
+
+1. we'll want code that can get the max elevation inside a shape that falls within a single tile, then
+2. we'll want code that can "split up" a shape that covers more than one tile, and
+3. we'll want to combine those so that we get one max elevation value even if we need to check multiple tiles.
+
+#### What shape to pick
+
+Initial thought: circle around the plane. However, we can't just "reverse" so that's too much. Semi-circle: better, but we want to look "ahead" far more than we need to look "to the side". [KISS principle](https://en.wikipedia.org/wiki/KISS_principle): triangle that's as wide as it needs to be at the plane, and ends in a point 12NM in front of the plane.
+
+However, if we fly a flight plan we want to sample around the flight path so we don't get in the following situation, where the terrain ahead of us is thousands of feet higher (or lower) than we'll be flying, and the plane unnecessarily changes altitude simply because the probe rotated over, and then off of, a mountain, or the ocean.
+
+![image-20240206100515274](./image-20240206100515274.png)
+
+#### Adding polygon support 
+
+Server, ALOSInterface, and ALOSTille updates for `?poly=...` --> `getMaxElevation`
+
+#### Scanlines and Bresenham
+
+talk about bresenham's lines algorithm to create our outline, and scanlines so we can quickly find a value.
+
+#### Splitting our shapes
+
+interactive graphics for this go here.
+
+#### Putting it all together
+
+include client-side code that lets us visualize the "probe" shape or "path part".
+
+
+
+#### -------------------
+
+
 
 - no flight plan: probe spike from plane
 - with flight plan: form shape around flight plan (12 NM along the flight poly?)
 - updates: 
   - server: autopilot.js (add new mode), terrain-folow.js, waypoint-manager.js (ignore if terrain follow active), server mock (if we want to add that back in), utils.js, constants.js
   - client: autopilot.html, autopilot.js, autopilot.css
+  - 
 
 ![image-20240206085233024](./image-20240206085233024.png)
 

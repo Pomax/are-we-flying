@@ -63,7 +63,7 @@ export class ALOSTile {
    */
   lookup(lat, long) {
     const [x, y] = this.geoToPixel(lat, long);
-    const pos = (x | 0) + (y | 0) * this.width;
+    const pos = x + y * this.width;
     let value = this.pixels[pos];
     // the highest point on earth is 8848m
     if (value === undefined || value > 10000) value = ALOS_VOID_VALUE;

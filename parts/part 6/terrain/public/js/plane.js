@@ -196,8 +196,6 @@ export class Plane {
     css.setProperty(`--heading`, heading);
     css.setProperty(`--heading-bug`, headingBug);
 
-    console.log(alt, groundAlt);
-
     const altitudeText =
       (groundAlt | 0) === 0 ? `${alt | 0}'` : `${lift | 0}' (${alt | 0}')`;
     planeIcon.querySelector(`.alt`).textContent = altitudeText;

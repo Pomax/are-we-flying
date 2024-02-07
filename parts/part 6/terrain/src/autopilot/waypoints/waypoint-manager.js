@@ -3,7 +3,6 @@ import {
   getDistanceBetweenPoints,
   getHeadingFromTo,
   getPointAtDistance,
-  projectCircleOnLine,
   project,
   getCompassDiff,
 } from "../../utils/utils.js";
@@ -12,7 +11,6 @@ import {
   ALTITUDE_HOLD,
   HEADING_MODE,
   HEADING_TARGETS,
-  KM_PER_ARC_DEGREE,
   ONE_KTS_IN_KMS,
   TERRAIN_FOLLOW,
 } from "../../utils/constants.js";
@@ -20,10 +18,6 @@ import {
 const { abs, max } = Math;
 const innerRadiusRatio = 2 / 3;
 const MIN_RADIUS_IN_SECONDS = 20;
-
-const sub = (v1, v2) => ({ lat: v2.lat - v1.lat, long: v2.long - v1.long });
-const dot = (v1, v2) => v1.lat * v2.lat + v1.long * v2.long;
-const mag = (v) => (v.lat ** 2 + v.long ** 2) ** 0.5;
 
 export class WayPointManager {
   constructor(autopilot) {
@@ -38,6 +32,10 @@ export class WayPointManager {
     this.autopilot.onChange();
   }
 
+  get active() {
+    return !!this.currentWaypoint;
+  }
+
   toggleRepeating() {
     this.repeating = !this.repeating;
     this.resequence();
@@ -49,7 +47,7 @@ export class WayPointManager {
     return this.points.slice();
   }
 
-  add(lat, long, alt) {
+  add(lat, long, alt, resequence = true) {
     const { points } = this;
     const waypoint = new Waypoint(lat, long, alt);
     points.push(waypoint);
@@ -58,6 +56,12 @@ export class WayPointManager {
       this.currentWaypoint = waypoint;
       this.currentWaypoint.activate();
     }
+    if (resequence) this.resequence();
+  }
+
+  setFlightPlan(waypoints) {
+    this.reset();
+    waypoints.forEach(({ lat, long, alt }) => this.add(lat, long, alt, false));
     this.resequence();
   }
 
@@ -143,6 +147,40 @@ export class WayPointManager {
   }
 
   /**
+   * revalidate the flight path based on the current plane position,
+   * marking the nearest waypoint as "the currently active point", and
+   * any points prior to it as already completed.
+   */
+  revalidate(lat, long) {
+    // which point are we closest to?
+    const { points } = this;
+    let nearest = { pos: 0 };
+    if (lat !== undefined && long !== undefined) {
+      nearest = { distance: Number.MAX_SAFE_INTEGER, pos: -1 };
+      points.forEach((p, pos) => {
+        p.reset();
+        const d = getDistanceBetweenPoints(lat, long, p.lat, p.long);
+        if (d < nearest.distance) {
+          nearest.distance = d;
+          nearest.pos = pos;
+        }
+      });
+    }
+
+    // Mark all points before the one we're closest to as complete:
+    for (let i = 0; i < nearest.pos; i++) points[i].complete();
+
+    // And then make sure every point knows what the next point is,
+    // and mark the one that we're closest to as our current waypoint.
+    this.currentWaypoint = points[nearest.pos];
+    this.currentWaypoint.activate();
+    this.resequence();
+
+    // and push the update to clients
+    this.autopilot.onChange();
+  }
+
+  /**
    * Remove all active/completed flags from all waypoints
    * and mark the first point as our active point.
    */
@@ -215,7 +253,7 @@ export class WayPointManager {
       p1
     );
 
-    let p2, p3, target;
+    let target;
     let targets = [];
 
     // Do we even need to do anything?
@@ -231,49 +269,7 @@ export class WayPointManager {
     // where X is a full minute if we're near stall speed, or only 30
     // seconds if we're going at cruise speed.
     else {
-      // Do we only have a single point?
-      p2 = p1.next;
-      if (!p2) {
-        this.checkTransition(lat, long, p1, radiusInKM);
-      }
-
-      // If we have at least two points, let's do some projective planning.
-      else if (p2 && !this.checkTransition(lat, long, p2, radiusInKM)) {
-        // project the plane
-        const { x, y } = project(p1.long, p1.lat, p2.long, p2.lat, long, lat);
-        const fp = { lat: y, long: x };
-        targets.push(fp);
-        target = fp;
-
-        // if we're close enough, project forward by radial distance
-        const a = getDistanceBetweenPoints(lat, long, fp.lat, fp.long);
-        const h = radiusInKM;
-        if (a < h) {
-          0;
-          const b = (h ** 2 - a ** 2) ** 0.5;
-          target = getPointAtDistance(
-            fp.lat,
-            fp.long,
-            b * innerRadiusRatio,
-            p1.heading
-          );
-          targets.push(target);
-        }
-
-        // Second check: are we close enough to the next leg? If so,
-        // transition early.
-        p3 = p2.next;
-        if (p3) {
-          const { x, y } = project(p2.long, p2.lat, p3.long, p3.lat, long, lat);
-          const fp = { lat: y, long: x };
-          targets.push(fp);
-          if (this.checkTransition(lat, long, fp)) {
-            target = fp;
-          } else {
-            // do the reflecty trick?
-          }
-        }
-      }
+      target = this.getTarget(lat, long, p1, radiusInKM, targets);
 
       if (target) {
         // We now know which GPS coordinate to target, so let's
@@ -302,6 +298,69 @@ export class WayPointManager {
     });
 
     return modes[HEADING_MODE];
+  }
+
+  /**
+   * ...
+   */
+  getTarget(lat, long, p1, radiusInKM, targets = []) {
+    let p2, p3, target;
+
+    // Do we only have a single point?
+    p2 = p1.next;
+    if (!p2) {
+      this.checkTransition(lat, long, p1, radiusInKM);
+    }
+
+    // If we have at least two points, let's do some projective planning.
+    else if (p2 && !this.checkTransition(lat, long, p2, radiusInKM)) {
+      // project the plane
+      const { x, y } = project(p1.long, p1.lat, p2.long, p2.lat, long, lat);
+      const fp = { lat: y, long: x };
+      targets.push(fp);
+      target = fp;
+
+      // if we're close enough, project forward by radial distance
+      const a = getDistanceBetweenPoints(lat, long, fp.lat, fp.long);
+      const h = radiusInKM;
+      if (a < h) {
+        const b = (h ** 2 - a ** 2) ** 0.5;
+        target = getPointAtDistance(
+          fp.lat,
+          fp.long,
+          b * innerRadiusRatio,
+          p1.heading
+        );
+        targets.push(target);
+      }
+
+      // Second check: are we close enough to the next leg? If so,
+      // transition early.
+      p3 = p2.next;
+      if (p3) {
+        const { x, y } = project(p2.long, p2.lat, p3.long, p3.lat, long, lat);
+        const fp = { lat: y, long: x };
+        targets.push(fp);
+        if (this.checkTransition(lat, long, fp)) {
+          target = fp;
+        } else {
+          // FIXME: TODO: do the reflecty trick?
+        }
+      }
+    }
+
+    if (target) {
+      p1.passedTransitionMidpoint =
+        p1.passedTransitionMidpoint ||
+        getDistanceBetweenPoints(p1.lat, p1.long, target.lat, target.long) >
+          radiusInKM;
+    }
+
+    p1.passedTransitionMidpoint =
+      p1.passedTransitionMidpoint ||
+      getDistanceBetweenPoints(p1.lat, p1.long, lat, long) < 1;
+
+    return target;
   }
 
   /**
@@ -338,7 +397,9 @@ export class WayPointManager {
     const { currentWaypoint: p1 } = this;
 
     // Terrain follow "wins"
-    if (modes[TERRAIN_FOLLOW]) return modes[ALTITUDE_HOLD];
+    if (modes[TERRAIN_FOLLOW]) {
+      return modes[ALTITUDE_HOLD];
+    }
 
     // If we don't have a waypoint, then our current heading
     // becomes our current autopilot heading parameter.
@@ -373,36 +434,62 @@ export class WayPointManager {
   }
 
   /**
-   * revalidate the flight path based on the current plane position,
-   * marking the nearest waypoint as "the currently active point", and
-   * any points prior to it as already completed.
+   * ...
    */
-  revalidate(lat, long) {
-    // which point are we closest to?
-    const { points } = this;
-    let nearest = { pos: 0 };
-    if (lat !== undefined && long !== undefined) {
-      nearest = { distance: Number.MAX_SAFE_INTEGER, pos: -1 };
-      points.forEach((p, pos) => {
-        p.reset();
-        const d = getDistanceBetweenPoints(lat, long, p.lat, p.long);
-        if (d < nearest.distance) {
-          nearest.distance = d;
-          nearest.pos = pos;
-        }
-      });
-    }
+  getElevationProbeShape(lat, long, heading, probeLength) {
+    const { currentWaypoint: c } = this;
 
-    // Mark all points before the one we're closest to as complete:
-    for (let i = 0; i < nearest.pos; i++) points[i].complete();
+    // If there is no next point, use the normal shape.
+    if (!c.next) return;
 
-    // And then make sure every point knows what the next point is,
-    // and mark the one that we're closest to as our current waypoint.
-    this.currentWaypoint = points[nearest.pos];
-    this.currentWaypoint.activate();
-    this.resequence();
+    // Otherwise, we'll need a slightly different shape.
+    console.log(`passedTransitionMidpoint? ${c.passedTransitionMidpoint}`);
+    const target = c.passedTransitionMidpoint ? c.next : c;
 
-    // and push the update to clients
-    this.autopilot.onChange();
+    // Also, if the distance to our next waypoint is more
+    // than our probe length, just use a normal probe.
+    const distance = getDistanceBetweenPoints(
+      lat,
+      long,
+      target.lat,
+      target.long
+    );
+    if (distance > probeLength) return;
+
+    const p = {
+      lat: lat,
+      long: long,
+      distance,
+      heading: getHeadingFromTo(lat, long, target.lat, target.long),
+      next: target,
+    };
+
+    return [
+      getPointAtDistance(lat, long, 1, heading - 90),
+      ...getSegmentOutline(probeLength - distance, p),
+      getPointAtDistance(lat, long, 1, heading + 90),
+    ].map(({ lat, long }) => [lat, long]);
   }
+}
+
+/**
+ * The probe distance may cover multiple segments, so we need to
+ * build out our total shape recursively. We have an upper bound
+ * on how much recursion we use, though: there's a fixed distance
+ * to cover, and each segment reduces that distance.
+ */
+function getSegmentOutline(d, { lat, long, distance, heading, next }) {
+  if (!next || d < distance) {
+    return [getPointAtDistance(lat, long, d, heading)];
+  }
+
+  if (!next.heading) next.heading = heading;
+  const { lat: lat2, long: long2, heading: heading2 } = next;
+  const course = (heading + heading2) / 2;
+
+  return [
+    getPointAtDistance(lat2, long2, 1, course - 90),
+    ...getSegmentOutline(d - distance, next),
+    getPointAtDistance(lat2, long2, 1, course + 90),
+  ];
 }

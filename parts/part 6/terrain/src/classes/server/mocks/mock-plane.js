@@ -9,6 +9,7 @@ import {
 import {
   constrainMap,
   degrees,
+  getCompassDiff,
   getPointAtDistance,
   lerp,
   radians,
@@ -145,9 +146,13 @@ export class MockPlane {
 
     // Update heading, taking into account that the slower we go, the
     // faster we can turn, and the faster we go, the slower we can turn:
-    const { heading } = converted;
+    const { heading, headingBug } = converted;
     const speedFactor = constrainMap(speed, 100, 150, 4, 1);
-    const updatedHeading = heading + speedFactor * turnRate * interval;
+    let updatedHeading = heading + speedFactor * turnRate * interval;
+    if (updatedHeading === heading && heading !== headingBug) {
+      const update = constrainMap(getCompassDiff(headingBug, heading), -3/2, 3/2, 3/2, -3/2);
+      updatedHeading = heading + update;
+    }
     this.setHeading(updatedHeading, lat, long);
 
     // Update our altitude values...
