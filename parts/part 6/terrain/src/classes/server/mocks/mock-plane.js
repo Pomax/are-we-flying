@@ -5,6 +5,7 @@ import {
   FEET_PER_METER,
   ONE_KTS_IN_KMS,
   FPS_PER_KNOT,
+  ENV_PATH
 } from "../../../utils/constants.js";
 import {
   constrainMap,
@@ -16,9 +17,8 @@ import {
   runLater,
 } from "../../../utils/utils.js";
 
-const dirname = import.meta.dirname;
 import dotenv from "dotenv";
-dotenv.config({ path: `${dirname}/../../../../../../../.env` });
+dotenv.config({ path: ENV_PATH });
 const { DATA_FOLDER } = process.env;
 import { ALOSInterface } from "../../../elevation/alos-interface.js";
 const alos = new ALOSInterface(DATA_FOLDER);

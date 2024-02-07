@@ -15,10 +15,12 @@ import {
   KM_PER_NM,
   ONE_KTS_IN_KMS,
   TERRAIN_FOLLOW,
+  ENV_PATH,
 } from "../../utils/constants.js";
 
 import dotenv from "dotenv";
-dotenv.config({ path: `${import.meta.dirname}/../../../../../../.env` });
+dotenv.config({ path: ENV_PATH });
+
 const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
 import { ALOS_VOID_VALUE } from "../../elevation/alos-constants.js";
 import { ALOSInterface } from "../../elevation/alos-interface.js";
@@ -70,9 +72,7 @@ export class WayPointManager {
 
   setFlightPlan(points) {
     this.reset();
-    console.log(`loading flight plan`, points);
     points.forEach(({ lat, long, alt }) => this.add(lat, long, alt, false));
-    console.log(`resequencing...`);
     this.resequence();
   }
 
@@ -364,17 +364,6 @@ export class WayPointManager {
       }
     }
 
-    if (target) {
-      p1.passedTransitionMidpoint =
-        p1.passedTransitionMidpoint ||
-        getDistanceBetweenPoints(p1.lat, p1.long, target.lat, target.long) >
-          radiusInKM;
-    }
-
-    p1.passedTransitionMidpoint =
-      p1.passedTransitionMidpoint ||
-      getDistanceBetweenPoints(p1.lat, p1.long, lat, long) < 1;
-
     return target;
   }
 
@@ -453,19 +442,43 @@ export class WayPointManager {
    */
   getMaxElevation(lat, long, probeLength) {
     const { currentWaypoint: c } = this;
-    let maxElevation = ALOS_VOID_VALUE;
+    let maxElevation = { elevation: { meter: ALOS_VOID_VALUE } };
     let geoPolies = [];
     let current = c;
     let heading = c.heading;
     let target = current.next;
-    // TODO: what do we do if we're not *on* the path yet?
+
+    // How close are we to
+    const d1 = getDistanceBetweenPoints(lat, long, target.lat, target.long);
+    const d2 = target.distance * KM_PER_NM;
+
+    // If we haven't quite reached the current waypoint yet,
+    // we need to add a "sliver" from our plane to the waypoint.
+    if (d1 > d2) {
+      const h = getHeadingFromTo(lat, long, current.lat, current.long);
+      const geoPoly = [
+        getPointAtDistance(lat, long, 1, h - 90),
+        getPointAtDistance(current.lat, current.long, 1, h - 90),
+        getPointAtDistance(current.lat, current.long, 1, h + 90),
+        getPointAtDistance(lat, long, 1, h + 90),
+      ].map(({ lat, long }) => [lat, long]);
+      const partialMax = alos.getMaxElevation(geoPoly);
+      if (maxElevation.elevation.meter < partialMax.elevation.meter) {
+        maxElevation = partialMax;
+      }
+      geoPolies.push(geoPoly);
+      probeLength -= d1;
+    }
+
+    // Then we can check how many segments of this flight path
+    // we need in order to cover our probe length
     while (target && probeLength > 0) {
       const d = getDistanceBetweenPoints(lat, long, target.lat, target.long);
       if (d < probeLength) {
         if (target === c.next) {
           // partial coverage (first segment)
           const g = current.geoPoly.slice();
-          const r = constrain(d / (target.distance * KM_PER_NM), 0, 1);
+          const r = constrain(d / (target.distance * KM_PER_NM), -1, 1);
           g[0] = [
             r * g[0][0] + (1 - r) * g[1][0],
             r * g[0][1] + (1 - r) * g[1][1],
@@ -475,14 +488,16 @@ export class WayPointManager {
             r * g[3][1] + (1 - r) * g[2][1],
           ];
           geoPolies.push(g);
-          const partialMax = alos.getMaxElevation(g).elevation.feet;
-          if (maxElevation < partialMax) {
+          const partialMax = alos.getMaxElevation(g);
+          if (maxElevation.elevation.meter < partialMax.elevation.meter) {
             maxElevation = partialMax;
           }
         } else {
           // full segment coverage
           geoPolies.push(current.geoPoly);
-          if (maxElevation < current.maxElevation) {
+          if (
+            maxElevation.elevation.meter < current.maxElevation.elevation.meter
+          ) {
             maxElevation = current.maxElevation;
           }
         }
@@ -499,8 +514,8 @@ export class WayPointManager {
           (1 - r) * g[3][1] + r * g[2][1],
         ];
         geoPolies.push(g);
-        const partialMax = alos.getMaxElevation(g).elevation.feet;
-        if (maxElevation < partialMax) {
+        const partialMax = alos.getMaxElevation(g);
+        if (maxElevation.elevation.meter < partialMax.elevation.meter) {
           maxElevation = partialMax;
         }
       }
@@ -517,8 +532,8 @@ export class WayPointManager {
         getPointAtDistance(current.lat, current.long, 1, heading + 90),
       ].map(({ lat, long }) => [lat, long]);
       geoPolies.push(geoPoly);
-      const probeMax = alos.getMaxElevation(geoPoly).elevation.feet;
-      if (maxElevation < probeMax) {
+      const probeMax = alos.getMaxElevation(geoPoly);
+      if (maxElevation.elevation.meter < probeMax) {
         maxElevation = probeMax;
       }
     }

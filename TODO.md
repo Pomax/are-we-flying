@@ -29,5 +29,12 @@
 
 - teleport detection doesn't work
 - add some UI for "how long the flight is expected to take" based on current speed.
-
 - call out the fact that we won't be writing perfect code from the get go. This is a programming journey, not "copy this code". If you want to copy the code, just clone the repo and run `run.bat`.
+
+
+Does this make sense? Or would we just waste time computing:
+  - convert TER path segments into a single outline poly
+    - if intersection, replace the endpoints with the intersection point
+    - if no intersection, no work required
+
+Alternatively, do we want to compute strips along a waypoint so we're working with as much cached data as possible and don't hit ALOS as much?

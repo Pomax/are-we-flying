@@ -3,10 +3,10 @@ import {
   getHeadingFromTo,
   getPointAtDistance,
 } from "../../utils/utils.js";
-import { KM_PER_NM } from "../../utils/constants.js";
+import { KM_PER_NM, ENV_PATH } from "../../utils/constants.js";
 
 import dotenv from "dotenv";
-dotenv.config({ path: `${import.meta.dirname}/../../../../../../.env` });
+dotenv.config({ path: ENV_PATH });
 const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
 import { ALOSInterface } from "../../elevation/alos-interface.js";
 const alos = new ALOSInterface(DATA_FOLDER);
@@ -32,7 +32,6 @@ export class Waypoint {
     this.completed = false;
     this.distance = 0;
     this.next = undefined;
-    this.passedTransitionMidpoint = false;
   }
 
   setPosition(lat, long) {
@@ -92,7 +91,7 @@ export class Waypoint {
       getPointAtDistance(next.lat, next.long, 1, heading + 90),
       getPointAtDistance(lat, long, 1, heading + 90),
     ].map(({ lat, long }) => [lat, long]);
-    this.maxElevation = alos.getMaxElevation(this.geoPoly).elevation.feet;
+    this.maxElevation = alos.getMaxElevation(this.geoPoly);
   }
 
   /**

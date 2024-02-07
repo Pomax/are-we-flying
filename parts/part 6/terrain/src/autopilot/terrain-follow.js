@@ -2,12 +2,13 @@ import {
   ALTITUDE_HOLD,
   HEADING_MODE,
   TERRAIN_FOLLOW_SAFETY,
-  TERRAIN_FOLLOW_SHAPE,
+  TERRAIN_FOLLOW_DATA,
+  ENV_PATH,
 } from "../utils/constants.js";
 import { getPointAtDistance } from "../utils/utils.js";
 
 import dotenv from "dotenv";
-dotenv.config({ path: `${import.meta.dirname}/../../../../../.env` });
+dotenv.config({ path: ENV_PATH });
 const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
 import { ALOSInterface } from "../elevation/alos-interface.js";
 import { ALOS_VOID_VALUE } from "../elevation/alos-constants.js";
@@ -39,14 +40,18 @@ export async function terrainFollow(autopilot, flightInformation) {
       getPointAtDistance(lat, long, 1, trueHeading + 90),
     ].map(({ lat, long }) => [lat, long]);
     geoPolies = [geoPoly];
-    maxElevation = alos.getMaxElevation(geoPoly).elevation.feet;
+    maxElevation = alos.getMaxElevation(geoPoly);
   }
 
-  if (maxElevation === ALOS_VOID_VALUE) return;
+  const alt = maxElevation.elevation.feet;
+  if (alt === ALOS_VOID_VALUE) return;
 
-  const bracketed = TERRAIN_FOLLOW_SAFETY + ceil(maxElevation / 100) * 100;
+  const bracketed = TERRAIN_FOLLOW_SAFETY + ceil(alt / 100) * 100;
   autopilot.setParameters({
     [ALTITUDE_HOLD]: bracketed,
-    [TERRAIN_FOLLOW_SHAPE]: geoPolies,
+    [TERRAIN_FOLLOW_DATA]: {
+      geoPolies,
+      maxElevation,
+    },
   });
 }

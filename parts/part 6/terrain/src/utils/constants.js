@@ -3,6 +3,8 @@ export const root = (resolve(join(import.meta.dirname, `..`, `..`)) + sep)
   .split(win32.sep)
   .join(posix.sep);
 
+export const ENV_PATH = `${root}/../../env`;
+
 export const FEET_PER_METER = 3.28084;
 export const KNOT_IN_FPS = 1.68781;
 export const FPS_IN_KNOTS = 1 / KNOT_IN_FPS;
@@ -20,5 +22,5 @@ export const AUTO_THROTTLE = `ATT`;
 
 // terrain follow
 export const TERRAIN_FOLLOW = `TER`;
-export const TERRAIN_FOLLOW_SHAPE = `TerrainFollowShape`;
+export const TERRAIN_FOLLOW_DATA = `TerrainFollowData`;
 export const TERRAIN_FOLLOW_SAFETY = 500;
