@@ -84,10 +84,7 @@ export class WaypointOverlay {
         const response = reader.result;
         try {
           const data = JSON.parse(response);
-          server.autopilot.clearWaypoints();
-          data.forEach(({ lat, long, alt }) =>
-            server.autopilot.addWaypoint(lat, long, alt)
-          );
+          server.autopilot.setFlightPlan(data);
           // Are we already flying? If so, we don't want to fly all the way back to the
           // start of the flight plan: target the nearest point on it, instead.
           if (!plane.state.flightInformation?.data.onGround) {

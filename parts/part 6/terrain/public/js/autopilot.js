@@ -129,20 +129,22 @@ export class Autopilot {
     }
 
     if (this.terrainProbe) {
-      this.terrainProbe.remove();
+      this.terrainProbe.forEach((p) => p.remove());
     }
 
-    const { TerrainFollowShape: coords, TER } = params;
+    const { TerrainFollowShape: geoPolies, TER } = params;
     try {
-      if (TER) {
-        this.terrainProbe = L.polyline([...coords, coords[0]], {
-          className: `terrain-probe`,
-          fill: true,
-        });
-        this.terrainProbe.addTo(this.map);
+      if (TER && geoPolies) {
+        this.terrainProbe = geoPolies.map((coords) =>
+          L.polyline([...coords, coords[0]], {
+            className: `terrain-probe`,
+            fill: true,
+          })
+        );
+        this.terrainProbe.forEach((p) => p.addTo(this.map));
       }
     } catch (err) {
-      console.log(TER, coords);
+      console.log(err);
     }
   }
 }

@@ -189,15 +189,17 @@ export class Plane {
     const { alt, headingBug, groundAlt, lift } = flightData;
     const { heading, speed, trueHeading } = flightData;
 
-    css.setProperty(`--altitude`, lift | 0);
-    css.setProperty(`--sqrt-alt`, sqrt(lift) | 0);
+    css.setProperty(`--altitude`, alt | 0);
+    css.setProperty(`--sqrt-alt`, sqrt(alt) | 0);
     css.setProperty(`--speed`, speed | 0);
     css.setProperty(`--north`, trueHeading - heading);
     css.setProperty(`--heading`, heading);
     css.setProperty(`--heading-bug`, headingBug);
 
     const altitudeText =
-      (groundAlt | 0) === 0 ? `${alt | 0}'` : `${lift | 0}' (${alt | 0}')`;
+      (groundAlt | 0) === 0
+        ? `${alt | 0}'`
+        : `${(alt - groundAlt) | 0}' (${alt | 0}')`;
     planeIcon.querySelector(`.alt`).textContent = altitudeText;
     planeIcon.querySelector(`.speed`).textContent = `${speed | 0}kts`;
   }

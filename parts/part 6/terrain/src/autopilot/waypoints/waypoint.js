@@ -1,8 +1,15 @@
 import {
   getDistanceBetweenPoints,
   getHeadingFromTo,
+  getPointAtDistance,
 } from "../../utils/utils.js";
 import { KM_PER_NM } from "../../utils/constants.js";
+
+import dotenv from "dotenv";
+dotenv.config({ path: `${import.meta.dirname}/../../../../../../.env` });
+const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
+import { ALOSInterface } from "../../elevation/alos-interface.js";
+const alos = new ALOSInterface(DATA_FOLDER);
 
 export class Waypoint {
   // We'll use a silly little id function, because
@@ -64,22 +71,28 @@ export class Waypoint {
    * long a leg will be (in nautical miles).
    */
   setNext(nextWaypoint) {
-    this.next = nextWaypoint;
-    if (this.next) {
-      this.heading = getHeadingFromTo(
-        this.lat,
-        this.long,
-        this.next.lat,
-        this.next.long
-      );
-      this.next.distance =
-        getDistanceBetweenPoints(
-          this.lat,
-          this.long,
-          this.next.lat,
-          this.next.long
-        ) / KM_PER_NM;
+    const { lat, long } = this;
+    const next = (this.next = nextWaypoint);
+    if (next) {
+      this.heading = getHeadingFromTo(lat, long, next.lat, next.long);
+      next.distance =
+        getDistanceBetweenPoints(lat, long, next.lat, next.long) / KM_PER_NM;
+      this.findMaxElevation();
     }
+  }
+
+  /**
+   * ...
+   */
+  async findMaxElevation() {
+    const { lat, long, heading, next } = this;
+    this.geoPoly = [
+      getPointAtDistance(lat, long, 1, heading - 90),
+      getPointAtDistance(next.lat, next.long, 1, heading - 90),
+      getPointAtDistance(next.lat, next.long, 1, heading + 90),
+      getPointAtDistance(lat, long, 1, heading + 90),
+    ].map(({ lat, long }) => [lat, long]);
+    this.maxElevation = alos.getMaxElevation(this.geoPoly).elevation.feet;
   }
 
   /**

@@ -1,4 +1,5 @@
 import {
+  constrain,
   constrainMap,
   getDistanceBetweenPoints,
   getHeadingFromTo,
@@ -11,9 +12,17 @@ import {
   ALTITUDE_HOLD,
   HEADING_MODE,
   HEADING_TARGETS,
+  KM_PER_NM,
   ONE_KTS_IN_KMS,
   TERRAIN_FOLLOW,
 } from "../../utils/constants.js";
+
+import dotenv from "dotenv";
+dotenv.config({ path: `${import.meta.dirname}/../../../../../../.env` });
+const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
+import { ALOS_VOID_VALUE } from "../../elevation/alos-constants.js";
+import { ALOSInterface } from "../../elevation/alos-interface.js";
+const alos = new ALOSInterface(DATA_FOLDER);
 
 const { abs, max } = Math;
 const innerRadiusRatio = 2 / 3;
@@ -56,12 +65,14 @@ export class WayPointManager {
       this.currentWaypoint = waypoint;
       this.currentWaypoint.activate();
     }
-    if (resequence) this.resequence();
+    if (resequence === true) this.resequence();
   }
 
-  setFlightPlan(waypoints) {
+  setFlightPlan(points) {
     this.reset();
-    waypoints.forEach(({ lat, long, alt }) => this.add(lat, long, alt, false));
+    console.log(`loading flight plan`, points);
+    points.forEach(({ lat, long, alt }) => this.add(lat, long, alt, false));
+    console.log(`resequencing...`);
     this.resequence();
   }
 
@@ -133,10 +144,14 @@ export class WayPointManager {
    */
   resequence() {
     const { points } = this;
-    points.forEach((p, i) => {
-      p.id = i + 1;
-      p.setNext(points[i + 1]);
-    });
+    const n = points.length;
+    for (let i = 0; i < n; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      a.id = i + 1;
+      if (b) b.id = i + 2;
+      a.setNext(b);
+    }
 
     if (this.repeating) {
       points.at(-1).setNext(points[0]);
@@ -436,60 +451,78 @@ export class WayPointManager {
   /**
    * ...
    */
-  getElevationProbeShape(lat, long, heading, probeLength) {
+  getMaxElevation(lat, long, probeLength) {
     const { currentWaypoint: c } = this;
+    let maxElevation = ALOS_VOID_VALUE;
+    let geoPolies = [];
+    let current = c;
+    let heading = c.heading;
+    let target = current.next;
+    // TODO: what do we do if we're not *on* the path yet?
+    while (target && probeLength > 0) {
+      const d = getDistanceBetweenPoints(lat, long, target.lat, target.long);
+      if (d < probeLength) {
+        if (target === c.next) {
+          // partial coverage (first segment)
+          const g = current.geoPoly.slice();
+          const r = constrain(d / (target.distance * KM_PER_NM), 0, 1);
+          g[0] = [
+            r * g[0][0] + (1 - r) * g[1][0],
+            r * g[0][1] + (1 - r) * g[1][1],
+          ];
+          g[3] = [
+            r * g[3][0] + (1 - r) * g[2][0],
+            r * g[3][1] + (1 - r) * g[2][1],
+          ];
+          geoPolies.push(g);
+          const partialMax = alos.getMaxElevation(g).elevation.feet;
+          if (maxElevation < partialMax) {
+            maxElevation = partialMax;
+          }
+        } else {
+          // full segment coverage
+          geoPolies.push(current.geoPoly);
+          if (maxElevation < current.maxElevation) {
+            maxElevation = current.maxElevation;
+          }
+        }
+      } else {
+        // partial coverage (last segment)
+        const g = current.geoPoly.slice();
+        const r = probeLength / d;
+        g[1] = [
+          (1 - r) * g[0][0] + r * g[1][0],
+          (1 - r) * g[0][1] + r * g[1][1],
+        ];
+        g[2] = [
+          (1 - r) * g[3][0] + r * g[2][0],
+          (1 - r) * g[3][1] + r * g[2][1],
+        ];
+        geoPolies.push(g);
+        const partialMax = alos.getMaxElevation(g).elevation.feet;
+        if (maxElevation < partialMax) {
+          maxElevation = partialMax;
+        }
+      }
+      probeLength -= d;
+      heading = current.heading;
+      current = target;
+      target = current.next;
+    }
 
-    // If there is no next point, use the normal shape.
-    if (!c.next) return;
+    if (probeLength > 0) {
+      const geoPoly = [
+        getPointAtDistance(current.lat, current.long, 1, heading - 90),
+        getPointAtDistance(current.lat, current.long, probeLength, heading),
+        getPointAtDistance(current.lat, current.long, 1, heading + 90),
+      ].map(({ lat, long }) => [lat, long]);
+      geoPolies.push(geoPoly);
+      const probeMax = alos.getMaxElevation(geoPoly).elevation.feet;
+      if (maxElevation < probeMax) {
+        maxElevation = probeMax;
+      }
+    }
 
-    // Otherwise, we'll need a slightly different shape.
-    console.log(`passedTransitionMidpoint? ${c.passedTransitionMidpoint}`);
-    const target = c.passedTransitionMidpoint ? c.next : c;
-
-    // Also, if the distance to our next waypoint is more
-    // than our probe length, just use a normal probe.
-    const distance = getDistanceBetweenPoints(
-      lat,
-      long,
-      target.lat,
-      target.long
-    );
-    if (distance > probeLength) return;
-
-    const p = {
-      lat: lat,
-      long: long,
-      distance,
-      heading: getHeadingFromTo(lat, long, target.lat, target.long),
-      next: target,
-    };
-
-    return [
-      getPointAtDistance(lat, long, 1, heading - 90),
-      ...getSegmentOutline(probeLength - distance, p),
-      getPointAtDistance(lat, long, 1, heading + 90),
-    ].map(({ lat, long }) => [lat, long]);
+    return { geoPolies, maxElevation };
   }
-}
-
-/**
- * The probe distance may cover multiple segments, so we need to
- * build out our total shape recursively. We have an upper bound
- * on how much recursion we use, though: there's a fixed distance
- * to cover, and each segment reduces that distance.
- */
-function getSegmentOutline(d, { lat, long, distance, heading, next }) {
-  if (!next || d < distance) {
-    return [getPointAtDistance(lat, long, d, heading)];
-  }
-
-  if (!next.heading) next.heading = heading;
-  const { lat: lat2, long: long2, heading: heading2 } = next;
-  const course = (heading + heading2) / 2;
-
-  return [
-    getPointAtDistance(lat2, long2, 1, course - 90),
-    ...getSegmentOutline(d - distance, next),
-    getPointAtDistance(lat2, long2, 1, course + 90),
-  ];
 }

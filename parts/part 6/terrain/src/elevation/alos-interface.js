@@ -151,7 +151,9 @@ export class ALOSInterface {
       // console.log(`checking quadrant ${i + 1}`);
       if (!poly.length) return;
       const tile = this.getTileFor(...poly[0]);
-      const qResult = tile?.getMaxElevation(poly) ?? ALOS_VOID_VALUE;
+      const qResult = tile?.getMaxElevation(poly) ?? {
+        elevation: { meter: ALOS_VOID_VALUE },
+      };
       if (qResult && qResult.elevation.meter > result.elevation.meter) {
         result = qResult;
       }
