@@ -110,7 +110,21 @@ export class ALOSInterface {
 
   /**
    * Which in turn requires knowing which file we need to
-   * "wrap a tile around".
+   * work with.
+   *
+   * ALOS tiles have [0,0] mapped to the upper-left, and
+   * (3600,3600) to the lower right, but have a name based
+   * on the lower-left corner, so a tile with name N048W124
+   * covers the range N48-N49 and W124-W123 with:
+   *
+   *   [0,0] mapping to 49,-124, and
+   *   [3599,3599] mapping to 49-1+1/3600, -124+1-1/3600.
+   *
+   * Similarly, a tile with name S038E174 covers the range
+   * S37-S48 and E174-E175 with:
+   *
+   *   [0,0] mapping to -37,174, and
+   *   [3599,3599] mapping to -37-1+1/3600, 174+1-1/3600.
    *
    * ALOS tiles are named ALPSMKC30_UyyyVxxx_DSM.tif, where
    * U is either "N" or "S", yyy is the degree of latitude
@@ -119,6 +133,12 @@ export class ALOSInterface {
    * with leading zeroes if necessary).
    */
   getTileFromFolder(lat, long) {
+    // given the rules above, an integer latitude
+    // can be found in the tile "south" of it:
+    if ((lat | 0) === lat) lat -= 1;
+
+    // (integer longitudes don't need a rewrite)
+
     // Form the latitude portions of our path:
     const latDir = lat >= 0 ? "N" : "S";
     let latStr = `` + (latDir == "N" ? floor(lat) : ceil(-lat));

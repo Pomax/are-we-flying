@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import tiff from "tiff";
 import { ALOS_VOID_VALUE, NO_ALOS_DATA_VALUE } from "./alos-constants.js";
 
-const { abs, ceil, max, sign } = Math;
+const { abs, ceil, sign } = Math;
 
 export class ALOSTile {
   constructor(tilePath) {
@@ -39,7 +39,10 @@ export class ALOSTile {
    */
   pixelToGeo(x, y) {
     const { forward: F } = this;
-    return [F[3] + F[4] * x + F[5] * y, F[0] + F[1] * x + F[2] * y];
+    return [
+      F[3] + F[4] * x + F[5] * y,
+      F[0] + F[1] * x + F[2] * y
+    ];
   }
 
   /**

@@ -1,10 +1,10 @@
 import http from "node:http";
-import { shimResponse } from "./shim-response.js";
-shimResponse(http.ServerResponse.prototype);
+import { shimResponsePrototype } from "./shim-response-prototype.js";
+shimResponsePrototype(http.ServerResponse.prototype);
 
 import dotenv from "dotenv";
-const __dirname = import.meta.dirname;
-dotenv.config({ path: `${__dirname}/../../../../../.env` });
+import { ENV_PATH } from "../utils/constants.js";
+dotenv.config({ path: ENV_PATH });
 
 const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
 import { ALOSInterface } from "./alos-interface.js";

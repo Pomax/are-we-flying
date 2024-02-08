@@ -7645,82 +7645,132 @@ What _won't_ be easy is step 2, though: all that ALOS data is in the form of Geo
 
 Or, it would, if [I hadn't already done that work for us](https://stackoverflow.com/questions/47951513#75647596), so let's dive in: what do we need?
 
-### An express server
+### A new server
 
-let's create a `src/elevation` dir, and run `npm init` inside of that (accepting all defaults), then edit the `package.json` to add `"type": "module"` much like we did all the way at the start of this journey. Then we'll run `npm install express cors helmet dotenv` to install... well, those four things. And then it's time for a new server, in `src/elevation/alos-server.js`:
+Let's create a `src/elevation/` dir, and then define a new little server in `src/elevation/alos-server.js` that we can use to test the rest of the code we're about to write. Something that'll accept a URL like  http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 and then spits out the elevation at each of those three coordinates.
+
+We won't be connecting to this server in our actual autopilot code, but it'll make developing and testing the elevation code on its own, before we try to integrate it into the autopilot, a lot easier. And that's always important. However, let's not go overboard: no need for a full [Express.js](https://expressjs.com/) server, a plain `node:http` server will do:
 
 ```javascript
-import express from "express";
-import cors from "cors";
-import helmet from "helmet";
+import http from "node:http";
+import { shimResponsePrototype } from "./shim-response-prototype.js";
+shimResponsePrototype(http.ServerResponse.prototype);
+
 import dotenv from "dotenv";
-dotenv.config({ path: "../../.env" });
+import { ENV_PATH } from "../utils/constants.js";
+dotenv.config({ path: ENV_PATH });
 
-// We already had an API and WEB port, so
-// now we need an ALOS port, too:
-const { ALOS_PORT: PORT } = process.env;
+// Fairly boilerplate http server:
+function processRequest(req, res) {
+  // We only support one URL: the root url.
+  const url = new URL(`http://localhost:${PORT}${req.url}`);
+  if (url.pathname !== `/`) return res.fail(`unsupported endpoint`);
 
-// Boilerplate express server:
-const app = express();
-app.disable("view cache");
-app.set("etag", false);
-app.use((_req, res, next) => {
-  res.set("Cache-Control", "no-store");
-  next();
-});
-app.use(helmet({ crossOriginEmbedderPolicy: false }));
-app.use(cors());
-
-// And then we define one route, which we can call with
-// a `?locations=lat1,long1,lat2,long2,...` query argument
-// and responds with a JSON object that gives the elevation
-// for each coordinate in the list.
-app.get(`/`, async (req, res) => {
-  // Did we get a bad request?
-  const { locations } = req.query;
-  if (!locations) {
-    return res
-      .status(400)
-      .json({ reason: `Missing "locations" query parameter.` });
+  // We'll be accepting GPS coordinates through a query argument:
+  const query = new URLSearchParams(url.search);
+  const { points } = Object.fromEntries(query.entries());
+  if (!points) {
+    return res.fail(`missing "?points=..." query argument`);
   }
 
-  // What about the wrong number of values?
-  const values = locations.split(`,`).map((v) => parseFloat(v));
+  // We need an even number of coordinates...
+  const values = (points).split(`,`).map((v) => parseFloat(v));
   if (values.length % 2 !== 0) {
-    return res
-      .status(400)
-      .json({ reason: `Wrong number of "locations" values.` });
+    return res.fail(`Not an even number values provided.`);
   }
 
-  // Or the wrong type?
-  if (values.some((v) => isNaN(v))) {
-    return res
-      .status(400)
-      .json({ reason: `Bad "locations" values (something's not a number).` });
-  } 
-
-  // If we're good, look up each coordinate's elevation
-  const results = [];
-  for (let i=0, e=locations.length; i<e; i += 2) {
-    const [lat, long] = locations.slice(i, i + 2);
-    const elevation = 123;
-    results.push({ lat, long, elevation });
+  // And it'd be useful if we had those as a list of pairs:
+  const coords = [];
+  for (let i = 0, e = values.length; i < e; i += 2) {
+    coords.push(values.slice(i, i + 2));
   }
-  res.json(results);
-});
 
-app.listen(PORT, () => {
+  // Then, find the elevation associated with each coordinate:
+  const start = Date.now();
+  const results = {
+    results: coords.map(([lat, long]) => ({
+      lat,
+      long,
+      elevation: 123
+    })),
+  };
+  results.ms = Date.now() - start;
+  return res.json(results);
+}
+
+http.createServer(processRequest).listen(PORT, () => {
   console.log(`Elevation server listening on http://localhost:${PORT}`);
 });
 ```
 
-As long as we don't forget to add that new `ALOS_PORT` value to our `.env` file (I'm using `ALOS_PORT=9000` but obviously pick whichever port you like best) this should start up, and calling URLs like http://localhost:9000/?locations=48.8,-123.8,48.9,-123.9,49,-124 will give us a JSON object with an elevation of `123` for each of those three coordinates.
+As long as we don't forget to add that new `ALOS_PORT` value to our `.env` file (I'm using `ALOS_PORT=9000` but obviously pick whichever port you like best) this should start up, and calling the earlier URL http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 will give us a JSON object with an elevation of `123` for each of those three coordinates:
 
-Which isn't super useful yet, so let's write the code we need to actually work with that ALOS data.
+```json
+{
+  "results": [
+    {
+      "lat":48.8,
+      "long":-123.8,
+      "elevation":123
+    },
+    {
+      "lat":48.9,
+      "long":-123.9,
+      "elevation":123
+    },
+    {
+      "lat":49,
+      "long":-124,
+      "elevation":123
+    }
+  ],
+  "ms":0
+}
+```
+
+Of course there's a sneaky little helper file that we also need to make, `shim-response-prototype.js` which is just a bit of helper code that turns Node's response object a little more into an Express.js object:
+
+```javascript
+export function shimResponsePrototype(responsePrototype) { 
+  // there's a bunch of default headers we want, as part of
+  // setting whether this is a 200, 400, 404, etc.
+  responsePrototype.status = function (statusNumber, type = `text/plain`) {
+    this.writeHead(statusNumber, {
+      "Content-Type": type,
+      "Cache-Control": `no-store`,
+      "Access-Control-Allow-Origin": `*`,
+    });
+    return this;
+  };
+
+  // we don't want to call write(), and then end(), separately, all the time.
+  responsePrototype.send = function (data) {
+    this.write(data);
+    this.end();
+  };
+
+  // "just reply with some text"
+  responsePrototype.text = function (textData) {
+    this.status(200).send(textData);
+  };
+
+  // "just reply with some json"
+  responsePrototype.json = function (jsData) {
+    this.status(200, `application/json`).send(JSON.stringify(jsData));
+  };
+
+  // "send a failure response"
+  responsePrototype.fail = function (reason) {
+    this.status(400).send(reason);
+  };
+}
+```
+
+Of course on its own this server isn't super useful yet, so let's write the code we need to actually work with our ALOS data.
 
 ### Working with ALOS data
 
-We're going to split our ALOS code up into three parts: a querying object, a tile class, and a really simple caching system.
+We're going to split our ALOS code up into three parts: a general querying object, a tile class that maps to individual GeoTIFF files, and a really simple caching system.
 
 First, some ALOS constants that we'll put in `src/elevation/alos-constants.js`:
 
@@ -7828,7 +7878,21 @@ export class ALOSInterface {
 
   /**
    * Which in turn requires knowing which file we need to
-   * "wrap a tile around".
+   * work with.
+   *
+   * ALOS tiles have [0,0] mapped to the upper-left, and
+   * (3600,3600) to the lower right, but have a name based
+   * on the lower-left corner, so a tile with name N048W124
+   * covers the range N48-N49 and W124-W123 with:
+   *
+   *   [0,0] mapping to 49,-124, and
+   *   [3599,3599] mapping to 49-1+1/3600, -124+1-1/3600.
+   *
+   * Similarly, a tile with name S038E174 covers the range
+   * S37-S48 and E174-E175 with:
+   *
+   *   [0,0] mapping to -37,174, and
+   *   [3599,3599] mapping to -37-1+1/3600, 174+1-1/3600.
    *
    * ALOS tiles are named ALPSMKC30_UyyyVxxx_DSM.tif, where
    * U is either "N" or "S", yyy is the degree of latitude
@@ -7836,7 +7900,11 @@ export class ALOSInterface {
    * or "W", with xxx being the degree of longitude (again,
    * with leading zeroes if necessary).
    */
-  getTileFromFolder(basedir, lat, long) {
+  getTileFromFolder(lat, long) {
+    // given the rules above, an integer latitude
+    // can be found in the tile "south" of it:
+    if ((lat | 0) === lat) lat -= 1;
+
     // Form the latitude portions of our path:
     const latDir = lat >= 0 ? "N" : "S";
     let latStr = `` + (latDir == "N" ? floor(lat) : ceil(-lat));
@@ -7846,7 +7914,7 @@ export class ALOSInterface {
     const longDir = long >= 0 ? "E" : "W";
     let longStr = `` + (longDir == "E" ? floor(long) : ceil(-long));
     longStr = longStr.padStart(3, "0");
-    
+
     // Then assemble them into an ALOS path fragment:
     const tileName = `ALPSMLC30_${latDir}${latStr}${longDir}${longStr}_DSM.tif`;
 
@@ -7854,14 +7922,14 @@ export class ALOSInterface {
     // given that fragment, by looking at our filename index:
     const fullPath = this.files.find((f) => f.endsWith(tileName));
     if (!fullPath) return [false, false];
-    return [tileName, join(basedir, fullPath)];
+    return [tileName, join(this.tilesFolder, fullPath)];
   }
 }
 ```
 
 #### Updating our server
 
-Now that we have an interface to work with, let's add that into our serer:
+Now that we have an interface to work with, let's add that into our server:
 
 ```javascript
 ...
@@ -7873,26 +7941,24 @@ const ALOS = new ALOSInterface(DATA_FOLDER);
 
 ...
 
-app.get(`/`, async (req, res) => {
+function processRequest(req, res) {
   ...
-  const results = [];
-  for (let i=0, e=locations.length; i<e; i += 2) {
-    const [lat, long] = locations.slice(2*i, 2*i+2);
-    // Let's swap out our "123" for an actual lookup:
-    const elevation = ALOS.lookup(lat, long);
-    results.push({ lat, long, elevation });
-  }
-  res.json(results);
-});
-
-app.listen(PORT, () => {
-  console.log(`Elevation server listening on http://localhost:${PORT}`);
-});
+  const start = Date.now();
+  const results = {
+    results: coords.map(([lat, long]) => ({
+      lat,
+      long,
+      elevation: alos.lookup(lat, long),
+    })),
+  };
+  results.ms = Date.now() - start;
+  return res.json(results);
+}
 ```
 
-Neato!
+Neato! Of course, this won't do anything yet, because we still need to actually write the code that works with tiles... so...
 
-### Working with Geo tiles
+### Working with individual Geo tiles
 
 Back to the ALOS data: we still need something that turns "tiff images" into a Tile object that we can work with, so let's write a `src/elevation/alos-tile.js` for that:
 
@@ -7974,37 +8040,167 @@ export class ALOSTile {
 }
 ```
 
-And suddenly we have a way to query elevations for GPS coordinates, without having to use some third party online service, or messing around with object spawning in-game.  Asking for http://localhost:9000/?locations=48.8,-123.8,48.9,-123.9,49,-124 now yields:
+And suddenly we have a way to query elevations for GPS coordinates, without having to use some third party online service, or messing around with object spawning in-game.  Asking for http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 now yields:
 
 ```json
-[
-  { "lat": 48.8, "long": -123.8, "elevation": 152 },
-  { "lat": 48.9, "long": -123.9, "elevation": 840 },
-  { "lat": 49, "long": -124, "elevation": 0 }
-]
+{
+  "results":[
+    {
+      "lat":48.8,
+      "long":-123.8,
+      "elevation":152
+    },
+    {
+      "lat":48.9,
+      "long":-123.9,
+      "elevation":840
+    },
+    {
+      "lat":49,
+      "long":-124,
+      "elevation":330
+    }
+  ],
+  "ms":734
+}
 ```
+
+That seems a very long time to look up three values, but that's what we wrote our caching for. If we reload our URL, the time required to service the request goes down by an order of magnitude, from >700ms to just over 70ms. And that's why caching is important.
 
 ### Working with shapes
 
-In order for this to be useful to our autopilot, though, we want to know what the maximum elevation is inside "some shape" rather than looking up individual points, which requires writing some more code to make that work, in three steps:
+In order for this to be useful to our autopilot, though, we want to know what the maximum elevation is inside "some shape" rather than looking up individual points, which requires writing some more code to make that work.
 
-1. we'll want code that can get the max elevation inside a shape that falls within a single tile, then
-2. we'll want code that can "split up" a shape that covers more than one tile, and
-3. we'll want to combine those so that we get one max elevation value even if we need to check multiple tiles.
+Specifically:
 
-#### What shape to pick
+1. we'll want some code that can get the max elevation inside a shape that falls within a single tile,
+2. then, we'll want to extend that code so that we can "split up" a shape that covers more than one tile,
+3. and then we'll want to combine those two things so that we get a single max elevation value, even if we need to check multiple tiles.
 
-Initial thought: circle around the plane. However, we can't just "reverse" so that's too much. Semi-circle: better, but we want to look "ahead" far more than we need to look "to the side". [KISS principle](https://en.wikipedia.org/wiki/KISS_principle): triangle that's as wide as it needs to be at the plane, and ends in a point 12NM in front of the plane.
+#### Adding polygon-awareness
 
-However, if we fly a flight plan we want to sample around the flight path so we don't get in the following situation, where the terrain ahead of us is thousands of feet higher (or lower) than we'll be flying, and the plane unnecessarily changes altitude simply because the probe rotated over, and then off of, a mountain, or the ocean.
+Let's make life easy (well, easier) on ourselves and restrict the kind of shapes we'll work with to polygons, with GPS coordinates as vertices, so we can ask our server for something like  http://localhost:9000/?poly=47.8,-123.1,47.8,-123.99,48.99,-123.99,48.99,-123.1 and have it know we mean the "rectangle" (not really, but at small scale, close enough) spanned by N47.8W123.1 and N48.99W123.99. 
 
-![image-20240206100515274](./image-20240206100515274.png)
+This requires updating our server a tiny bit:
 
-#### Adding polygon support 
+```javascript
+...
+function processRequest(req, res) {
+  ...
 
-Server, ALOSInterface, and ALOSTille updates for `?poly=...` --> `getMaxElevation`
+  // Let's add `?poly=...` as allowed query argument:
+  const query = new URLSearchParams(url.search);
+  const { points, poly } = Object.fromEntries(query.entries());
+  if (!points && !poly) {
+    return res.fail(`missing "?points=..." or "?poly=..." query argument`);
+  }
+
+  ...
+  // We'll still need an even number of numerical values, of course
+  ...
+
+  if (points) {
+    // Our original code now goes inside an if-block
+  }
+
+  // And we add a second if-block for when we need to get
+  // the max elevation inside some polygon:
+  if (poly) {
+    const start = Date.now();
+    const result = {
+      poly: coords,
+      result: ALOS.getMaxElevation(coords),
+    };
+    result.ms = Date.now() - start;
+    return res.json(result);
+  }
+}
+...
+```
+
+After which we can update our `alos-interface.js`:
+
+```javascript
+...
+
+export class ALOSInterface {
+  ...
+
+  /**
+   * We're first going to implement this based on the assumption that
+   * all the coordinates are from the same tile. We'll update that later
+   * to cover multiple tiles, but let's get something working first!
+   */
+  getMaxElevation(poly) {
+    // We can find the tile we need by looking
+    // at the first coordinate in our poygon:
+    const tile = this.getTileFor(...poly[0]);
+    
+    // Then we can delegate the task to that tile,
+    // bearing in that mind that we might be requesting
+    // a tile that doesn't exist, like an ocean location:
+    return tile?.getMaxElevation(poly);
+  }
+}
+```
+
+And then, of course, we need to implement `getMaxElevation` in our `alos-tile.js`:
+
+```javascript
+...
+
+export class ALOSTile {
+  ...
+
+  /**
+   * Find the maximum elevation inside a polygon by converting it
+   * from geo-poly to pixel-poly, and then...
+   * 
+   * ...uh, doing...
+   *
+   * ...something?
+   */
+  getMaxElevation(geoPoly) {
+    const pixelPoly = geoPoly.map((pair) => this.geoToPixel(...pair));
+    let result = {
+      lat: 0,
+      long: 0,
+      elevation: {
+        feet: ALOS_VOID_VALUE,
+        meter: ALOS_VOID_VALUE,
+      },
+    };
+
+    // ...what...do we even do, here?
+
+    return result;
+  }
+}
+```
 
 #### Scanlines and Bresenham
+
+While we're trying to find the max elevation, what we're _really_ trying to do is find the pixel coordinate that has the highest encoded value, which we're going to have to do by inspecting every pixel that lies within our polygon, and because "reading a pixel value" and "setting a pixel value" are essentially the same thing, what we're doing is _nearly identical_ to something called [flood filling](https://en.wikipedia.org/wiki/Flood_fill) a shape.
+
+There are several ways in which to do this (and I encourage you to read about all of them!) but the one we'll go with is the "scanline" approach: because our pixels are internally organized as a 1D array, with positions 0 through 3599 being the first row of pixels, positions 3600 through 7199 being the second row of pixels, and so on, we can very quickly "scan through lines" of consecutive pixels, but not so easily skip from one row to the next. So, if we can "chop up" our polygon into a set of scan lines, we can then run through each of those, find the max value, and then the overall max value is simply "the max of all maxes". In pseudocode:
+
+```pseudocode
+highest = -Infinity
+scanlines = chopUpPolygon(poly)
+for each line in scanlines:
+  for each pixel_value in line:
+    if pixel_value > highest: highest = pixel_value
+```
+
+Obviously the hard part here is chopping up our polygon into scanlines, but thankfully we're not plotting uncharted waters, this kind of graphics work has some super solid foundations, one of which is [Bresenham's line algorithm](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm) for drawing a line between two pixels that is a single pixel wide. which means we can use it to construct a handy little lookup table of "all boundary pixels at each row" that we can use to then form scan lines with.
+
+![image-20240207172732426](./image-20240207172732426.png)
+
+How does this help us? 
+
+![image-20240207173542683](./image-20240207173542683.png)
+
+The only difference is that we won't be replacing values, we'll only be reading them.
 
 talk about bresenham's lines algorithm to create our outline, and scanlines so we can quickly find a value.
 
@@ -8014,7 +8210,7 @@ interactive graphics for this go here.
 
 #### Putting it all together
 
-include client-side code that lets us visualize the "probe" shape or "path part".
+include client-side code that lets us visualize the "probe" shape or "path part", and hides waypoint elevation when TER is active
 
 
 

@@ -38,3 +38,5 @@ Does this make sense? Or would we just waste time computing:
     - if no intersection, no work required
 
 Alternatively, do we want to compute strips along a waypoint so we're working with as much cached data as possible and don't hit ALOS as much?
+
+backport and document: ENV_PATH in constants.js
