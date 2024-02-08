@@ -8154,24 +8154,14 @@ export class ALOSTile {
 
   /**
    * Find the maximum elevation inside a polygon by converting it
-   * from geo-poly to pixel-poly, and then...
-   * 
-   * ...uh, doing...
+   * from geo-poly to pixel-poly, and then... uh... doing...
    *
    * ...something?
    */
   getMaxElevation(geoPoly) {
     const pixelPoly = geoPoly.map((pair) => this.geoToPixel(...pair));
-    let result = {
-      lat: 0,
-      long: 0,
-      elevation: {
-        feet: ALOS_VOID_VALUE,
-        meter: ALOS_VOID_VALUE,
-      },
-    };
 
-    // ...what...do we even do, here?
+    // ...what do we even do here?
 
     return result;
   }
@@ -8188,25 +8178,320 @@ There are several ways in which to do this (and I encourage you to read about al
 highest = -Infinity
 scanlines = chopUpPolygon(poly)
 for each line in scanlines:
-  for each pixel_value in line:
-    if pixel_value > highest: highest = pixel_value
+  for each pixel value in line:
+    if pixel value > highest:
+      highest = pixel_value
 ```
 
-Obviously the hard part here is chopping up our polygon into scanlines, but thankfully we're not plotting uncharted waters, this kind of graphics work has some super solid foundations, one of which is [Bresenham's line algorithm](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm) for drawing a line between two pixels that is a single pixel wide. which means we can use it to construct a handy little lookup table of "all boundary pixels at each row" that we can use to then form scan lines with.
+Obviously the hard part here is chopping up our polygon into scanlines, but thankfully we're not plotting uncharted waters, this kind of graphics work has some super solid foundations, one of which is [Bresenham's line algorithm](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm) for drawing a line between two pixels that is a single pixel wide. which means we can use it to construct a handy little lookup table of "all boundary pixels at each row" that we can use to form scan lines.
 
-![image-20240207172732426](./image-20240207172732426.png)
+Let's start from the bottom up:
 
-How does this help us? 
+```javascript
+function fillScanLines(x0, y0, x1, y1, scanLines) {
+  const dx = abs(x1 - x0);
+  const dy = abs(y1 - y0);
+  const sx = sign(x1 - x0);
+  const sy = sign(y1 - y0);
+  let err = dx - dy;
 
-![image-20240207173542683](./image-20240207173542683.png)
+  while (true) {
+    scanLines[y0] ??= [];
+    scanLines[y0].push(x0);
 
-The only difference is that we won't be replacing values, we'll only be reading them.
+    if (x0 === x1 && y0 === y1) break;
 
-talk about bresenham's lines algorithm to create our outline, and scanlines so we can quickly find a value.
+    const e2 = 2 * err;
+    if (e2 > -dy) {
+      err -= dy;
+      x0 += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      y0 += sy;
+    }
+  }
+}
+```
+
+This is Bresenham's algorithm, with one important change: instead of "coloring" pixels, we add them to a lookup table that's indexed on `y`. For a single pass, that's not super useful, but look at what happens if we run this for a polygon with coordinates (0,0), (10,0), (10,10), and (0,10).
+
+First we index between (0,0) and (10,0), filling out `scanLines` loopup to:
+
+```javascript
+{
+  [0]: [0,1,2,3,4,5,6,7,8,9,10]
+}
+```
+
+Then we process the edge from (10,0) to (10,10):
+
+```javascript
+{
+  [0]: [0,1,2,3,4,5,6,7,8,9,10,10],
+  [1]: [10],
+  ...
+  [10]: [10]
+}
+```
+
+Then the edge from (10,10) to (0,10):
+
+```
+{
+  [0]: [0,1,2,3,4,5,6,7,8,9,10,10],
+  [1]: [10],
+  ...
+  [9]: [10],
+  [10]: [10,10,9,8,7,6,5,4,3,2,1,0]
+}
+```
+
+And then closing edge from (0,10) back to (0,0):
+
+```
+{
+  [0]: [0,1,2,3,4,5,6,7,8,9,10,10,0],
+  [1]: [10,0],
+  ...
+  [9]: [10,0],
+  [10]: [10,10,9,8,7,6,5,4,3,2,1,0,0]
+}
+```
+
+If we now sort those arrays and throw away everything except the first and last number, we get:
+
+```
+{
+  [0]: [0,10],
+  [1]: [0,10],
+  ...
+  [9]: [0,10],
+  [10]: [0,10]
+}
+```
+
+And suddenly we have all the scanlines that cover our polygon, expressed as a start and end `x` value, for any given `y`.
+
+So let's write the code for doing what we just did:
+
+```javascript
+function formScanLines(poly) {
+  // first, rewrite the input so that it's a "closed" polygon
+  // by having its first coordinate be its last coordinate, too:
+  poly = poly.slice();
+  poly.push(poly[0]);
+
+  // Then, preallocate our "scanline lookup table":
+  const scanLines = [];
+
+  // And then we run through every edge, callig our
+  // Bresenham function to update our lookup table:
+  for (let i = 1, e = poly.length, a = poly[0], b; i < e; i++) {
+    const b = poly[i];
+    fillScanLines(a[0], a[1], b[0], b[1], scanLines);
+    a = b;
+  }
+
+  // Then we run the last step, where we turn rows of values
+  // into start and end values. If we wanted this to work
+  // for concave polygons we would need to do a bit more work,
+  // because in that case a row can have multiple start and ends.
+  // However, given the shape(s) we'll want to work with, we
+  // can assume single start and end values.
+  scanLines.forEach((line) => {
+    line.sort((a, b) => a - b);
+    const n = line.length;
+    if (n > 2) line.splice(1, n - 2);
+  });
+
+  return scanLines;
+}
+```
+
+And now we're ready to fill in `maxElevation` in our `alos-tile.js`:
+
+```javascript
+...
+
+export class ALOSTile {
+  ...
+
+  /**
+   * Find the maximum elevation inside a polygon by converting it
+   * from geo-poly to pixel-poly, turning that into a set of
+   * scan lines, and then finding the max elevation within those.
+   */
+  getMaxElevation(geoPoly) {
+    const pixelPoly = geoPoly.map((pair) => this.geoToPixel(...pair));
+
+    // form our scanlines:
+    const scanLines = formScanLines(pixelPoly);
+
+    // Then find the max elevation for each scanline,
+    // and record at which coordinate we found that.
+    const result = { elevation: ALOS_VOID_VALUE };
+    scanLines.forEach(([start, end], y) => {
+      if (start === end) return;
+
+      const line = this.pixels.slice(
+        this.width * y + start,
+        this.width * y + end
+      );
+
+      line.forEach((elevation, i) => {
+        if (elevation >= NO_ALOS_DATA_VALUE) return;
+        let x = i + start;
+        if (elevation > result.elevation) {
+          result.x = x;
+          result.y = y;
+          result.elevation = elevation;
+        }
+      });
+    });
+
+    // When we're done, we have our max elevation, but it's in meters,
+    // and we know where "on the map" that is, but only in pixel coordinates.
+    // So let's convert those to feet and GPS coordinates, respectively:Ï
+    const { elevation: meter, x, y } = result;
+    const [lat, long] = this.pixelToGeo(x, y);
+    const feet = (meter === ALOS_VOID_VALUE) ? ALOS_VOID_VALUE : ceil(meter * 3.28084);
+    return { lat, long, elevation: { feet, meter }};
+  }
+}
+```
+
+So let's put that to the test: if we run the server and we ask for http://localhost:9000/?poly=47.1,-123.1,47.1,-123.8,47.8,-123.8,47.8,-123.1 we get:
+
+```json
+{
+  "poly": [
+    [47.1, -123.1],
+    [47.1, -123.8],
+    [47.8, -123.8],
+    [47.8, -123.1]
+  ],
+  "result": {
+    "lat": 47.79666666666667,
+    "long": -123.70111111111112,
+    "elevation": { "feet": 7845, "meter": 2391 }
+  },
+  "ms": 113
+}
+```
+
+If we check the map for that coordinate, does this result make sense?
+
+![image-20240207213813384](./image-20240207213813384.png)
+
+We've found the peaks of Mount Olympus, in Olympic National Park, Washington, US, which is _by far_ the highest point around: hurray!
 
 #### Splitting our shapes
 
-interactive graphics for this go here.
+Of course, this works as long as we restrict our polygon to something that fits inside a single tile, and that's not super useful when we're flying around and we're potentially crossing degree lines all the time. Thankfully the solution here is intuitively _extremely_ simple: just split up a polygon that overlaps multiple tiles into separate polygons, find the max elevation in each, then pick whichever of the partial results is highest.
+
+In code, not _quite_ that simple. The first is pretty simple:
+
+```javascript
+...
+
+export class ALOSInterface {
+  ...
+
+  /**
+   * Let's expand our function to deal with multiple tiles:
+   */
+  getMaxElevation(geoPoly) {
+    // We'll get to this...
+    const quadrants = splitAsQuadrants(geoPoly);
+    
+    // But assuming that works, we start with a dummy result,
+    let result = {
+      lat: 0,
+      long: 0,
+      elevation: { feet: ALOS_VOID_VALUE, meter: ALOS_VOID_VALUE },
+    };
+    
+    // Then check each partial polygon in its own tile to see
+    // if that yields a higher max elevation
+    quadrants.forEach((poly, i) => {
+      if (!poly.length) return;
+      
+      // Get the tile for this partial polygon...
+      const tile = this.getTileFor(...poly[0]);
+      
+      // ...but remember that not every GPS "rectangle" has a
+      // tile. For instance, if one of our tiles would be
+      // all-ocean, that's not captured by ALOS.
+      if (!tile) return;
+      
+      // Get the max elevation for this tile...
+      const qResult = tile.getMaxElevation(poly);
+      
+      // ...and then check if it's better than what we have
+      if qResult.elevation.meter > result.elevation.meter) {
+        result = qResult;
+      }
+    });
+
+    return result;
+  }
+}
+```
+
+So let's explore that `splitAsQuadrants` function. At the distances we want to work with, polygons will almost certainly cross degree lines, but they _won't_ be crossing more than one degree line in either direction, which leaves us with the following possibilities:
+
+<div style="text-align:center"><img src="./image-20240207220242889.png" alt="image-20240207220242889" style="zoom:20%;" /><img src="./image-20240207220309961.png" alt="image-20240207220309961" style="zoom:20%;" /><img src="./image-20240207220348606.png" alt="image-20240207220348606" style="zoom:20%;" /><img src="./image-20240207220430386.png" alt="image-20240207220430386" style="zoom:20%;" /></div>
+
+As well as a special case where one of our edges may cross both the vertical and horizontal degree lines at the same time:
+
+<img src="./image-20240207221029594.png" alt="image-20240207221029594" style="zoom:25%;" />
+
+So the first step is: figure out which degree lines might split our polygon.
+
+```javascript
+function splitAsQuadrants(coords) {
+  // Figure out which "horizontal" and "vertical"
+  // lines we may need to cut our polygon:
+  const lats = [], longs = [];
+  coords.forEach(([lat, long]) => {
+    lats.push(lat | 0);
+    longs.push(long | 0);
+  });
+  const LAT = ceil((min(...lats) + max(...lats)) / 2);
+  const LONG = ceil((min(...longs) + max(...longs)) / 2);
+}
+```
+
+With that work done, we can use three steps to split any polygon into "as many pieces as needed": first we split one way, then we split the resulting (up to) two pieces the other way, yielding (up to) four pieces:
+
+```javascript
+function splitAsQuadrants(coords) {
+  ...
+
+  // Perform a three-way polygon split: first a left/right
+  // split across the longitudinal divider, then a top/bottom
+  // split for (potentially) both shapes that yields, so that
+  // we end up with either 1, 2, or 4 tiles we need to check.
+  coords = [...coords, coords[0]];
+  const [left, right] = splitAlong(coords, `long`, LONG);
+  const [tl, bl] = splitAlong(left, `lat`, LAT);
+  const [tr, br] = splitAlong(right, `lat`, LAT);
+  return [tr, br, bl, tl];
+}
+```
+
+And that's the easy part covered. Now for the part where we actually split a polygon along some line... For this, we need to consider the two points on either side of an edge: either they're both on the same side of our dividing line, and we don't need to do anything special, or they're on opposite sides of the divide, and the edge between them will need to be split.
+
+So let's start with two "bins", one for "all points less than" our divding line, and one for "all points greater than", and then run through each edge in the polygon, in order. As we run through them, we add the first point in either the "less than" or "greater than" bin, and then we check the other point on the edge: if we cross our divider, we inject a new point in the same bin that we just put out first point in, right next to the divider
+
+```javascript
+CONTINUE HERE
+```
+
+
+
+
 
 #### Putting it all together
 

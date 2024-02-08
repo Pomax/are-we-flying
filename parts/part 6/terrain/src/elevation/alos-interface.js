@@ -212,25 +212,21 @@ function splitAlong(coords, dim, threshold) {
   for (let i = 1, e = coords.length, a = coords[0], b; i < e; i++) {
     b = coords[i];
     const r = (threshold - a[dim]) / (b[dim] - a[dim]);
-    const x = dim === `x` ? threshold : (1 - r) * a.x + r * b.x;
-    const y = dim === `y` ? threshold : (1 - r) * a.y + r * b.y;
-    const p = { x, y };
-    if (a[dim] < threshold && b[dim] >= threshold) {
-      // console.log(`-> crossing`, a, b, X);
+    const lat = dim === `lat` ? threshold : (1 - r) * a.lat + r * b.lat;
+    const long = dim === `long` ? threshold : (1 - r) * a.long + r * b.long;
+    const p = { lat, long };
+    if (a[dim] < threshold) {
       lt.push(a);
-      lt.push({ x: p.x - cm, y: p.y });
-      ge.push(p);
-    } else if (b[dim] < threshold && a[dim] >= threshold) {
-      // console.log(`<- crossing`, a, b, X);
+      if (b[dim] >= threshold) {
+        lt.push(p);
+        ge.push(p);
+      }
+    } else if (b[dim] < threshold) {
       ge.push(a);
-      ge.push(p);
-      lt.push({ x: p.x - cm, y: p.y });
-    } else if (a[dim] < threshold) {
-      // console.log(`<- no crossing`, a, b, X);
-      lt.push(a);
-    } else {
-      // console.log(`-> no crossing`, a, b, X);
-      ge.push(a);
+      if (a[dim] >= threshold) {
+        ge.push(p);
+        lt.push(p);
+      }
     }
     a = b;
   }

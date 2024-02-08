@@ -39,10 +39,7 @@ export class ALOSTile {
    */
   pixelToGeo(x, y) {
     const { forward: F } = this;
-    return [
-      F[3] + F[4] * x + F[5] * y,
-      F[0] + F[1] * x + F[2] * y
-    ];
+    return [F[3] + F[4] * x + F[5] * y, F[0] + F[1] * x + F[2] * y];
   }
 
   /**
@@ -86,42 +83,38 @@ export class ALOSTile {
    */
   getMaxElevation(geoPoly) {
     const pixelPoly = geoPoly.map((pair) => this.geoToPixel(...pair));
-    let result = {
-      lat: 0,
-      long: 0,
-      elevation: {
-        feet: ALOS_VOID_VALUE,
-        meter: ALOS_VOID_VALUE,
-      },
-    };
 
-    // console.log(`forming scanlines`);
     const scanLines = formScanLines(pixelPoly);
 
-    // console.log(`checking scanlines`);
+    const result = { elevation: ALOS_VOID_VALUE };
     scanLines.forEach(([start, end], y) => {
       if (start === end) return;
+
       const line = this.pixels.slice(
         this.width * y + start,
         this.width * y + end
       );
+
       line.forEach((elevation, i) => {
         if (elevation >= NO_ALOS_DATA_VALUE) return;
         let x = i + start;
-        if (elevation > result.elevation.meter) {
-          const [lat, long] = this.pixelToGeo(x, y);
-          result = {
-            lat,
-            long,
-            elevation: {
-              feet: ceil(elevation * 3.28084),
-              meter: elevation,
-            },
-          };
+        if (elevation > result.elevation) {
+          result.x = x;
+          result.y = y;
+          result.elevation = elevation;
         }
       });
     });
-    return result;
+
+    const { elevation: meter, x, y } = result;
+    const [lat, long] = this.pixelToGeo(x, y);
+    const feet =
+      meter === ALOS_VOID_VALUE ? ALOS_VOID_VALUE : ceil(meter * 3.28084);
+    return {
+      lat,
+      long,
+      elevation: { feet, meter },
+    };
   }
 }
 
@@ -157,7 +150,6 @@ function formScanLines(poly) {
  * https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm
  */
 function fillScanLines(x0, y0, x1, y1, scanLines) {
-  // console.log(x0, y0, x1, y1);
   const dx = abs(x1 - x0);
   const dy = abs(y1 - y0);
   const sx = sign(x1 - x0);
