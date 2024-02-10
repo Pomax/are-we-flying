@@ -7625,9 +7625,7 @@ However, since the whole selling point of MSFS is that you can fly anywhere on E
 
 Back in the day, Google offered that as a free web API, but they decided that it would be more profitable if they charged (quite a bit of) money for elevation API access back in 2018, so that's out. There is also https://www.open-elevation.com, which is technically free, but because they're don't have Google money, they're more for incidental work rather than constant polling. If the website is up at all. Which realistically only leaves "writing our own elevation API service".
 
-### Time for another server
-
-I know, this sounds ludicrous, but what do we even need? 
+I know, I know, this sounds ludicrous, but roll with it: what do we even need? 
 
 1. a server that we can send elevation requests to,
 2. code that can turn GPS coordinates into elevation values, and
@@ -7645,11 +7643,13 @@ What _won't_ be easy is step 2, though: all that ALOS data is in the form of Geo
 
 Or, it would, if [I hadn't already done that work for us](https://stackoverflow.com/questions/47951513#75647596), so let's dive in: what do we need?
 
-### A new server
+### Time for another server
 
-Let's create a `src/elevation/` dir, and then define a new little server in `src/elevation/alos-server.js` that we can use to test the rest of the code we're about to write. Something that'll accept a URL like  http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 and then spits out the elevation at each of those three coordinates.
+Let's create a `src/elevation/` directory, and then define a new little server in `src/elevation/alos-server.js` that we can use to test the rest of the code we're about to write. Something that'll accept a URL like  http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 and then spits out the elevation at each of those three coordinates.
 
-We won't be connecting to this server in our actual autopilot code, but it'll make developing and testing the elevation code on its own, before we try to integrate it into the autopilot, a lot easier. And that's always important. However, let's not go overboard: no need for a full [Express.js](https://expressjs.com/) server, a plain `node:http` server will do:
+We won't be using this server in our actual autopilot code, but it'll make developing and testing the elevation code on its own, before we try to integrate it into the autopilot, a lot easier. And that's always important. 
+
+However, let's not go overboard: no need for a full [Express.js](https://expressjs.com/) server, we just need a small, plain `node:http` server:
 
 ```javascript
 import http from "node:http";
@@ -7731,7 +7731,7 @@ As long as we don't forget to add that new `ALOS_PORT` value to our `.env` file 
 Of course there's a sneaky little helper file that we also need to make, `shim-response-prototype.js` which is just a bit of helper code that turns Node's response object a little more into an Express.js object:
 
 ```javascript
-export function shimResponsePrototype(responsePrototype) { 
+export function shimResponsePrototype(responsePrototype) {
   // there's a bunch of default headers we want, as part of
   // setting whether this is a 200, 400, 404, etc.
   responsePrototype.status = function (statusNumber, type = `text/plain`) {
@@ -7750,23 +7750,23 @@ export function shimResponsePrototype(responsePrototype) {
   };
 
   // "just reply with some text"
-  responsePrototype.text = function (textData) {
-    this.status(200).send(textData);
+  responsePrototype.text = function (textData, status = 200) {
+    this.status(status).send(textData);
   };
 
   // "just reply with some json"
-  responsePrototype.json = function (jsData) {
-    this.status(200, `application/json`).send(JSON.stringify(jsData));
+  responsePrototype.json = function (jsData, status = 200) {
+    this.status(status, `application/json`).send(JSON.stringify(jsData));
   };
 
   // "send a failure response"
   responsePrototype.fail = function (reason) {
-    this.status(400).send(reason);
+    this.text(reason, 400);
   };
 }
 ```
 
-Of course on its own this server isn't super useful yet, so let's write the code we need to actually work with our ALOS data.
+Of course, on its own this server isn't super useful yet, so let's write the code we need to actually work with our ALOS data.
 
 ### Working with ALOS data
 
@@ -7902,9 +7902,13 @@ export class ALOSInterface {
    */
   getTileFromFolder(lat, long) {
     // given the rules above, an integer latitude
-    // can be found in the tile "south" of it:
+    // can be found in the tile south of it:
     if ((lat | 0) === lat) lat -= 1;
-
+    
+    // and an integer longitude can be found in
+    // the tile east of it:
+    if ((long | 0) === long) long += 1;
+    
     // Form the latitude portions of our path:
     const latDir = lat >= 0 ? "N" : "S";
     let latStr = `` + (latDir == "N" ? floor(lat) : ceil(-lat));
@@ -7929,7 +7933,7 @@ export class ALOSInterface {
 
 #### Updating our server
 
-Now that we have an interface to work with, let's add that into our server:
+And now that we have an interface to work with, let's replace our `123` response with an _actual_ response in our server:
 
 ```javascript
 ...
@@ -7960,15 +7964,17 @@ Neato! Of course, this won't do anything yet, because we still need to actually 
 
 ### Working with individual Geo tiles
 
-Back to the ALOS data: we still need something that turns "tiff images" into a Tile object that we can work with, so let's write a `src/elevation/alos-tile.js` for that:
+Back to the ALOS data: we still need something that turns "tiff images" into an object that we can work with, so let's write a `src/elevation/alos-tile.js` for that.
 
 ```javascript
-import { existsSync, readFileSync, copyFileSync } from "fs";
-import { basename, join } from "path";
+// A pretty important import if want to work with tiff images:
 import tiff from "tiff";
-import { ALOS_VOID_VALUE } from "./alos-constants.js";
 
-const { floor, ceil, max } = Math;
+import { readFileSync } from "node:fs";
+import { ALOS_VOID_VALUE, NO_ALOS_DATA_VALUE } from "./alos-constants.js";
+import { KM_PER_ARC_DEGREE } from "../utils/constants.js";
+
+const { abs, ceil, sign } = Math;
 
 export class ALOSTile {
   constructor(tilePath) {
@@ -7982,65 +7988,69 @@ export class ALOSTile {
    * coordinate conversions.
    *
    * See https://stackoverflow.com/questions/47951513#75647596
-   * if you want the full details on how that works.
+   * ffor the full details on how that all works.
    */
   load(filename) {
+    // Unpack the image
     const file = readFileSync(filename);
     const image = tiff.decode(file.buffer);
-    const { data, fields } = image[0];
-    let [sx, sy, sz] = fields.get(33550);
-    let [px, py, k, gx, gy, gz] = fields.get(33922);
+    const { data, fields, width, height } = image[0];
+    // Cache the image information
+    this.pixels = data;
+    this.width = width;
+    this.height = height;
+    // And then construct the geo transform matrices
+    let [sx, sy, _sz] = fields.get(33550);
+    let [_px, _py, _k, gx, gy, _gz] = fields.get(33922);
     sy = -sy;
     this.forward = [gx, sx, 0, gy, 0, sy];
     this.reverse = [-gx / sx, 1 / sx, 0, -gy / sy, 0, 1 / sy];
-    this.pixels = data;
   }
 
   /**
    * convert a pixel (x,y) coordinate to a [lat, long] value.
-   * Note that it does NOT return [long, lat], even though
-   * the (x,y) ordering generally maps to (long,lat) values.
    */
-  pixelToGeo(x, y) {
-    const { forward: F } = this;
+  pixelToGeo(x, y, F = this.forward) {
     return [
-      F[3] + F[4] * x + F[5] * y,
-      F[0] + F[1] * x + F[2] * y,
+      F[3] + F[4] * x + F[5] * y, // lat
+      F[0] + F[1] * x + F[2] * y, // long
     ];
   }
 
   /**
    * convert a geo (lat,long) coordinate to an [x,y] value.
    */
-  geoToPixel(lat, long) {
-    const { reverse: R } = this;
+  geoToPixel(lat, long, R = this.reverse) {
+    // We round down so that pixels coordinates are
+    // always integers, with (0,0) as "lowest" value.
     return [
-      // We round down so that pixels coordinates are
-      // always integers, with (0,0) as "lowest" value.
-      (R[0] + R[1] * long + R[2] * lat) | 0,
-      (R[3] + R[4] * long + R[5] * lat) | 0,
+      (R[0] + R[1] * long + R[2] * lat) | 0, // x
+      (R[3] + R[4] * long + R[5] * lat) | 0, // y
     ];
   }
 
   /**
    * Find the pixel that maps to a given lat/long coordinate,
-   * and return its greyscalevalue as the elevation in meters
-   * at that coordinate on the planet.
+   * and return the elevation in meters that it has encoded
+   * as a greyscale intensity value at that coordinate.
    *
-   * Note: this might not be a real elevation!
+   * Note: this might not be a real elevation! There may
+   * be gaps in the ALOS data, or the coordinate might
+   * simply not exist because it's an ocean coordinate.
    */
   lookup(lat, long) {
     const [x, y] = this.geoToPixel(lat, long);
     const pos = x + y * this.block.width;
     let value = this.pixels[pos];
-    // the highest point on earth is 8848m
-    if (value === undefined || value > 10000) value = ALOS_VOID_VALUE;
+    if (value === undefined || value >= NO_ALOS_DATA_VALUE) {
+      value = ALOS_VOID_VALUE;
+    }
     return value;
   }
 }
 ```
 
-And suddenly we have a way to query elevations for GPS coordinates, without having to use some third party online service, or messing around with object spawning in-game.  Asking for http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 now yields:
+And suddenly we have a way to query elevations for GPS coordinates, without having to use some third party online service, or messing around with object spawning in-game! Asking for http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 now yields:
 
 ```json
 {
@@ -8061,15 +8071,170 @@ And suddenly we have a way to query elevations for GPS coordinates, without havi
       "elevation":330
     }
   ],
-  "ms":734
+  "ms":93
 }
 ```
 
-That seems a very long time to look up three values, but that's what we wrote our caching for. If we reload our URL, the time required to service the request goes down by an order of magnitude, from >700ms to just over 70ms. And that's why caching is important.
+#### Optimizing our call time: adding caching
+
+If we look at the previous result's `ms` value, we see that it takes about 100 milliseconds to get a result... that's pretty long! Let's see where the holdup is in this process by [tracing the function calls](https://github.com/Pomax/js-call-tracer/tree/main):
+
+```javascript
+╭┈┈
+│ —> call: ALOSInterface.lookup([48.8,-123.8])
+│ —>   call: ALOSInterface.getTileFor(...)
+│ —>     call: ALOSInterface.getTileFromFolder(...)
+│ <—     finished ALOSInterface.getTileFromFolder(), return value: ..., runtime: 0ms
+│ <—   finished ALOSInterface.getTileFor(), return value: ... runtime: 25ms
+│ —>   call: ALOSTile.lookup(...)
+│ —>     call: ALOSTile.geoToPixel(...)
+│ <—     finished ALOSTile.geoToPixel(), return value: ..., runtime: 0ms
+│ <—   finished ALOSTile.lookup(), return value: 152, runtime: 0ms
+│ <— finished ALOSInterface.lookup(), return value: 152, runtime: 26ms
+╰┈┈
+```
+
+On the first call,  we spend approximately "literally no time" running the actual lookup, and approximately "the entirety of the call runtime" on figuring out the tile name, and loading the associated file into memory. Let's drill down a little further and split up our `getTileFromFolder` into separate steps:
+
+```javascript
+  ...
+  getTileFromFolder(lat, long) {
+    const tileName = this.getTileName(lat, long);
+		return this.getTilePath(tileName);
+  }
+
+  getTileName(lat, long) {
+    if ((lat | 0) === lat) lat -= 1;
+    if ((long | 0) === long) long += 1;
+    ...
+    return `ALPSMLC30_${latDir}${latStr}${longDir}${longStr}_DSM.tif`;
+  }
+
+  getTilePath(tileName) {
+    const fullPath = this.files.find((f) => f.endsWith(tileName));
+    if (!fullPath) return false;
+    return join(this.tilesFolder, fullPath);
+  }   
+
+  ...
+```
+
+Let's run another trace:
+
+```
+...
+│ —>   call: ALOSInterface.getTileFor(...)
+│ —>     call: ALOSInterface.getTileFromFolder(...)
+│ —>       call: ALOSInterface.getTileName(...)
+│ <—       finished ALOSInterface.getTileName(), return value: ..., runtime: 0ms
+│ —>       call: ALOSInterface.getTilePath(...)
+│ <—       finished ALOSInterface.getTilePath(), return value: ..., runtime: 0ms
+│ <—     finished ALOSInterface.getTileFromFolder(), return value: ..., runtime: 1ms
+│ <—   finished ALOSInterface.getTileFor(), return value: ..., runtime: 25ms
+...
+```
+
+It looks like the runtime doesn't come from a function call, which means it's coming from a constructor: let's time our `new ALOSTile(...)` call:
+
+```javascript
+running ALOSTile.load()
+  reading file took 5ms
+  decoding tiff took 21ms
+  extracting values took 0ms
+```
+
+Turns out decoding 25MB tiff files takes a bit, and we do that _every time we ask for a coordinate_ so how about... we don't? Let's add a tile cache to our `alos-interface.js` so that we only load a tile once, cutting out the file loading and tiff decoding after the first time we need to load a specific tile:
+
+```javascript
+...
+
+// let's define a fancy new tile cache, and let's make that
+// a global cache, so that multiple ALOSInterface instances
+// all share the same cache.
+const globalTileCache = [];
+
+export class ALOSInterface {
+  ...
+  
+  /**
+   * We update our "get tile" function to build the name
+   * and then hand off the actual "getting a tile" work
+   * to a new getTileFromCache:
+   */
+  getTileFor(lat, long) {
+    const { loaded } = this;
+    if (!loaded) return;
+    const tileName = this.getTileName(lat, long);
+    return this.getTileFromCache(tileName);
+  }
+
+  /**
+   * If there is no cached entry, build it. Otherwise
+   * just immediately return that cached value:
+   */
+	getTileFromCache(tileName) {    
+    if (globalTileCache[tileName] === undefined) {
+      globalTileCache[tileName] = false;
+      const tilePath = this.getTilePath(tileName);
+      if (tilePath) {
+        globalTileCache[tileName] = new ALOSTile(tilePath);
+      }
+    }
+    return globalTileCache[tileName];
+  }
+
+  ...
+}
+```
+
+Just a few lines of code, but look at the improvement that bought us:
+
+```javascript
+╭┈┈
+│ —> call: ALOSInterface.lookup([48.8,-123.8])
+│ —>   call: ALOSInterface.getTileFor(...)
+│ —>     call: ALOSInterface.getTileName(...)
+│ <—     finished ALOSInterface.getTileName(), return value: ..., runtime: 0ms
+│ —>     call: ALOSInterface.getTileFromCache(["ALPSMLC30_N048W124_DSM.tif"])
+│ —>       call: ALOSInterface.getTilePath(["ALPSMLC30_N048W124_DSM.tif"])
+│ <—       finished ALOSInterface.getTilePath(), return value: ..., runtime: 0ms
+running ALOSTile.load()
+reading file took 4ms
+decoding tiff took 27ms
+extracting values took 0ms
+│ <—     finished ALOSInterface.getTileFromCache(), return value: ALOSTile:{...}, runtime: 33ms
+│ <—   finished ALOSInterface.getTileFor(), return value: ALOSTile:{...}, runtime: 34ms
+│ <— finished ALOSInterface.lookup(), return value: 152, runtime: 34ms
+╰┈┈
+
+╭┈┈
+│ —> call: ALOSInterface.lookup([48.9,-123.9])
+│ —>   call: ALOSInterface.getTileFor(...)
+│ —>     call: ALOSInterface.getTileName(...)
+│ <—     finished ALOSInterface.getTileName(), return value: "ALPSMLC30_N048W124_DSM.tif", runtime: 0ms
+│ —>     call: ALOSInterface.getTileFromCache(["ALPSMLC30_N048W124_DSM.tif"])
+│ <—     finished ALOSInterface.getTileFromCache(), return value: ALOSTile:{...}, runtime: 0ms
+│ <—   finished ALOSInterface.getTileFor(), return value: ALOSTile:{...}, runtime: 1ms
+│ <— finished ALOSInterface.lookup(), return value: 840, runtime: 1ms
+╰┈┈
+
+╭┈┈
+│ —> call: ALOSInterface.lookup([49,-124])
+│ —>   call: ALOSInterface.getTileFor(...)
+│ —>     call: ALOSInterface.getTileName(...)
+│ <—     finished ALOSInterface.getTileName(), return value: "ALPSMLC30_N048W124_DSM.tif", runtime: 0ms
+│ —>     call: ALOSInterface.getTileFromCache(["ALPSMLC30_N048W124_DSM.tif"])
+│ <—     finished ALOSInterface.getTileFromCache(), return value: ALOSTile:{...}, runtime: 0ms
+│ <—   finished ALOSInterface.getTileFor(), return value: ALOSTile:{...}, runtime: 1ms
+│ <— finished ALOSInterface.lookup(), return value: 330, runtime: 1ms
+╰┈┈
+```
+
+Sure, the initial load takes just as long as before, simply because it has to, but after that, any lookup using a cache tiles takes a millisecond. Sure, we now have a higher memory footprint, but RAM is cheap, and the gains are clearly worth it!
 
 ### Working with shapes
 
-In order for this to be useful to our autopilot, though, we want to know what the maximum elevation is inside "some shape" rather than looking up individual points, which requires writing some more code to make that work.
+Now, single point lookups are nice and all, but in order for this to be useful to our autopilot, we need to know what the maximum elevation is inside "some shape" rather than "at some point", which requires writing some more code.
 
 Specifically:
 
@@ -8079,7 +8244,7 @@ Specifically:
 
 #### Adding polygon-awareness
 
-Let's make life easy (well, easier) on ourselves and restrict the kind of shapes we'll work with to polygons, with GPS coordinates as vertices, so we can ask our server for something like  http://localhost:9000/?poly=47.8,-123.1,47.8,-123.99,48.99,-123.99,48.99,-123.1 and have it know we mean the "rectangle" (not really, but at small scale, close enough) spanned by N47.8W123.1 and N48.99W123.99. 
+Let's make life easy (well, "easier") on ourselves and restrict the kind of shapes we work with to polygons, with GPS coordinates as vertices, so we can ask our server for something like  http://localhost:9000/?poly=47.8,-123.1,47.8,-123.99,48.99,-123.99,48.99,-123.1 and have it know we mean the "rectangle" (not really, but at small scale, close enough) spanned by N47.8W123.1 and N48.99W123.99. 
 
 This requires updating our server a tiny bit:
 
@@ -8128,8 +8293,9 @@ export class ALOSInterface {
 
   /**
    * We're first going to implement this based on the assumption that
-   * all the coordinates are from the same tile. We'll update that later
-   * to cover multiple tiles, but let's get something working first!
+   * all the coordinates are from the same tile. We'll change this later,
+   * because that's not actually a guarantee we have, but let's get
+   * something working first!
    */
   getMaxElevation(poly) {
     // We can find the tile we need by looking
@@ -8183,40 +8349,35 @@ for each line in scanlines:
       highest = pixel_value
 ```
 
-Obviously the hard part here is chopping up our polygon into scanlines, but thankfully we're not plotting uncharted waters, this kind of graphics work has some super solid foundations, one of which is [Bresenham's line algorithm](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm) for drawing a line between two pixels that is a single pixel wide. which means we can use it to construct a handy little lookup table of "all boundary pixels at each row" that we can use to form scan lines.
+Obviously the hard part here is chopping up our polygon into scanlines, but thankfully we're not sailing through uncharted waters here, this kind of graphics work has some super solid foundations, a famous one of which is [Bresenham's line algorithm](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm) for drawing a line between two points using only integer coordinates, which we can actually very easily use to construct our set of scan lines.
 
 Let's start from the bottom up:
 
 ```javascript
-function fillScanLines(x0, y0, x1, y1, scanLines) {
-  const dx = abs(x1 - x0);
-  const dy = abs(y1 - y0);
-  const sx = sign(x1 - x0);
-  const sy = sign(y1 - y0);
-  let err = dx - dy;
+const { abs, sign } = Math;
+
+// The code for Bresenham's line algorithm is pretty
+// straight forward, as all good graphics algorithms are:
+function fillScanLines(x, y, x2, y2, scanLines = []) {
+  const dx = x2 - x,  dy = y2 - y;
+  const ax = abs(dx), ay = abs(dy);
+  const sx = sign(dx), sy = sign(dy);
+  let threshold = ax - ay;
 
   while (true) {
-    scanLines[y0] ??= [];
-    scanLines[y0].push(x0);
-
-    if (x0 === x1 && y0 === y1) break;
-
-    const e2 = 2 * err;
-    if (e2 > -dy) {
-      err -= dy;
-      x0 += sx;
-    }
-    if (e2 < dx) {
-      err += dx;
-      y0 += sy;
-    }
+    scanLines[y] ??= [];
+    scanLines[y].push(x);
+    if (x === x2 && y === y2) return scanLines;
+    const error = 2 * errorThreshold;
+    if (error > -ay) { x += sx; threshold -= ay; }
+    if (error <= ax) { y += sy; threshold += ax; }
   }
 }
 ```
 
-This is Bresenham's algorithm, with one important change: instead of "coloring" pixels, we add them to a lookup table that's indexed on `y`. For a single pass, that's not super useful, but look at what happens if we run this for a polygon with coordinates (0,0), (10,0), (10,10), and (0,10).
+This is Bresenham's algorithm with one important change: instead of "coloring" pixels in order to draw lines, we store the result in a lookup table that's indexed on `y`. For a single pass, that may not sound super useful, but look at what happens if we run this for a polygon with coordinates (0,0), (10,0), (10,10), and (0,10).
 
-First we index between (0,0) and (10,0), filling out `scanLines` loopup to:
+First we index between (0,0) and (10,0), filling out `scanLines` lookup to:
 
 ```javascript
 {
@@ -8259,7 +8420,7 @@ And then closing edge from (0,10) back to (0,0):
 }
 ```
 
-If we now sort those arrays and throw away everything except the first and last number, we get:
+If we now sort those arrays and throw away everything except the first and last number, using we get:
 
 ```
 {
@@ -8271,16 +8432,41 @@ If we now sort those arrays and throw away everything except the first and last 
 }
 ```
 
-And suddenly we have all the scanlines that cover our polygon, expressed as a start and end `x` value, for any given `y`.
+And suddenly we have all the scanlines that cover our polygon, expressed as a start and end `x` value, for any given `y`: the first row, at `y=0`, has a scanline that starts at `x=0` and runs up to and including `x=10`. The next line has the same, etc.  If we do this for `{(0,0), (10,5), (10,10), (0,5)}` we get:
 
-So let's write the code for doing what we just did:
+```javascript
+{
+  [0]: [0,0]
+  [1]: [0,2]
+  [2]: [0,4]
+  [3]: [0,6]
+  [4]: [0,8]
+  [5]: [0,10]
+  [6]: [2,10]
+  [7]: [4,10]
+  [8]: [6,10]
+  [9]: [8,10]
+  [10]: [10,10]
+}
+```
+
+We can now find all the points in our polygon by starting at a scanline start, and running to the end. The following picture shows our original four points that define our polygon, then the scanline start and end values in the middle, and then all the implicit intermediate values coloured in on the right:
+
+![image-20240209112833961](./image-20240209112833961.png)
+
+So that looks pretty good! Although there is one caveat: this won't work if the polygon is concave such that there would be multiple scanlines per row:
+
+![image-20240209113348725](./image-20240209113348725.png)
+
+Even though the line algorithm will find the lines marked in gray in the middle image, all those pixels are "not at the start or end" and so our concave polygon turns into a convex polygon instead. We _could_ fix our code to account for that, but given the reason that we're writing this code is to determine the maximum elevation in some area around-and/or-in-front-of our airplane, this simply won't be an problem we need to deal with. Convex polygons it is!
+
+so, let's write the code that does the same thing that we just did by hand:
 
 ```javascript
 function formScanLines(poly) {
   // first, rewrite the input so that it's a "closed" polygon
   // by having its first coordinate be its last coordinate, too:
-  poly = poly.slice();
-  poly.push(poly[0]);
+  poly = [...poly, poly[0]];
 
   // Then, preallocate our "scanline lookup table":
   const scanLines = [];
@@ -8309,7 +8495,7 @@ function formScanLines(poly) {
 }
 ```
 
-And now we're ready to fill in `maxElevation` in our `alos-tile.js`:
+And now we're ready to fill in the as-of-yet empty  `maxElevation` function in our `alos-tile.js` file:
 
 ```javascript
 ...
@@ -8355,13 +8541,13 @@ export class ALOSTile {
     // So let's convert those to feet and GPS coordinates, respectively:Ï
     const { elevation: meter, x, y } = result;
     const [lat, long] = this.pixelToGeo(x, y);
-    const feet = (meter === ALOS_VOID_VALUE) ? ALOS_VOID_VALUE : ceil(meter * 3.28084);
+    const feet = (meter === ALOS_VOID_VALUE) ? meter : ceil(meter * 3.28084);
     return { lat, long, elevation: { feet, meter }};
   }
 }
 ```
 
-So let's put that to the test: if we run the server and we ask for http://localhost:9000/?poly=47.1,-123.1,47.1,-123.8,47.8,-123.8,47.8,-123.1 we get:
+And that should do it, so let's put that to the test! if we run the server and we ask for http://localhost:9000/?poly=47.1,-123.1,47.1,-123.8,47.8,-123.8,47.8,-123.1 we get:
 
 ```json
 {
@@ -8376,21 +8562,224 @@ So let's put that to the test: if we run the server and we ask for http://localh
     "long": -123.70111111111112,
     "elevation": { "feet": 7845, "meter": 2391 }
   },
-  "ms": 113
+  "ms": 348
 }
 ```
 
-If we check the map for that coordinate, does this result make sense?
+Which we can check for accuracy by looking that coordinate up on the map. Does this result make sense?
 
 ![image-20240207213813384](./image-20240207213813384.png)
 
-We've found the peaks of Mount Olympus, in Olympic National Park, Washington, US, which is _by far_ the highest point around: hurray!
+It looks like we've found the peak(s) of Mount Olympus, in Olympic National Park, Washington, US, which is _by far_ the highest point around: great success!
+
+#### Optimizing our call time: coarse lookups
+
+Let's check some timings: if we repeat-run this query so that our tile is cached, it takes about 50 milliseconds to find the highest point in area that's around 10,000 square kilometers. And that certainly isn't bad, but is it _good_?
+
+Specifically: the ALOS data has a 30 meter resolution (meaning each pixel represents the elevation measured over a 30m x 30m area), which is smaller than the wing span of some planes (For example, the Airbus A320neo has a wingspan of 35 meters) so what if we turn our beautiful 30 meter resolution data into something a little coarser, like 60m x 60m or 120m x 120m, by resizing the image data while keeping "the highest values" instead of averaging them like a normal resize would?
+
+Let's update our `alos-tile.js` code:
+
+```javascript
+...
+
+import { KM_PER_ARC_DEGREE } from "../utils/constants.js";
+const { abs, ceil, sign, max } = Math;
+const DEFAULT_COARSE_SCALE = 2;
+
+export class ALOSTile {
+  constructor(tilePath, scale = DEFAULT_COARSE_SCALE) {
+    this.tilePath = tilePath;
+    this.load(tilePath, scale);
+  }
+
+  load(filename) {
+    ...
+    // Create a down-scaled version of this tile that we
+    // can use for max elevation purposes:
+    this.coarse = false;
+    // And do this work on a timeout, so that it doesn't.
+    // hold up calls that might come in before the code
+    // for that has finished:
+    setTimeout(
+      () =>
+        time(`forming coarse image`, () => this.formCoarseTile(width, height)),
+      50
+    );
+  }
+  
+  /**
+   * Resize the original data by a factor of 2^scale, preserving
+   * maximum elevation. If we had four pixels that encoded:
+   * 
+   *    [.. .. .. ..]
+   *    [.. 24 38 ..]
+   *    [.. 34 57 ..]
+   *    [.. .. .. ..]
+   * 
+   * That would become a new, single pixel with value 57.
+   */
+  formCoarseTile(width, height) {
+    const { pixels: p } = this;
+
+    const coarseLevel = 2 ** (this.scale - 1);
+    const coarsePixels = [];
+    const [w, h] = [width / coarseLevel, height / coarseLevel];
+
+    // We run a relative expensive loop here, but we'll only be
+    // running it once, and we're running it "independently" of
+    // any actual calls, so it won't cause query slowdowns.
+    for (let x = 0; x < width; x += coarseLevel) {
+      for (let y = 0; y < width; y += coarseLevel) {
+        // find the highest elevation amongst all the pixels
+        // that we want to collapse into a single new pixel:
+        let maximum = ALOS_VOID_VALUE;
+        for (let i = 0; i < coarseLevel; i++) {
+          for (let j = 0; j < coarseLevel; j++) {
+            const pos = (y + j) * width + (x + i);
+            const elevation = p[pos];
+            if (maximum < elevation) maximum = elevation;
+          }
+        }
+        // and then set that value in our smaller pixel "grid".
+        const pos = ((y / coarseLevel) | 0) * w + ((x / coarseLevel) | 0);
+        coarsePixels[pos] = maximum;
+      }
+    }
+
+    this.coarse = { coarseLevel, width: w, height: h, pixels: coarsePixels };
+  }
+  
+  // In order to map pixels to GPS coordaintes, we now need to take
+  // our scaling factor into account, if we're performing a coarse lookup:
+  pixelToGeo(x, y, coarse = false, F = this.forward) {
+    if (coarse) {
+      const { coarseLevel } = this.coarse;
+      x = x * coarseLevel;
+      y = y * coarseLevel;
+    }
+    return [F[3] + F[4] * x + F[5] * y, F[0] + F[1] * x + F[2] * y];
+  }
+
+  // And the same goes for GPS to pixel coordinate, of course:
+  geoToPixel(lat, long, coarse = false, R = this.reverse) {
+    let [x, y] = [
+      (R[0] + R[1] * long + R[2] * lat) | 0,
+      (R[3] + R[4] * long + R[5] * lat) | 0,
+    ];
+    if (coarse) {
+      const { coarseLevel } = this.coarse;
+      x = (x / coarseLevel) | 0;
+      y = (y / coarseLevel) | 0;
+    }
+    return [x, y];
+  }
+  
+  // We give our lookup function the option to perform a coarse lookup:
+  lookup(lat, long, coarse = false) {
+    // Since we wrote `this.coarse` to have the same lookup-relevant
+    // properties as the tile object itself, they're interchangeable:
+    const ref = coarse ? this.coarse : this;
+    const [x, y] = this.geoToPixel(lat, long, coarse);
+    const pos = x + y * ref.width;
+    let value = ref.pixels[pos];
+    if (value === undefined || value > NO_ALOS_DATA_VALUE)
+      value = ALOS_VOID_VALUE;
+    return value;
+  }
+
+  // But we make the max elevation function always perform coarse
+  // lookups once the formCoarseTile() function finishes:
+  getMaxElevation(geoPoly) {
+    const coarse = !!this.coarse;
+    const ref = coarse ? this.coarse : this;
+    const pixelPoly = geoPoly.map((pair) => this.geoToPixel(...pair, coarse));
+    const scanLines = formScanLines(pixelPoly);
+
+    const result = { elevation: ALOS_VOID_VALUE };
+    scanLines.forEach(([start, end], y) => {
+      if (start === end) return;
+
+      const line = ref.pixels.slice(ref.width * y + start, ref.width * y + end);
+
+      line.forEach((elevation, i) => {
+        if (elevation >= NO_ALOS_DATA_VALUE) return;
+        let x = i + start;
+        if (elevation > result.elevation) {
+          result.x = x;
+          result.y = y;
+          result.elevation = elevation;
+        }
+      });
+    });
+
+    const { elevation: meter, x, y } = result;
+    const [lat, long] = this.pixelToGeo(x, y, coarse);
+    const feet = meter === ALOS_VOID_VALUE ? meter : ceil(meter * 3.28084);
+    const maximum = { lat, long, elevation: { feet, meter }};
+
+    // And for good measure, let's also include what resolution we used:
+    maximum.resolution = parseFloat(((KM_PER_ARC_DEGREE * 1000) / ref.width).toFixed(2));
+    return maximum;
+  }
+}
+```
+
+So what's the effect of this? The first call, obviously, won't be using any scaling, but happens to our subsequent calls?
+
+```json
+{
+  "poly": [
+    [47.1, -123.1],
+    [47.1, -123.8],
+    [47.8, -123.8],
+    [47.8, -123.1]
+  ],
+  "result": {
+    "lat": 47.79666666666667,
+    "long": -123.70111111111112,
+    "elevation": { "feet": 7845, "meter": 2391 },
+    "resolution": 61.84
+  },
+  "ms": 18
+}
+```
+
+That's almost three times as fast. And incredible speedup!
+
+In fact, let's bump our `DEFAULT_COARSE_SCALE` up to 3:
+
+```javascript
+{
+  "poly": [
+    [47.1, -123.1],
+    [47.1, -123.8],
+    [47.8, -123.8],
+    [47.8, -123.1]
+  ],
+  "result": {
+    "lat": 47.79666666666667,
+    "long": -123.70111111111112,
+    "elevation": { "feet": 7845, "meter": 2391 },
+    "resolution": 123.69
+  },
+  "ms": 6
+}
+```
+
+We're now getting results for entire GPS grid blocks in under 10 milliseconds!
+
+We could even bump our scale up to 4, and get it down to running in only 3 milliseconds, but now we're looking at diminishing returns: going from 50ms to 6ms is _huge_, but going from 50ms to 3ms is just not appreciably better. Instead, let's focus on what's left on our list of things we need to do before terrain follow can work.
 
 #### Splitting our shapes
 
-Of course, this works as long as we restrict our polygon to something that fits inside a single tile, and that's not super useful when we're flying around and we're potentially crossing degree lines all the time. Thankfully the solution here is intuitively _extremely_ simple: just split up a polygon that overlaps multiple tiles into separate polygons, find the max elevation in each, then pick whichever of the partial results is highest.
+So far, we've restrict our polygon to something that fits inside a single, 1 degree x 1 degree tile, and that's not super useful when we're flying around and crossing degree lines all the time. Ideally, we'd:
 
-In code, not _quite_ that simple. The first is pretty simple:
+- split our polygon into 2 or more partials if it crosses degree lines,
+- find the max elevation in each "partial", and then
+- pick whichever of those partial's result is the highest.
+
+The last two are pretty straight forward given that we already wrote code that does that above, and the first one is a little harder, but not much harder. Let's start with our `alos-interface.js` where we want to update `getMaxElevation` so it can deal with coordinates that cover more than one tile:
 
 ```javascript
 ...
@@ -8402,10 +8791,10 @@ export class ALOSInterface {
    * Let's expand our function to deal with multiple tiles:
    */
   getMaxElevation(geoPoly) {
-    // We'll get to this...
+    // We'll get to this function...
     const quadrants = splitAsQuadrants(geoPoly);
     
-    // But assuming that works, we start with a dummy result,
+    // But assuming that works, we start with a dummy result:
     let result = {
       lat: 0,
       long: 0,
@@ -8450,161 +8839,751 @@ As well as a special case where one of our edges may cross both the vertical and
 So the first step is: figure out which degree lines might split our polygon.
 
 ```javascript
-function splitAsQuadrants(coords) {
+function splitAsQuadrants(poly) {
   // Figure out which "horizontal" and "vertical"
   // lines we may need to cut our polygon:
   const lats = [], longs = [];
-  coords.forEach(([lat, long]) => {
+  poly.forEach(([lat, long]) => {
     lats.push(lat | 0);
     longs.push(long | 0);
   });
-  const LAT = ceil((min(...lats) + max(...lats)) / 2);
-  const LONG = ceil((min(...longs) + max(...longs)) / 2);
+
+  const hThreshold = ceil((
+    min(...longs) + max(...longs)) / 2
+  );
+  
+  const vThreshold = ceil(
+    (min(...lats) + max(...lats)) / 2
+  );
 }
 ```
 
 With that work done, we can use three steps to split any polygon into "as many pieces as needed": first we split one way, then we split the resulting (up to) two pieces the other way, yielding (up to) four pieces:
 
 ```javascript
-function splitAsQuadrants(coords) {
+function splitAsQuadrants(poly) {
   ...
 
-  // Perform a three-way polygon split: first a left/right
-  // split across the longitudinal divider, then a top/bottom
-  // split for (potentially) both shapes that yields, so that
-  // we end up with either 1, 2, or 4 tiles we need to check.
-  coords = [...coords, coords[0]];
-  const [left, right] = splitAlong(coords, `long`, LONG);
-  const [tl, bl] = splitAlong(left, `lat`, LAT);
-  const [tr, br] = splitAlong(right, `lat`, LAT);
+  // Perform a three-way polygon split:
+  //
+  // first we split left/right, then we split both results
+  // (one of which might be an empty array) top/bottom so
+  // that we end up with up to four regions in which we need
+  // to find the maximum elevation.
+  poly = [...poly, poly[0]];
+  const [left, right] = splitAlong(poly, 1, hThreshold);
+  const [tl, bl] = splitAlong(left, 0, vThreshold);
+  const [tr, br] = splitAlong(right, 0, vThreshold);
   return [tr, br, bl, tl];
 }
 ```
 
 And that's the easy part covered. Now for the part where we actually split a polygon along some line... For this, we need to consider the two points on either side of an edge: either they're both on the same side of our dividing line, and we don't need to do anything special, or they're on opposite sides of the divide, and the edge between them will need to be split.
 
-So let's start with two "bins", one for "all points less than" our divding line, and one for "all points greater than", and then run through each edge in the polygon, in order. As we run through them, we add the first point in either the "less than" or "greater than" bin, and then we check the other point on the edge: if we cross our divider, we inject a new point in the same bin that we just put out first point in, right next to the divider
+So let's start with two empty shapes, one for "all points less or equal to" our dividing line, and one for "all points greater than" our dividing line, and then start running through our shape one edge at a time: 
 
 ```javascript
-CONTINUE HERE
+function splitAlong(coords, dim, threshold) {
+  // our new shapes:
+  const le = [], gt = [];
+
+  // Then we run through all edges by iterating over point pairs:
+  for (let i = 1, e = coords.length, a = coords[0], b; i < e; i++) {
+    b = coords[i];
+    // if the first point is less or equal to our divider,
+    // add that point to our new "less or equal" shape.
+    if (a[dim] <= threshold) {
+      le.push(a);
+      // If the second point is on the other side of our
+      // divider, we split up the edge by generating two new
+      // points on either side of the divider, and then adding
+      // the one on a's side to the same shape we added a to,
+      // and we add the one on b's side to the other shape.
+      if (b[dim] > threshold) {
+        splitEdge(a, b, dim, threshold, le, gt);
+      }
+    }
+    // And if the first point is greater than our divider, we
+    // do the same thing but with the target shapes switched.
+    else {
+      gt.push(a);
+      if (b[dim] <= threshold) {
+        splitEdge(a, b, dim, threshold, le, gt);
+      }
+    }
+    a = b;
+  }
+
+  // Once we've done all that, we need to make sure that we
+  // return closed polygons, so for both shapes (IF they have
+  // any points) we need to add the first point as the last point.
+  if (le.length) le.push(le[0]);
+  if (gt.length) gt.push(gt[0]);
+  return [le, gt];
+}
 ```
 
-
-
-
-
-#### Putting it all together
-
-include client-side code that lets us visualize the "probe" shape or "path part", and hides waypoint elevation when TER is active
-
-
-
-#### -------------------
-
-
-
-- no flight plan: probe spike from plane
-- with flight plan: form shape around flight plan (12 NM along the flight poly?)
-- updates: 
-  - server: autopilot.js (add new mode), terrain-folow.js, waypoint-manager.js (ignore if terrain follow active), server mock (if we want to add that back in), utils.js, constants.js
-  - client: autopilot.html, autopilot.js, autopilot.css
-  - 
-
-![image-20240206085233024](./image-20240206085233024.png)
-
-utls:
+So: not a lot of code, but we did gloss over `splitEdge()`, so let's define that, too:
 
 ```javascript
-function getPointAtDistance(lat1, long1, d, heading) {
-  const R = 6371; // the average radius of Earth
-  lat1 = radians(lat1);
-  long1 = radians(long1);
-  const angle = radians(heading);
-  const lat2 = asin(
-    sin(lat1) * cos(d / R) + cos(lat1) * sin(d / R) * cos(angle)
-  );
-  const dx = cos(d / R) - sin(lat1) * sin(lat2);
-  const dy = sin(angle) * sin(d / R) * cos(lat1);
-  const long2 = long1 + atan2(dy, dx);
+function splitEdge(a, b, dim, threshold, le, gt) {
+  // How far along the edge can we find our divider,
+  // relative to the first point?
+  const r = (threshold - a[dim]) / (b[dim] - a[dim]);
+  
+  // Then, if we're splitting top/bottom we need two
+  // points above and below our dividing line:
+  if (dim === 0) {
+    const long = (1 - r) * a[1] + r * b[1];
+    // console.log(`splitting [0] with`, [threshold, long]);
+    le.push([threshold, long]);
+    gt.push([threshold + cm, long]);
+  }
+
+  // If we're not, then we're splitting left/right and we
+  // need two points to the left and right of our divider:
+  else {
+    const lat = (1 - r) * a[0] + r * b[0];
+    // console.log(`splitting [1] with`, [lat, threshold]);
+    le.push([lat, threshold]);
+    gt.push([lat, threshold + cm]);
+  }
+}
+```
+
+And now we can query across degree lines just fine: if we load http://localhost:9000/?poly=47.1,-123.1,47.1,-124.8,48.8,-124.8,48.8,-123.1 we get:
+
+``` 
+{
+  "poly": [
+    [47.1, -123.1],
+    [47.1, -124.8],
+    [48.8, -124.8],
+    [48.8, -123.1]
+  ],
+  "result": {
+    "lat": 47.80222222222222,
+    "long": -123.7088888888889,
+    "elevation": { "feet": 7911, "meter": 2411 },
+    "resolution": 123.69
+  },
+  "ms": 26
+}
+```
+
+And that's still Mount Olympus, found in a 2 degree x 2 degree area (50,000 square kilometers), in only 26 milliseconds. I think we're good to go in terms of plugging this into our autopilot for terrain follow purposes!
+
+### Putting it all together
+
+Let's finally make this all work. First, let's add some terrain mode related constant to `constants.js`:
+
+```javascript
+export const KNOTS_IN_KM_PER_MINUTE = 0.0308667;
+export const TERRAIN_FOLLOW = `TER`;
+export const TERRAIN_FOLLOW_DATA = `TerrainFollowData`;
+export const TERRAIN_FOLLOW_SAFETY = 500;
+```
+
+The first terrain value is the toggle for enabling/disabling terrain follow, and the second will let us send terrain information to clients so that we can visualize the area we're working with, with the last value being used to determine how many feet to add to the max elevation in order to set our autopilot's altitude hold value.
+
+Next up, our `autopilot.js`:
+
+```javascript
+...
+
+import {
+  ...
+  TERRAIN_FOLLOW,
+  TERRAIN_FOLLOW_DATA,
+} from "../utils/constants.js?t=2";
+
+...
+
+// We'll implement this one next
+let { terrainFollow } = await watch(
+  dirname,
+  `terrain-follow.js`,
+  (lib) => (terrainFollow = lib.terrainFollow)
+);
+
+...
+
+export class AutoPilot {
+  ...
+  reset(flightInformation, flightInfoUpdateHandler) {
+    ...
+    this.modes = {
+      ...
+      [TERRAIN_FOLLOW]: false,
+      [TERRAIN_FOLLOW_DATA]: false,
+    };
+    ...
+  }
+
+  ...
+
+  async run() {
+    const { modes, flightInformation } = this;
+    this.flightInfoUpdateHandler(await flightInformation.update());
+    try {
+      ...
+      if (modes[TERRAIN_FOLLOW]) terrainFollow(this, flightInformation);
+    } catch (e) {
+      console.warn(e);
+    }
+  }
+}
+```
+
+Nothing we haven't done several times before already. So let's write that `terrainFollow` function in `terrain-follow.js`:
+
+```javascript
+import {
+  ALTITUDE_HOLD,
+  HEADING_MODE,
+  TERRAIN_FOLLOW_SAFETY,
+  TERRAIN_FOLLOW_DATA,
+  KNOTS_IN_KM_PER_MINUTE,
+  ENV_PATH,
+} from "../utils/constants.js";
+import { getPointAtDistance } from "../utils/utils.js";
+
+import dotenv from "dotenv";
+dotenv.config({ path: ENV_PATH });
+
+const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
+import { ALOSInterface } from "../elevation/alos-interface.js";
+import { ALOS_VOID_VALUE } from "../elevation/alos-constants.js";
+const alos = new ALOSInterface(DATA_FOLDER);
+
+const { ceil } = Math;
+
+export async function terrainFollow(autopilot, flightInformation) {
+const { modes, waypoints } = autopilot;
+  const { lat, long, trueHeading, speed, declination } = flightInformation.data;
+  let maxElevation, geoPolies;
+
+  // Because we want enough time to climb if it turns out we're
+  // flying towards a mountain, we'll set a "probe length" that
+  // extends 5 minutes ahead of us based on our current speed.
+  const probeLength = speed * KNOTS_IN_KM_PER_MINUTE * 5;
+
+  // Then, we either need to find the maximum elevation along
+  // our flight path, if we have a flight plan loaded, or
+  // just "ahead of us" if we're flying on autopilot without
+  // a specific flight plan.
+
+  // If we're on a flight plan, we'll let the waypoint manager
+  // figure out the shape we're using, because it knows where
+  // all the waypoints are.
+  if (waypoints.active) {
+    const result = waypoints.getMaxElevation(lat, long, probeLength);
+    geoPolies = result.geoPolies;
+    maxElevation = result.maxElevation;
+  }
+
+  // If not, we just project a triangle in front of us, with
+  // a base that's 1km on either side of us, and a tip that's
+  // simply the point 5 minutes ahaead of us:
+  else {
+    // Also note that "ahead" can either literally be in front
+    // of us, but if the autopilot is flying a heading and we
+    // change that heading the probe should be pointed in that
+    // direction, not the one the plane is currently pointed in.
+    let heading = trueHeading;
+    if (modes[HEADING_MODE]) {
+      heading = modes[HEADING_MODE] + declination;
+    }
+    const geoPoly = [
+      getPointAtDistance(lat, long, 1, heading - 90),
+      getPointAtDistance(lat, long, probeLength, heading),
+      getPointAtDistance(lat, long, 1, heading + 90),
+    ].map(({ lat, long }) => [lat, long]);
+    geoPolies = [geoPoly];
+    maxElevation = alos.getMaxElevation(geoPoly);
+  }
+
+  // if this didn't yield elevation data (e.g. we're flying
+  // over the ocean) just do nothing.
+  const alt = maxElevation.elevation.feet;
+  if (alt === ALOS_VOID_VALUE) return;
+
+  // But if it did, set our autopilot to however many feet
+  // we want to be above the max elevation, based on the
+  // constant/ we declared earlier, and then round that up
+  // to some multiple of 100 feet.
+  const bracketed = TERRAIN_FOLLOW_SAFETY + ceil(alt / 100) * 100;
+  autopilot.setParameters({
+    [ALTITUDE_HOLD]: bracketed,
+    // And for visualization purposes, also add the polygon(s)
+    // that we used and the maximum elevation that we found.
+    [TERRAIN_FOLLOW_DATA]: {
+      geoPolies,
+      maxElevation,
+    },
+  });
+}
+```
+
+Pretty straight-forward code, and even though we'll want to implement `getMaxElevation` in our `waypoint-manager.js` eventually, we can test the non-flight-planned terrain follow mode right now!
+
+...well, okay, almost right now, we still need to add that `getPointAtDistance` to our `utils.js`:
+
+```javascript
+// Get a point at distance {d}km relative to (lat,long)
+export function getPointAtDistance(lat, long, d, heading, R = 6371) {
+  lat = radians(lat);
+  long = radians(long);
+  const a = radians(heading);
+  const lat2 = asin(sin(lat) * cos(d / R) + cos(lat) * sin(d / R) * cos(a));
+  const dx = cos(d / R) - sin(lat) * sin(lat2);
+  const dy = sin(a) * sin(d / R) * cos(lat);
+  const long2 = long + atan2(dy, dx);
   return { lat: degrees(lat2), long: degrees(long2) };
 }
 ```
 
-
-
-### Testing our code
-
-Let's update our web page again so that we can toggle the auto-throttle and terrain follow modes:
+And update our browser page, starting with `autopilot.html` so we have a button to press:
 
 ```html
-<div id="autopilot" class="controls">
-  <link rel="stylesheet" href="/css/autopilot.css" />
-
-  <button class="MASTER">AP</button>
-  <button title="level wings" class="LVL">LVL</button>
-  <label>Target altitude: </label>
-  <input
-    class="altitude"
-    type="number"
-    min="0"
-    max="40000"
-    value="1500"
-    step="100"
-  />
+<div class="controls">
+  ...
   <button title="altitude hold" class="ALT">ALT</button>
-  <button class="TER">TER</button>
-  <label>Target heading: </label>
-  <input class="heading" type="number" min="1" max="360" value="360" step="1" />
-  <button class="HDG">HDG</button>
+  <button title="terrain follow" class="TER">TER</button>
+  ...
 </div>
 ```
 
-And a minor update to our client-side autopilot JS:
+and our `public/js/autopilot.js` so that button also actually does something:
 
 ```javascript
-export const AP_DEFAULT = {
-  MASTER: false,
-  LVL: false,
-  ALT: false,
-  HDG: false,
-  ATT: true,
+...
+
+export const AP_OPTIONS = {
+  ...
   TER: false,
 };
 ```
 
-Just to make it aware that auto-throttle and terrain follow are things it can now toggle. So, graph time!
+And some extra code that visualizes elevation polygons as well as showing the spot where the max elevation was found:
 
-#### Top Rudder Solo 103
+```javascript
+export class Autopilot {
+  constructor(owner) {
+    this.owner = owner;
+    this.map = owner.map;
+    ...
+  }
 
-TEST RESULTS GO HERE
+  ...
+  
+  update(flightData, params) {
+    ...
 
-#### De Havilland DHC-2 "Beaver"
+    // Remove any previously visualized terrain polygons
+    if (this.terrainProbe) this.terrainProbe.forEach((p) => p.remove());
 
-We'll be taking off from Victoria Airport on Vancouver Island, which sits at an elevation of about 60 feet, and then simply by heading straight, we'll have quite a bit of terrain to contend with. Let's see what happens!
+    // And the marker for where the maximum elevation was found
+    if (this.maxElevation) this.maxElevation.remove();
 
-TEST RESULTS GO HERE
+    // Then see if we need to build new ones:
+    const { TerrainFollowData: data, TER } = params;
+    if (TER && data) {
+      const { maxElevation, geoPolies } = data;
 
+      // Draw all polygons used in finding our maximum elevation
+      this.terrainProbe = geoPolies.map((coords) =>
+        L.polyline([...coords, coords[0]], {
+          className: `terrain-probe`,
+          fill: true,
+        })
+      );
+      
+      this.terrainProbe.forEach((p) => p.addTo(this.map));
 
+      // And then draw the GPS coordinate where we found that value.
+      this.maxElevation = L.circle([maxElevation.lat, maxElevation.long], 100, {
+        color: `black`,
+        fill: true,
+      });
 
-Honestly, "not a lot" other than the autopilot giving us altitudes to fly that make sure we don't fly straight into a mountain side. The plane's altitude is not quite as "clean" or platformed as a human would fly the plane, but it doesn't have to be, we're not flying, the computer is.
+      // With a handy little tooltip that lists the exact elevation found.
+      this.maxElevation.bindTooltip(maxElevation.elevation.feet + `'`, {
+        permanent: true,
+        direction: "top",
+        offset: L.point({x: 0, y: -20})
+      });
+      
+      this.maxElevation.addTo(this.map);
+    }
+  }
+}
+```
 
-#### Cessna 310R
+Then we just need a tiny bit of CSS in our `public/css/autopilot.css` that makes our "probe polies" stand out:
 
-The story is the same in the 310R, although because it's a lot faster than the Beaver, the elevation probe gives a smoother curve, but again: no mountain side collisions, which is good!
+```css
+#autopilot {
+  margin: 0.5em 0;
+}
 
-TEST RESULTS GO HERE
+/* We'll use a nice and loud colour for this: */
+.terrain-probe {
+  stroke: #00ffc8;
+  fill: #00ffc8;
+}
 
-#### Beechcraft Model 18
+/*
+  Also: when terrain follow is enabled, we hide the  waypoint marker
+  elevation indicators, because they're not actually getting used.
+*/
+body:has(.TER.active) .waypoint-div::before {
+  content: "";
+}
+```
 
-Flying a tad faster than the 310R but reacting more slowly to control instructions, the altitude profile is even better looking than the 310R's. I love this plane, it is just a delight.
+And that's it: let's fire up a flight and turn on terrain follow!
 
-TEST RESULTS GO HERE
+![image-20240209135510306](./image-20240209135510306.png)
 
-#### Douglas DC-3
+We see our elevation probe (correctly pointing in the direction of the autopilot), starting at 2km wide (1km on either side of the plane) and ending at a tip a the 5 minute flight's worth of distance away from the plane. The highest elevation covered by our probe is the peak of [Mount Maxwell](https://en.wikipedia.org/wiki/Mount_Maxwell_Provincial_Park) on [Salt Spring Island](https://en.wikipedia.org/wiki/Salt_Spring_Island). Since the elevation found is 2002 feet, the autopilot altitude hold value is 2600: 2002 plus 500, rounded up to a multiple of 100.
 
-Not much to say: it does what it needs to do despite weighing about as much as as half of Vancouver Island.
+We could let the plane fly forever and it wouldn't crash into anything! ...well, until it runs out of fuel, of course. But there's a setting for infinite fuel, so...!
 
-TEST RESULTS GO HERE
+### Elevation along a flight path
+
+Of course we still need to implement the elevation code for when we're flying with a flight plan: rather than a single polygon, that "5 minutes of flight distance" might cover multiple full and partial legs of the flight, so we'll need some code that:
+
+1. can chop up our "probe distance" into a set of distances, each related to a different leg of the flight plan,
+2. can create polygons for each of those distances,
+3. can find the max elevation inside each of those polygons, and
+4. can return the highest value amongst those results.
+
+We've already seen 2 through 4 in code we literally just wrote, leaving us with only the first point to solve, which we can break down into three separate problems:
+
+1. finding the distance from the plane to the waypoint it's currently flying towards,
+2. if that distance is less than the probe length: finding how many complete legs after that waypoint are fully covered by our probe length minus the distance found in 1 (which might be zero), 
+3. if there is a next leg, finding out how much of that legs the remaining probe length covers, or
+4. if there is no next leg, just "finishing the shape" by drawing a shorter-than-full-length triangle in the direction that we'll be flying in at that point.
+
+The nice thing about breaking down the problem is that none of these tasks, individually, is particularly complicated. And once they all work, simply putting them together means we'll have our full solution.
+
+#### Finding the distance from the plane to its next waypoint
+
+ This one's pretty easy. If we're flying a flight plan, we're either flying towards the current waypoint (when we're still getting onto the flight path, as well as any time we're close enough to a waypoint to effect a transition), or we're flying towards the waypoint after it, so let's find out which of those it is:
+
+```javascript
+export class WayPointManager {
+  ...
+  getMaxElevation(lat, long, probeLength) {
+    const { currentWaypoint: c } = this;
+    let maxElevation = { elevation: { meter: ALOS_VOID_VALUE } };
+    let geoPolies = [];
+    let current = c;
+    let heading = c.heading;
+
+    // Let's figure out which waypoint the plane is flying towards.
+    let target = current.next;
+    
+   	// Get the distance from the plane to the next waypoint,
+    const d1 = getDistanceBetweenPoints(lat, long, target.lat, target.long);
+    
+    // As well as the distance from the current waypoint to the next waypoint.
+    const d2 = target.distance * KM_PER_NM;
+
+    // If the plane is further from current.next than current itself is,
+    // then our target is the current waypoint instead of the next.
+    if (d1 > d2) {
+      // Sweet: we found it.
+    }
+```
+
+When this happens, we want to make sure to capture a strip of flight path that's 2km wide and runs from our plane to the waypoint we're targeting:
+
+```javascript
+    if (d1 > d2) {
+      // Form a 2km wide strip along the flight path:
+      const h = getHeadingFromTo(lat, long, current.lat, current.long);
+      const geoPoly = [
+        getPointAtDistance(lat, long, 1, h - 90),
+        getPointAtDistance(current.lat, current.long, 1, h - 90),
+        getPointAtDistance(current.lat, current.long, 1, h + 90),
+        getPointAtDistance(lat, long, 1, h + 90),
+      ].map(({ lat, long }) => [lat, long]);
+
+      // Then find the max elevation in that strip:
+      const partialMax = alos.getMaxElevation(geoPoly);
+      if (maxElevation.elevation.meter < partialMax.elevation.meter) {
+        maxElevation = partialMax;
+      }
+      
+      // Then save the shape we just used so we can send it to the browser:
+      geoPolies.push(geoPoly);
+      
+      // And then as last step, reduce our probe length by the length of our strip:
+      const d = getDistanceBetweenPoints(lat, long, current.lat, current.long);
+      probeLength -= d;
+    }
+```
+
+And with that, we've solved the "if we're not on the flight path yet" part of the problem
+
+![image-20240209144406788](./image-20240209144406788.png)
+
+so let's move on to the "if we _are_ on the flight path" equivalent. If we're on the flight path, then the distances we used in the above check don't really apply: the distance between the plane and the end point of the leg is (by definition, really) always less than the distance between the two end points, so we're going to simply iterate over each leg, and if that's the one we're currently one, we form a partial "strip":
+
+```javascript
+    if (d1 > d2) {
+      ...
+    }
+  
+ 
+    // Iterate through our flight plan legs for as long as there is a next
+    // point to fly, and we haven't run out of probe length yet.
+    while (target && probeLength > 0) {
+      const d = getDistanceBetweenPoints(lat, long, target.lat, target.long);
+      // If d < probeLength, our probe will cover either the entire leg, or
+      // the entire "remainder" of the leg, if it's the one we're flying, so...
+      if (d < probeLength) {
+
+        // *Is* this the leg we are current flying?
+        if (target === c.next) {
+          const g = current.geoPoly.slice();
+          const r = constrain(d / (target.distance * KM_PER_NM), -1, 1);
+          g[0] = [
+            r * g[0][0] + (1 - r) * g[1][0],
+            r * g[0][1] + (1 - r) * g[1][1],
+          ];
+          g[3] = [
+            r * g[3][0] + (1 - r) * g[2][0],
+            r * g[3][1] + (1 - r) * g[2][1],
+          ];
+          geoPolies.push(g);
+          const partialMax = alos.getMaxElevation(g);
+          if (maxElevation.elevation.meter < partialMax.elevation.meter) {
+            maxElevation = partialMax;
+          }
+        }
+        
+        // If it's not, then we find the max elevation along
+        // the entire length of this leg's "strip":
+        else {
+          // which we'll do in the next section.
+        }
+      }
+
+      // If d > probeLength, then our probe ends somewhere inside this leg,
+      // and we'll need to figure out where that is.
+      else {
+        // which we'll do in the section after the next one.
+      }
+
+      // also, as we're iterating remember to decrease the "remaining probelenght",
+      probeLength -= d;
+
+      // and update our iteration values.
+      heading = current.heading;
+      current = target;
+      target = current.next;
+    }
+```
+
+This code has three possible branches, one of which is the one we wanted to implement here, and the other two we'll look at in the next sections. For now, let's focus on building our "partial leg" polygon: you may notice that we're starting with `const g = current.geoPoly.slice()`: since legs on a flightpath are fixed until we move a waypoint, it makes sense to have waypoints cache their associated polygon and max elevation:
+
+```javascript
+import { getDistanceBetweenPoints, getHeadingFromTo, getPointAtDistance } from "../../utils/utils.js";
+import { KM_PER_NM, ENV_PATH } from "../../utils/constants.js";
+
+import dotenv from "dotenv";
+dotenv.config({ path: ENV_PATH });
+const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
+
+import { ALOSInterface } from "../../elevation/alos-interface.js";
+const alos = new ALOSInterface(DATA_FOLDER);
+
+export class Waypoint {
+  ...
+
+  // When we set a next waypoint, this waypoint can immediately determine
+  // the elevation polygon that results in, and find the associated max elevation:
+  setNext(nextWaypoint) {
+    const { lat, long } = this;
+    const next = (this.next = nextWaypoint);
+    if (next) {
+      this.heading = getHeadingFromTo(lat, long, next.lat, next.long);
+      next.distance = getDistanceBetweenPoints(lat, long, next.lat, next.long) / KM_PER_NM;
+      this.findMaxElevation();
+    }
+  }
+
+  async findMaxElevation() {
+    const { lat, long, heading, next } = this;
+    this.geoPoly = [
+      getPointAtDistance(lat, long, 1, heading - 90),
+      getPointAtDistance(next.lat, next.long, 1, heading - 90),
+      getPointAtDistance(next.lat, next.long, 1, heading + 90),
+      getPointAtDistance(lat, long, 1, heading + 90),
+    ].map(({ lat, long }) => [lat, long]);
+    this.maxElevation = alos.getMaxElevation(this.geoPoly);
+  }
+
+  ...
+}
+```
+
+Pretty simple, and that save us a _lot_ of computation. Back to our waypoint manager though: `current.geoPoly.slice()` gets us a copy of the full leg's polygon, but it has the wrong start points for our need, so we replace those by figuring out how far along the leg we are, expressed as a ratio, which we then use to create new start points for our polygon. For instance, if we're midway between the start and end points, then the ratio is 0.5, and we create two new points that are 0.5 interpolations of the original start and end points. 
+
+And that covers our second possible "start of the probe":
+
+![image-20240209150737514](./image-20240209150737514.png)
+
+#### Finding the number of legs that are fully covered
+
+Next up, how many legs are fully covered by the remaining probe length? We already saw the scaffolding for this in the previous section, and our waypoints already cache full-length polygons and max elevations, so this'll be a quick bit of code:
+
+```javascript
+    while (target && probeLength > 0) {
+      const d = getDistanceBetweenPoints(lat, long, target.lat, target.long);
+
+      // If d < probeLength, our probe will cover either the entire leg, or
+      // the entire "remainder" of the leg, if it's the one we're flying, so...
+      if (d < probeLength) {
+        if (target === c.next) {
+          ...
+        }
+        
+        // If it's not, then we find the max elevation along the entire
+        // length of this leg's "strip", which really just means asking
+        // the current waypoint for its already cached polygon and elevation:
+        else {
+          geoPolies.push(current.geoPoly);
+          if (maxElevation.elevation.meter < current.maxElevation.elevation.meter) {
+            maxElevation = current.maxElevation;
+          }
+        }
+      }
+
+      // If d > probeLength, then our probe ends somewhere inside this leg,
+      // and we'll need to figure out where that is.
+      else {
+        // which we'll do in the next section.
+      }
+
+      ...
+    }
+```
+
+Another part of the problem tackled!
+
+![image-20240209151217476](./image-20240209151217476.png)
+
+#### Finding how much of the leg after that to cover
+
+Which brings us to the final bit of this code, which is really just "the reverse of the first bit":
+
+```javascript
+    while (target && probeLength > 0) {
+      const d = getDistanceBetweenPoints(lat, long, target.lat, target.long);
+
+      // If d < probeLength, our probe will cover either the entire leg, or
+      // the entire "remainder" of the leg, if it's the one we're flying, so...
+      if (d < probeLength) {
+        ...
+      }
+
+      // If d > probeLength, then our probe ends somewhere inside this leg,
+      // and we'll need to figure out where that is.
+      else {
+        const g = current.geoPoly.slice();
+        const r = probeLength / d;
+        g[1] = [
+          (1 - r) * g[0][0] + r * g[1][0],
+          (1 - r) * g[0][1] + r * g[1][1],
+        ];
+        g[2] = [
+          (1 - r) * g[3][0] + r * g[2][0],
+          (1 - r) * g[3][1] + r * g[2][1],
+        ];
+        geoPolies.push(g);
+        const partialMax = alos.getMaxElevation(g);
+        if (maxElevation.elevation.meter < partialMax.elevation.meter) {
+          maxElevation = partialMax;
+        }
+      }
+
+      ...
+    }
+```
+
+We again start with the full-length poly, but this time we need to bring the end points in towards the start, based on how much probe length we have left. Pretty much a straight copy paste, but this time updating `g[1]` and `g[2]`, rather than `g[0]` and `g[3]`. Boom, problem solved!
+
+![image-20240209151840268](./image-20240209151840268.png)
+
+#### Building a triangle if there is no next leg
+
+Except for when there is no next leg, of course: 
+
+```javascript
+    while (target && probeLength > 0) {
+      ...
+    }
+
+    // If we've run out legs, but we still have probe length left over,
+    // just build a triangle with a base that starts at the last waypoint
+    // we have, and a tip that's at a distance equal to whatever probe
+    // length we have left.
+    if (probeLength > 0) {
+      const geoPoly = [
+        getPointAtDistance(current.lat, current.long, 1, heading - 90),
+        getPointAtDistance(current.lat, current.long, probeLength, heading),
+        getPointAtDistance(current.lat, current.long, 1, heading + 90),
+      ].map(({ lat, long }) => [lat, long]);
+      geoPolies.push(geoPoly);
+      const probeMax = alos.getMaxElevation(geoPoly);
+      if (maxElevation.elevation.meter < probeMax) {
+        maxElevation = probeMax;
+      }
+    }
+
+    // Oh my gosh, we're done!
+    return { geoPolies, maxElevation };
+  }
+}
+```
+
+And that's it!
+
+![image-20240209152411101](./image-20240209152411101.png)
+
+Was it a lot of work? Absolutely. Was it worth it? _**Absolutely**_.
+
+### Testing our code
+
+So let's see what happens if we run our test flight with terrain follow rather than preprogrammed altitudes? Let's find out! We'll grab ourselves a Twin Beech and let's see what happens! First, let's look at the altitude curve when we're flying the Ghost Dog Tour without terrain follow:
+
+![image-20240209180324283](./image-20240209180324283.png)
+
+And then, _with_ terrain follow:
+
+![image-20240209172658718](./image-20240209172658718.png)
+
+So now we have two ways to fly a flight plan, but one of those requires zero effort on our part when it comes to figuring out the flight plan: we can now  just drop down a bunch of points on the map and let the autopilot figure out how to safely fly that. And then it does!
+
+And if we want to make things _exciting_ we can lower the safe altitude to something like 25 feet instead of 500 feet... although of course the terrain follow code will still round that up to the nearest higher multiple of 100, and it won't be able to fly as low through a canyon as a well-flown, elevation tailored flight plan will simply because the elevation probe almost certainly covers the sides cliff sides on either side.
+
+...Still...
+
+```javascript
+...
+// terrain follow
+export const TERRAIN_FOLLOW = `TER`;
+export const TERRAIN_FOLLOW_DATA = `TerrainFollowData`;
+export const TERRAIN_FOLLOW_SAFETY = 25; // Let's make this fun!
+```
+
+![image-20240209191040395](./image-20240209191040395.png)
+
+...that actually looks perfectly fine. Guess we're flying at 25 from now on!
 
 ## Auto takeoff
 

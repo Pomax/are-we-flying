@@ -146,16 +146,16 @@ export class Autopilot {
         })
       );
       this.terrainProbe.forEach((p) => p.addTo(this.map));
-      this.maxElevation = L.circle([maxElevation.lat, maxElevation.long], 100, {
-        color: `black`,
-        fill: true,
-      });
-      this.maxElevation.bindTooltip(maxElevation.elevation.feet + `'`, {
-        permanent: true,
-        direction: "top",
-        offset: L.point({x: 0, y: -20})
-      });
-      this.maxElevation.addTo(this.map);
+      // this.maxElevation = L.circle([maxElevation.lat, maxElevation.long], 100, {
+      //   color: `black`,
+      //   fill: true,
+      // });
+      // this.maxElevation.bindTooltip(maxElevation.elevation.feet + `'`, {
+      //   permanent: true,
+      //   direction: "top",
+      //   offset: L.point({x: 0, y: -20})
+      // });
+      // this.maxElevation.addTo(this.map);
     }
   }
 }

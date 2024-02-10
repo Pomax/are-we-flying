@@ -20,8 +20,11 @@ dotenv.config({ path: ENV_PATH });
 const { DATA_FOLDER } = process.env;
 export { DATA_FOLDER, NO_ALOS_DATA_VALUE };
 
+import { traceFunctionCalls } from "../utils/tracer.js";
+
 const { floor, ceil, min, max } = Math;
 const cm = 0.0000000001;
+const globalTileCache = [];
 
 // JAXA ALOS World 3D (30m) dataset manager
 // homepage: https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d30/aw3d30_e.htm
@@ -33,7 +36,6 @@ export class ALOSInterface {
     this.tilesFolder = tilesFolder;
     this.loaded = false;
     this.files = [];
-    this.cache = {};
     if (!this.tilesFolder) {
       console.log(
         `No ALOS data folder specified, elevation service will not be available.`
@@ -106,14 +108,23 @@ export class ALOSInterface {
   getTileFor(lat, long) {
     const { loaded } = this;
     if (!loaded) return;
-    const key = `${lat | 0},${long | 0}}`;
-    if (!this.cache[key]) {
-      let tile;
-      const [tileName, tilePath] = this.getTileFromFolder(lat, long);
-      if (tileName) tile = new ALOSTile(tilePath);
-      this.cache[key] = tile;
+    const tileName = this.getTileName(lat, long);
+    return this.getTileFromCache(tileName);
+  }
+
+  /**
+   * If there is no cached entry, build it. Otherwise
+   * just immediately return that cached value:
+   */
+  getTileFromCache(tileName) {
+    if (globalTileCache[tileName] === undefined) {
+      globalTileCache[tileName] = false;
+      const tilePath = this.getTilePath(tileName);
+      if (tilePath) {
+        globalTileCache[tileName] = new ALOSTile(tilePath);
+      }
     }
-    return this.cache[key];
+    return globalTileCache[tileName];
   }
 
   /**
@@ -140,7 +151,7 @@ export class ALOSInterface {
    * or "W", with xxx being the degree of longitude (again,
    * with leading zeroes if necessary).
    */
-  getTileFromFolder(lat, long) {
+  getTileName(lat, long) {
     // given the rules above, an integer latitude
     // can be found in the tile "south" of it:
     if ((lat | 0) === lat) lat -= 1;
@@ -158,28 +169,13 @@ export class ALOSInterface {
     longStr = longStr.padStart(3, "0");
 
     // Then assemble them into an ALOS path fragment:
-    const tileName = `ALPSMLC30_${latDir}${latStr}${longDir}${longStr}_DSM.tif`;
+    return `ALPSMLC30_${latDir}${latStr}${longDir}${longStr}_DSM.tif`;
+  }
 
-    if (!this.cache[tileName]) {
-      // Do we have this file cached locally?
-      const cacheName = `${import.meta.dirname}/cache/${tileName}`;
-
-      // If not, find the fully qualified file path, given that
-      // fragment, by looking at our filename index. Then copy
-      // the file to our local cache directory.
-      if (!existsSync(cacheName)) {
-        const fullPath = this.files.find((f) => f.endsWith(tileName));
-        if (!fullPath) return [false, false];
-        try {
-          copyFileSync(DATA_FOLDER + fullPath, cacheName);
-        } catch (e) {
-          execSync(`cp "${DATA_FOLDER}${fullPath}" "${cacheName}"`);
-        }
-      }
-
-      this.cache[tileName] = [tileName, cacheName];
-    }
-    return this.cache[tileName];
+  getTilePath(tileName) {
+    const fullPath = this.files.find((f) => f.endsWith(tileName));
+    if (!fullPath) return false;
+    return join(this.tilesFolder, fullPath);
   }
 
   getMaxElevation(geoPoly) {
@@ -193,7 +189,8 @@ export class ALOSInterface {
     quadrants.forEach((poly, i) => {
       if (!poly.length) return;
       const tile = this.getTileFor(...poly[0]);
-      const qResult = tile?.getMaxElevation(poly) ?? {
+      if (!tile) return;
+      const qResult = tile.getMaxElevation(poly) ?? {
         elevation: { meter: ALOS_VOID_VALUE },
       };
       if (qResult && qResult.elevation.meter > result.elevation.meter) {
@@ -242,18 +239,24 @@ function splitAlong(coords, dim, threshold) {
   const gt = [];
   for (let i = 1, e = coords.length, a = coords[0], b; i < e; i++) {
     b = coords[i];
+    // if the first point is less or equal to our divider,
+    // add that point to our new "less or equal" shape.
     if (a[dim] <= threshold) {
-      // console.log(`a[${dim}] (${a[dim]}) <= ${threshold}`);
       le.push(a);
+      // If the second point is on the other side of our
+      // divider, we split up the edge by generating two new
+      // points on either side of the divider, and then adding
+      // the one on a's side to the same shape we added a to,
+      // and we add the one on b's side to the other shape.
       if (b[dim] > threshold) {
-        // console.log(`b[${dim}] (${b[dim]}) > ${threshold}, splitting edge`);
         splitEdge(a, b, dim, threshold, le, gt);
       }
-    } else {
-      // console.log(`a[${dim}] (${a[dim]}) > ${threshold}`);
+    }
+    // And if the first point is greater than our divider, we
+    // do the same thing but with the target shapes switched.
+    else {
       gt.push(a);
       if (b[dim] <= threshold) {
-        // console.log(`b[${dim}] (${b[dim]}) <= ${threshold}, splitting edge`);
         splitEdge(a, b, dim, threshold, le, gt);
       }
     }

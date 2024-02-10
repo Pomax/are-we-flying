@@ -69,7 +69,7 @@ export function exceeds(a, b) {
   return 0;
 }
 
-export function getPointAtDistance(lat1, long1, d, heading, R = 6371) {
+export function getPointAtDistance(lat, long1, d, heading, R = 6371) {
   `
     lat: initial latitude, in degrees
     lon: initial longitude, in degrees
@@ -80,12 +80,12 @@ export function getPointAtDistance(lat1, long1, d, heading, R = 6371) {
     Returns new lat/lon coordinate {d}km from initial, in degrees
   `;
 
-  lat1 = radians(lat1);
+  lat = radians(lat);
   long1 = radians(long1);
   const a = radians(heading);
-  const lat2 = asin(sin(lat1) * cos(d / R) + cos(lat1) * sin(d / R) * cos(a));
-  const dx = cos(d / R) - sin(lat1) * sin(lat2);
-  const dy = sin(a) * sin(d / R) * cos(lat1);
+  const lat2 = asin(sin(lat) * cos(d / R) + cos(lat) * sin(d / R) * cos(a));
+  const dx = cos(d / R) - sin(lat) * sin(lat2);
+  const dy = sin(a) * sin(d / R) * cos(lat);
   const long2 = long1 + atan2(dy, dx);
   return { lat: degrees(lat2), long: degrees(long2) };
 }

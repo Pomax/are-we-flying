@@ -13,6 +13,7 @@ export const ONE_KTS_IN_KMS = 0.000514444;
 export const FPS_PER_KNOT = 1.68781;
 export const KM_PER_NM = 1.852;
 export const KM_PER_ARC_DEGREE = 111.320; // note: on a great circle.
+export const KNOTS_IN_KM_PER_MINUTE = 0.0308667;
 
 // flight modes
 export const LEVEL_FLIGHT = `LVL`;
@@ -24,4 +25,4 @@ export const AUTO_THROTTLE = `ATT`;
 // terrain follow
 export const TERRAIN_FOLLOW = `TER`;
 export const TERRAIN_FOLLOW_DATA = `TerrainFollowData`;
-export const TERRAIN_FOLLOW_SAFETY = 500;
+export const TERRAIN_FOLLOW_SAFETY = 25;

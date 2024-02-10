@@ -448,27 +448,33 @@ export class WayPointManager {
     let heading = c.heading;
     let target = current.next;
 
-    // How close are we to
-    const d1 = getDistanceBetweenPoints(lat, long, target.lat, target.long);
-    const d2 = target.distance * KM_PER_NM;
+    if (target) {
+      const d1 = getDistanceBetweenPoints(lat, long, target.lat, target.long);
+      const d2 = target.distance * KM_PER_NM;
 
-    // If we haven't quite reached the current waypoint yet,
-    // we need to add a "sliver" from our plane to the waypoint.
-    if (d1 > d2) {
-      const h = getHeadingFromTo(lat, long, current.lat, current.long);
-      const geoPoly = [
-        getPointAtDistance(lat, long, 1, h - 90),
-        getPointAtDistance(current.lat, current.long, 1, h - 90),
-        getPointAtDistance(current.lat, current.long, 1, h + 90),
-        getPointAtDistance(lat, long, 1, h + 90),
-      ].map(({ lat, long }) => [lat, long]);
-      const partialMax = alos.getMaxElevation(geoPoly);
-      if (maxElevation.elevation.meter < partialMax.elevation.meter) {
-        maxElevation = partialMax;
+      // If we haven't quite reached the current waypoint yet,
+      // we need to add a "sliver" from our plane to the waypoint.
+      if (d1 > d2) {
+        const h = getHeadingFromTo(lat, long, current.lat, current.long);
+        const geoPoly = [
+          getPointAtDistance(lat, long, 1, h - 90),
+          getPointAtDistance(current.lat, current.long, 1, h - 90),
+          getPointAtDistance(current.lat, current.long, 1, h + 90),
+          getPointAtDistance(lat, long, 1, h + 90),
+        ].map(({ lat, long }) => [lat, long]);
+        const partialMax = alos.getMaxElevation(geoPoly);
+        if (maxElevation.elevation.meter < partialMax.elevation.meter) {
+          maxElevation = partialMax;
+        }
+        geoPolies.push(geoPoly);
+        const d = getDistanceBetweenPoints(
+          lat,
+          long,
+          current.lat,
+          current.long
+        );
+        probeLength -= d;
       }
-      geoPolies.push(geoPoly);
-      const d = getDistanceBetweenPoints(lat, long, current.lat, current.long);
-      probeLength -= d;
     }
 
     // Then we can check how many segments of this flight path

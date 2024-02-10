@@ -8,7 +8,10 @@ dotenv.config({ path: ENV_PATH });
 
 const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
 import { ALOSInterface } from "./alos-interface.js";
-const ALOS = new ALOSInterface(DATA_FOLDER);
+
+// debugging magic
+import { traceFunctionCalls } from "../utils/tracer.js";
+const ALOS = traceFunctionCalls(new ALOSInterface(DATA_FOLDER));
 
 // Boilerplate http server:
 function processRequest(req, res) {

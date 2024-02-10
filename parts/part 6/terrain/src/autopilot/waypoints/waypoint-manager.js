@@ -467,7 +467,8 @@ export class WayPointManager {
         maxElevation = partialMax;
       }
       geoPolies.push(geoPoly);
-      probeLength -= d1;
+      const d = getDistanceBetweenPoints(lat, long, current.lat, current.long);
+      probeLength -= d;
     }
 
     // Then we can check how many segments of this flight path

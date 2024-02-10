@@ -13,8 +13,6 @@ export const AP_OPTIONS = {
   ALT: false,
   HDG: false,
   ATT: false,
-  HeadingTargets: false,
-  TER: false,
 };
 
 export class Autopilot {
@@ -126,36 +124,6 @@ export class Autopilot {
         );
         this.planeRadius.addTo(this.map);
       }
-    }
-
-    if (this.terrainProbe) {
-      this.terrainProbe.forEach((p) => p.remove());
-    }
-
-    if (this.maxElevation) {
-      this.maxElevation.remove();
-    }
-
-    const { TerrainFollowData: data, TER } = params;
-    if (TER && data) {
-      const { maxElevation, geoPolies } = data;
-      this.terrainProbe = geoPolies.map((coords) =>
-        L.polyline([...coords, coords[0]], {
-          className: `terrain-probe`,
-          fill: true,
-        })
-      );
-      this.terrainProbe.forEach((p) => p.addTo(this.map));
-      this.maxElevation = L.circle([maxElevation.lat, maxElevation.long], 100, {
-        color: `black`,
-        fill: true,
-      });
-      this.maxElevation.bindTooltip(maxElevation.elevation.feet + `'`, {
-        permanent: true,
-        direction: "top",
-        offset: L.point({x: 0, y: -20})
-      });
-      this.maxElevation.addTo(this.map);
     }
   }
 }

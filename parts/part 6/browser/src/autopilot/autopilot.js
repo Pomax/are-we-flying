@@ -30,6 +30,7 @@ let { altitudeHold } = await watch(
   `altitude-hold.js`,
   (lib) => (altitudeHold = lib.altitudeHold)
 );
+
 let { terrainFollow } = await watch(
   dirname,
   `terrain-follow.js`,

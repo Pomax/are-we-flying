@@ -17,17 +17,17 @@ export function shimResponsePrototype(responsePrototype) {
   };
 
   // "just reply with some text"
-  responsePrototype.text = function (textData) {
-    this.status(200).send(textData);
+  responsePrototype.text = function (textData, status = 200) {
+    this.status(status).send(textData);
   };
 
   // "just reply with some json"
-  responsePrototype.json = function (jsData) {
-    this.status(200, `application/json`).send(JSON.stringify(jsData));
+  responsePrototype.json = function (jsData, status = 200) {
+    this.status(status, `application/json`).send(JSON.stringify(jsData));
   };
 
   // "send a failure response"
   responsePrototype.fail = function (reason) {
-    this.status(400).send(reason);
+    this.text(reason, 400);
   };
 }
