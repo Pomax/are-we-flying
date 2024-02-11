@@ -9964,29 +9964,28 @@ Now, the easy part is throttling the engines up to 100%. The _hard_ part is keep
 
 ![image-20240210182744489](./image-20240210182744489.png)
 
-It's not good, this is varying degrees of either crashing into trees or buildings, or managing to take off in "nowhere near the direction of the runway". So we're definitely going to need to implement an auto-rudder of sorts if we want to at least _pretend_ we're sticking to the runway during takeoff.
+*The 310R, Beaver, Twin Beech, DC-3, Kodiak 100, Top Rudder, Arrow, Pitts, and Gee Bee R3.*
 
-
-
------ CONTINUE HERE ------
-
-
+It's not good: this is varying degrees of either crashing into trees or buildings, or managing to take off in "nowhere near the direction of the runway". So we're definitely going to need to implement an auto-rudder of sorts if we want to at least _pretend_ we're sticking to the runway during takeoff.
 
 One thing we notice is the difference between the 310R and the three tail draggers. As you may have guessed, this corresponds to the moment when the tail wheel no longer makes contact with the ground: up until that point we have the benefit of actually being able to (slightly) steer using the rear wheel, with the actual rudder having to do very little, but once it's off the ground we need to briefly work the rudder a lot harder to stop the plane from suddenly veering off.
 
 So our attempt at an auto-rudder will consist of a few phases:
 
-- pre-roll: where we make sure the plane's ready to roll (brakes, flaps, etc) and we record our start position
-- initial roll, all wheels on the ground, plenty of control
+- pre-roll: where we make sure the plane's ready to roll (brakes, flaps, etc) and we record our start position,
+  - which we already implemented!
+
+- initial roll, with all wheels on the ground, and plenty of control
   - the more out-of-heading we are, the more we steer back towards the center line.
   - if this is not a tail dragger, this phase effectively lasts for the entire roll.
-- loss of control when the tail wheel comes off the ground
-- Relatively stable control after the initial loss of control
+  - if it _is_ a tail dragger:
+    - there will be loss of control when the tail wheel comes off the ground,
+    - and then relatively stable control after the initial loss of control
 
 If we're lucky (or we accept "good enough") we can come up with code that can handle all of these phases without knowing "which phase we're in", so we'll make some more observations:
 
-- the faster we're going, the less rudder we need to apply to get the same effect
-- the close to the center line we are, the less rudder we need to apply, and
+- the faster we're going, the less rudder we need to apply to get the same correction over time,
+- the closer to the center line we are, the less rudder we need to apply, and
 - every plane has rudder characteristics that we could use to finesse the code, but we don't have access to them.
 
 Now, the first two are relatively easy to implement (although we'll need a fair bit of code for step 2, even if it's simple code). It's that last point that's properly annoying. There's just no way to get the information we want, so if we want something that mostly kind of sort of works for mostly all planes, we're going to have run this code a million times for different planes and figure out what "magic constant" works for which plane. And then try to figure out what plane property that we _do_ have access to we can tie that to. To save you that headache, I've done that work for us, but suffice it to say we shouldn't feel good about this solution and ideally, one day, we will come up with something better.
@@ -9994,84 +9993,24 @@ Now, the first two are relatively easy to implement (although we'll need a fair 
 So let's write some code:
 
 ```javascript
-  async function changeThrottle(api, engineCount = 4, byHowMuch, floor = 0, ceiling = 100) {
-    let newThrottle;
-    for (let count = 1; count <= engineCount; count++) {
-      const simVar = `GENERAL_ENG_THROTTLE_LEVER_POSITION:${count}`;
-      const throttle = (await api.get(simVar))[simVar];
-      if ((byHowMuch < 0 && throttle > floor) || (byHowMuch > 0 && throttle < ceiling)) {
-        newThrottle = throttle + byHowMuch;
-        api.set(simVar, newThrottle);
-      }
-    }
-    return newThrottle ?? (byHowMuch < 0 ? floor : ceiling);
+  // throttle up for as long as we're not at 100% throttle
+  async throttleUp({ engineCount }, { throttle }) {
+    if (throttle > 99) return;
+    const { api } = this;
+    const throttleVar = `GENERAL_ENG_THROTTLE_LEVER_POSITION`;
+    for (let count = 1; count <= engineCount; count++)
+      api.set(`${throttleVar}:${count}`, throttle + 1);
   }
 
-  async throttleUp(engineCount) {
-    const { api, maxed } = this;
-    if (maxed) return;
+  // Check how much we're out wrt the runway center line and correct 
+  async autoRudder({}, {lat, long, trueHeading} {
+    const { api, start, end } = this;
 
-    const newThrottle = await this.changeThrottle(api, engineCount, 1);
-    console.log(`Throttle up to ${newThrottle | 0}%`);
-    if (newThrottle === 100) {
-      this.maxed = true;
-    }
-  }
+    // Much like our waypoint code, we're going to "target" a point
+    // on our center line, some distance away from the plane, so that
+    // we (hopefully) don't over- correct using the rudder.
 
-  async autoRudder(onGround, isTailDragger, vs12, minRotate, currentSpeed, lat, long, heading) {
-    const { api, takeoffCoord: p1, futureCoord: p2 } = this;
-
-    // If we're actually in the air, we want to ease the rudder back to neutral.
-    if (!onGround) {
-      const { RUDDER_POSITION: rudder } = await api.get(`RUDDER_POSITION`);
-      api.set(`RUDDER_POSITION`, rudder / 2);
-      return;
-    }
-
-    // If we're still on the ground, get our aeroplane's drift with respect to the center line,
-    // using orthogonal projection, https://en.wikipedia.org/wiki/Vector_projection
-    // We know the centerline is p1--p2 (the place we started and a point in the distance
-    // along the same heading as the runway), and we have a vector from p1 to our current
-    // location, so we can project our current location onto the centerline and measure how
-    // many feet off the centerline we are:
-    const c = { lat, long };
-    const abx = p2.long - p1.long;
-    const aby = p2.lat - p1.lat;
-    const acx = c.long - p1.long;
-    const acy = c.lat - p1.lat;
-    const coeff = (abx * acx + aby * acy) / (abx * abx + aby * aby);
-    const dx = p1.long + abx * coeff;
-    const dy = p1.lat + aby * coeff;
-    const cross1 = (p2.long - p1.long) * (c.lat - p1.lat);
-    const cross2 = (p2.lat - p1.lat) * (c.long - p1.long);
-    const left = cross1 - cross2 > 0;
-    const distInMeters = 100000 * FEET_PER_METER;
-    const drift = (left ? 1 : -1) * dist(long, lat, dx, dy) * distInMeters;
-
-    // Then we turn that distance into an error term that we add the number of degrees off
-    // we are. If we need to fly 160 degrees and we're rolling towards 150, that's a 10
-    // degree difference, but if we're also quite a few feet off the centerline, we can
-    // tell the code we actually need to correct for, say, 12 or 15 degrees, so that we
-    // don't just end up parallel to the center line, but actually drive back towards it.
-    const limit = constrainMap(currentSpeed, 0, minRotate, 12, 4);
-    const driftCorrection = constrainMap(drift, -130, 130, -limit, limit);
-
-    // With that done, get our heading diff, with a drift correction worked in:
-    const diff = getCompassDiff(heading, this.takeoffHeading + driftCorrection);
-
-    // get our "magic constant":
-    const stallFactor = constrainMap(vs12, 2500, 6000, 0.05, 0.3);
-
-    // Set our "the faster we go, the less rudder we need" factor, which is just a straight
-    // line down from 1 at a speed of zero to 0 at our minimum take-off speed, but constrained
-    // so that we never go below 0.2, because we always want to be able to add *some* rudder.
-    const speedFactor = constrain(1 - (currentSpeed / minRotate) ** 0.5, 0.2, 1);
-
-    // Then the tail wheel: if this is not a tail dragger, only apply half the rudder.
-    const tailFactor = isTailDragger ? 1 : 0.5;
-
-    // And then finally we multiply all of those and put our foot down:
-    const rudder = diff * stallFactor * speedFactor * tailFactor
+    const rudder = 0;
     api.set(`RUDDER_POSITION`, rudder);
   }
 ```

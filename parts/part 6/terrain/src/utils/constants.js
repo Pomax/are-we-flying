@@ -20,3 +20,10 @@ export const ALTITUDE_HOLD = `ALT`;
 export const HEADING_MODE = `HDG`;
 export const HEADING_TARGETS = `HeadingTargets`;
 export const AUTO_THROTTLE = `ATT`;
+
+
+// terrain follow
+export const TERRAIN_FOLLOW = `TER`;
+export const TERRAIN_FOLLOW_DATA = `TerrainFollowData`;
+export const TERRAIN_FOLLOW_SAFETY = 500;
+ 

@@ -4,6 +4,7 @@ import {
   getPointAtDistance,
   getDistanceBetweenPoints,
   getCompassDiff,
+  getHeadingFromTo,
 } from "../utils/utils.js";
 import { FEET_PER_METER } from "../utils/constants.js";
 
@@ -87,27 +88,24 @@ export class AutoTakeoff {
     // this.prepped = true;
   }
 
-  // log for as long as we're not at 100% throttle
+  // throttle up for as long as we're not at 100% throttle
   async throttleUp({ engineCount }, { throttle }) {
-    if (throttle <= 99) {
-      console.log(
-        `throttle up ${engineCount} engine${
-          engineCount === 1 ? `` : `s`
-        } (currently at ${throttle}%)`
-      );
-    }
+    if (throttle > 99) return;
+    const { api } = this;
+    const throttleVar = `GENERAL_ENG_THROTTLE_LEVER_POSITION`;
+    for (let count = 1; count <= engineCount; count++)
+      api.set(`${throttleVar}:${count}`, throttle + 1);
   }
 
   // Check how much we're out wrt the runway center line
   async autoRudder({}, { lat, long, trueHeading }) {
     const { heading, start, end } = this;
     const p = project(start.long, start.lat, end.long, end.lat, long, lat);
-    const d =
-      getDistanceBetweenPoints(lat, long, p.y, p.x) * 1000 * FEET_PER_METER;
-    const hDiff = getCompassDiff(heading, trueHeading);
-    console.log(
-      `run autorudder: off by ${d}' (heading off by ${hDiff} degrees)`
-    );
+    const d = getDistanceBetweenPoints(lat, long, p.y, p.x) * 1000 * FEET_PER_METER;
+    const target = getPointAtDistance(p.y, p.x, 1, heading);
+    const targetHeading = getHeadingFromTo(lat, long, target.lat, target.long);
+    const hDiff = getCompassDiff(trueHeading, targetHeading);
+    // ...
   }
 
   // Check if we're at a speed where we should rotate
