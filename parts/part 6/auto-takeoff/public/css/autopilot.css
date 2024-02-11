@@ -1,0 +1,17 @@
+#autopilot {
+  margin: 0.5em 0;
+}
+
+.terrain-probe {
+  stroke: #00ffc8;
+  fill: #00ffc8;
+}
+
+/*
+  When terrain follow is enabled, we hide the
+  waypoint marker elevation indicators, because
+  they're not actually getting used.
+*/
+body:has(.TER.active) .waypoint-div::before {
+  content: "";
+}

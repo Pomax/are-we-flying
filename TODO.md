@@ -40,3 +40,5 @@ Does this make sense? Or would we just waste time computing:
 Alternatively, do we want to compute strips along a waypoint so we're working with as much cached data as possible and don't hit ALOS as much?
 
 backport and document: ENV_PATH in constants.js
+
+CHECK THAT ALL AUTOPILOTS ACTUALLY RUN AT 500MS INSTEAD OF MULTIPLE TIMES PER MILLISECOND

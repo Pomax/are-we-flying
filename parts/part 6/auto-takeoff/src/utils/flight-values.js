@@ -1,6 +1,5 @@
-import { FEET_PER_DEGREE, FEET_PER_METER, FPS_IN_KNOTS } from "./constants.js";
+import { FEET_PER_METER, FPS_IN_KNOTS } from "./constants.js";
 import { exists } from "./utils.js";
-const noop = () => {};
 
 export const FLIGHT_MODEL = [
   `CATEGORY`,
@@ -14,6 +13,7 @@ export const FLIGHT_MODEL = [
   `ELEVATOR_TRIM_DOWN_LIMIT`,
   `ELEVATOR_TRIM_UP_LIMIT`,
   `ENGINE_TYPE`,
+  `INCIDENCE_ALPHA`,
   `IS_GEAR_FLOATS`,
   `IS_GEAR_RETRACTABLE`,
   `IS_TAIL_DRAGGER`,
@@ -27,6 +27,15 @@ export const FLIGHT_MODEL = [
   `TYPICAL_DESCENT_RATE`,
   `WING_AREA`,
   `WING_SPAN`,
+];
+
+export const ENGINE_TYPES = [
+  `piston`,
+  `jet`,
+  `none`,
+  `helo(Bell) turbine`,
+  `unsupported`,
+  `turboprop`,
 ];
 
 export const FLIGHT_DATA = [
@@ -55,6 +64,7 @@ export const FLIGHT_DATA = [
   `GENERAL_ENG_THROTTLE_LEVER_POSITION:1`,
   `GROUND_ALTITUDE`,
   `INDICATED_ALTITUDE`,
+  `MAGVAR`,
   `OVERSPEED_WARNING`,
   `PLANE_ALT_ABOVE_GROUND_MINUS_CG`,
   `PLANE_ALT_ABOVE_GROUND`,
@@ -67,11 +77,15 @@ export const FLIGHT_DATA = [
   `RUDDER_POSITION`,
   `RUDDER_TRIM_PCT`,
   `SIM_ON_GROUND`,
+  `TAILWHEEL_LOCK_ON`,
+  `TRAILING_EDGE_FLAPS_LEFT_ANGLE`,
   `TURN_INDICATOR_RATE`,
   `VERTICAL_SPEED`,
 ];
 
+// These are all degree values that are actually stored as radians.
 export const DEGREE_VALUES = [
+  `MAGVAR`,
   `PLANE_LATITUDE`,
   `PLANE_LONGITUDE`,
   `PLANE_BANK_DEGREES`,
@@ -79,9 +93,11 @@ export const DEGREE_VALUES = [
   `PLANE_HEADING_DEGREES_TRUE`,
   `PLANE_PITCH_DEGREES`,
   `STALL_ALPHA`,
+  `TRAILING_EDGE_FLAPS_LEFT_ANGLE`,
   `TURN_INDICATOR_RATE`,
 ];
 
+// These are all boolean values that are stored as a number.
 export const BOOLEAN_VALUES = [
   `AUTOPILOT_MASTER`,
   `BRAKE_PARKING_POSITION`,
@@ -96,9 +112,10 @@ export const BOOLEAN_VALUES = [
   `GEAR_SPEED_EXCEEDED`,
   `OVERSPEED_WARNING`,
   `SIM_ON_GROUND`,
+  `TAILWHEEL_LOCK_ON`,
 ];
 
-// percent over 100 to percent
+// These are percentages, but stored as "percent divided by 100"
 export const PERCENT_VALUES = [
   `AILERON_POSITION`,
   `AILERON_TRIM_PCT`,
@@ -108,18 +125,42 @@ export const PERCENT_VALUES = [
   `RUDDER_TRIM_PCT`,
 ];
 
-// fps to fpm
+// In game, vertical speed is shown feet per minute,
+// but SimConnect reports it as feet per second...
 export const FPM_VALUES = [`VERTICAL_SPEED`];
 
-// meters to feet
+// Plane altitude is in feet, so why is ground altitude in meters?
 export const MTF_VALUES = [`GROUND_ALTITUDE`];
 
-// fps to knots
+// And finally, please just turn all of these into
+// values in knots instead of feet per second...
 export const KNOT_VALUES = [
   `DESIGN_SPEED_MIN_ROTATION`,
   `DESIGN_SPEED_CLIMB`,
   `DESIGN_SPEED_VC`,
 ];
+
+const noop = () => {};
+
+export function convertValues(data) {
+  // Convert values to the units they're supposed to be:
+  BOOLEAN_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] = !!data[p]) : noop
+  );
+  DEGREE_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] *= 180 / Math.PI) : noop
+  );
+  PERCENT_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 100) : noop));
+  FPM_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 60) : noop));
+  KNOT_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] *= FPS_IN_KNOTS) : noop
+  );
+  MTF_VALUES.forEach((p) =>
+    exists(data[p]) ? (data[p] *= FEET_PER_METER) : noop
+  );
+  if (exists(data.ENGINE_TYPE))
+    data.ENGINE_TYPE = ENGINE_TYPES[data.ENGINE_TYPE];
+}
 
 export const NAME_MAPPING = {
   AILERON_POSITION: `aileron`,
@@ -157,6 +198,7 @@ export const NAME_MAPPING = {
   IS_GEAR_FLOATS: `isFloatPlane`,
   IS_GEAR_RETRACTABLE: `hasRetractibleGear`,
   IS_TAIL_DRAGGER: `isTailDragger`,
+  MAGVAR: `declination`,
   NUMBER_OF_ENGINES: `engineCount`,
   OVERSPEED_WARNING: `overSpeed`,
   PLANE_ALT_ABOVE_GROUND_MINUS_CG: `lift`,
@@ -172,6 +214,7 @@ export const NAME_MAPPING = {
   SIM_ON_GROUND: `onGround`,
   STATIC_CG_TO_GROUND: `cg`,
   STALL_ALPHA: `stallAlpha`,
+  TAILWHEEL_LOCK_ON: `tailWheelLock`,
   TITLE: `title`,
   TOTAL_WEIGHT: `weight`,
   TURN_INDICATOR_RATE: `turnRate`,
@@ -181,11 +224,15 @@ export const NAME_MAPPING = {
   WING_SPAN: `wingSpan`,
 };
 
+// Our list of "first derivatives", i.e. our deltas
 export const DERIVATIVES = [
+  `aileronTrim`,
   `bank`,
   `heading`,
   `lift`,
   `pitch`,
+  `flaps`,
+  `pitchTrim`,
   `speed`,
   `trueHeading`,
   `trueSpeed`,
@@ -193,61 +240,20 @@ export const DERIVATIVES = [
   `VS`,
 ];
 
+// And our single "second derivative":
 export const SECOND_DERIVATIVES = [`VS`];
 
-export const ENGINE_TYPES = [
-  `piston`,
-  `jet`,
-  `none`,
-  `helo(Bell) turbine`,
-  `unsupported`,
-  `turboprop`,
-];
-
-/**
- * ...
- * @param {*} data
- */
-export function convertValues(data) {
-  // Convert values to the units they're supposed to be:
-  BOOLEAN_VALUES.forEach((p) =>
-    exists(data[p]) ? (data[p] = !!data[p]) : noop
-  );
-  DEGREE_VALUES.forEach((p) =>
-    exists(data[p]) ? (data[p] *= 180 / Math.PI) : noop
-  );
-  PERCENT_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 100) : noop));
-  FPM_VALUES.forEach((p) => (exists(data[p]) ? (data[p] *= 60) : noop));
-  KNOT_VALUES.forEach((p) =>
-    exists(data[p]) ? (data[p] *= FPS_IN_KNOTS) : noop
-  );
-  MTF_VALUES.forEach((p) =>
-    exists(data[p]) ? (data[p] *= FEET_PER_METER) : noop
-  );
-
-  if (exists(data.ENGINE_TYPE)) {
-    data.ENGINE_TYPE = ENGINE_TYPES[data.ENGINE_TYPE];
-  }
-}
-
-/**
- * ...
- * @param {*} data
- * @param {*} withDelta
- */
+// And then an update to the `rebind` function:
 export function renameData(data, previousValues) {
   // Whether or not we have previous values for delta computation,
   // just preallocate the values we _might_ need for that.
   const d = {};
-  const before = previousValues?.__date_time ?? Date.now();
   const now = Date.now();
-  const dt = (now - before) / 1000; // delta per second
+  const before = previousValues?.__date_time ?? now - 0.001;
+  const dt = (now - before) / 1000; // delta per second seconds
 
-  // Then copy all of that data to remapped names so we don't need to
-  // ever work with ALL_CAPS_SIMVAR_NAMES. Any information the client
-  // needs to "normally" work with should have normal JS varnames.
-  // At the same time, compute deltas for anything that has a JS name
-  // and is a numeric type (and isn't in the FIXED_PROPERTIES list).
+  // Then perform the name mapping, but with extra code for getting
+  // our "delta" values, which we'll add into a `.d` property.
   Object.entries(data).forEach(([simName, value]) => {
     const jsName = NAME_MAPPING[simName];
 

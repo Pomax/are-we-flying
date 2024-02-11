@@ -1,4 +1,5 @@
 # Flying planes with JavaScript
+{:.no_toc}
 
 ![masthead image of a cockpit with browsers loaded in the cockpit screens](./images/masthead.png)
 
@@ -47,6 +48,7 @@ If that sounds (and looks) good to you, then read on!
 
 
 # Table of Contents
+{:.no_toc}
 
 {:toc}
 
@@ -5557,7 +5559,7 @@ If we rerun our server with `node api-server.js --mock` and our client with `nod
 
 ...but it's a bit janky: the map keeps snapping to the plane, which makes placing points harder than it needs to be because we need to zoom out so we can place points, and then when we try to move them around the map keeps changing on us, not to mention that the plane is using an extremely poor waypoint policy that we can't actually use in-game:
 
-#### ![image-20240128175409726](./image-20240128175409726.png)
+![image-20240128175409726](./image-20240128175409726.png)
 
 Note that, at no point during this flight, are we actually properly on the flight path itself... And of course: while we can move points around, we don't have a way to edit or remove them yet. Nor a way to mark a sequence of waypoints as repeating... let's improve things a bit!
 
@@ -7608,6 +7610,12 @@ We just flew a tour of South-East Vancouver Island upside down. Need I say more?
 
 So now we get to the part where we've implemented an autopilot, and we've made planes fly upside down, and we could stop there, _or we could keep going_. What if we just make JavaScript fly the plane, start to finish? Because in the immortal words of Jeremy Clarkson: how hard could it be?
 
+We'll tackle this in three parts:
+
+1. we'll  be adding a terrain follow mode that ensures the plane's always at a safe altitude,
+2. we'll  be adding auto takeoff, to get us off the run way and into the air, and
+3. we'll be adding auto landing, to gets us back to being stopped on a runway.
+
 ## Terrain follow mode
 
 Normally, most planes don't come with a mode that lets them "hug the landscape", but we're not flying real planes, we're flying virtual planes, and hugging the landscape would be pretty sweet to have if we just want to fly around on autopilot and enjoy the view without having to meticulously set altitudes on every waypoint and then fly the route until we crash so we can refine those values. Having a terrain-follow mode would be so much nicer!
@@ -9561,13 +9569,13 @@ Was it a lot of work? Absolutely. Was it worth it? _**Absolutely**_.
 
 So let's see what happens if we run our test flight with terrain follow rather than preprogrammed altitudes? Let's find out! We'll grab ourselves a Twin Beech and let's see what happens! First, let's look at the altitude curve when we're flying the Ghost Dog Tour without terrain follow:
 
-![image-20240209180324283](./image-20240209180324283.png)
+![image-20240210101811963](./image-20240210101811963.png)
 
 And then, _with_ terrain follow:
 
 ![image-20240209172658718](./image-20240209172658718.png)
 
-So now we have two ways to fly a flight plan, but one of those requires zero effort on our part when it comes to figuring out the flight plan: we can now  just drop down a bunch of points on the map and let the autopilot figure out how to safely fly that. And then it does!
+So now we have two ways to fly a flight plan, but one of those requires zero effort on our part when it comes to flying it: we can now  just drop down a bunch of points on the map and let the autopilot figure out how to safely fly that. And then it does!
 
 And if we want to make things _exciting_ we can lower the safe altitude to something like 25 feet instead of 500 feet... although of course the terrain follow code will still round that up to the nearest higher multiple of 100, and it won't be able to fly as low through a canyon as a well-flown, elevation tailored flight plan will simply because the elevation probe almost certainly covers the sides cliff sides on either side.
 
@@ -9583,272 +9591,333 @@ export const TERRAIN_FOLLOW_SAFETY = 25; // Let's make this fun!
 
 ![image-20240209191040395](./image-20240209191040395.png)
 
-...that actually looks perfectly fine. Guess we're flying at 25 from now on!
+...okay you know what, that actually looks perfectly fine. Guess we're flying at 25 from now on!
 
 ## Auto takeoff
 
-In fact we can do one more thing if we just want the computer to fly our plane for us, and that's have it handle take-off when our plane's sitting on the ground. This is, barring auto-landing, the hardest thing to implement if we're not building a bespoke autopilot for one specific aeroplane, but we're going to do it anyway, and we're going to succeed, _and_ it's going to be glorious.
+So with "safely flying as long as we're in the air" covered, let's work on _getting_ ourselves up ion the air. This is, barring auto-landing, the hardest thing to implement if we're not building a bespoke autopilot for one specific plane, but we're going to do it anyway, and we're going to succeed, _and_ it's going to be glorious. (Although I won't guarantee it won't be janky!)
 
-There's a few challenges we'll want to tackle, in order:
+We'll tackle this by breaking up the task again:
 
-1. make sure the plane is ready for takeoff, then once ready
-2. throttle up and roll down the runway to pick up speed. Ideally in a straight line. Then
+1. we want to make sure the plane is ready for takeoff, then
+2. throttle up and roll down the runway to pick up speed. _Ideally in a straight line_. Then,
 3. rotating the plane in order to take off once we're at take-off speed, and then
-4. leveling out the plane and switching to the autopilot.
+4. switch to the autopilot and keep on flying.
+
+### Our auto-takeoff handler
+
+Let's start by writing the scaffolding we'll need in order to run through auto-takeoff, with a new autopilot mode, a new mode function, and of course a new browser page button to trigger this functionality. So you know the drill by now: let's add a constant:
+
+```javascript
+export const AUTO_TAKEOFF = `ATO`;
+```
+
+and plug that into the autopilot
+
+```javascript
+import { ..., AUTO_TAKEOFF } from "../utils/constants.js";
+...
+  this.modes = [
+    ...,
+    [AUTO_TAKEOFF]: false,
+  ]
+...   
+```
+
+and our `public/js/autopilot.js` as well:
+
+```javascript
+...
+export const AP_OPTIONS = {
+  ...
+  ATO: false,
+};
+...
+```
+
+and our `autopilot.html`:
+
+```html
+<div class="controls">
+  ...
+  <fieldset>
+    <button title="terrain follow" class="TER">terrain follow</button>
+    <button title="auto takeoff" class="ATO">take off</button>
+  </fieldset>
+</div>
+```
+
+(Also note the moved  terrain follow button: let's just group our special functions)
+
+Then, our auto takeoff function. Or rather, our take off object, because it's going to have to do a lot of "this-takeoff-relevant" value tracking throughout the takeoff process, so it makes more sense to use a proper object rather than a (mostly) stateless function:
 
 ```javascript
 export class AutoTakeoff {
-  prepped = false;
-  takeoffHeading = false;
-  takeoffAltitude = false;
-  liftoff = false;
-  levelOut = false;
-  easeElevator = false;
-
   constructor(autopilot) {
     this.autopilot = autopilot;
     this.api = autopilot.api;
+  	this.prepped = false;
+    this.done = false;
   }
 
-  async run(state) {
-    const { api } = this;
+  async run(flightInformation) {
+    if (this.done) return;
+    const { model: flightModel, data: flightData } = flightInformation;
 
-    const {
-      TOTAL_WEIGHT: totalWeight,
-      DESIGN_SPEED_VS1: vs1,
-      DESIGN_SPEED_MIN_ROTATION: minRotate,
-      NUMBER_OF_ENGINES: engineCount,
-      TITLE: title,
-    } = await api.get(
-      `TOTAL_WEIGHT`,
-      `DESIGN_SPEED_VS1`,
-      `DESIGN_SPEED_MIN_ROTATION`,
-      `NUMBER_OF_ENGINES``TITLE`
-    );
+    // prep the plane for roll
+    if (!this.prepped) return this.prepForRoll(flightModel, flightData);
 
-    const {
-      onGround,
-      speed: currentSpeed,
-      lift,
-      dLift,
-      verticalSpeed: vs,
-      dVS,
-      latitude: lat,
-      longitude: long,
-      isTailDragger,
-    } = state;
+    // Throttle up (if we can)
+    this.throttleUp(flightModel, flightData);
 
-    const heading = degrees(state.heading);
-    const trueHeading = degrees(state.trueHeading);
-    const vs12 = vs1 ** 2;
-
-    if (!this.takeoffAltitude) this.takeoffAltitude = state.altitude;
-
-    // Make sure we've set the aeroplane up for a runway roll.
-    if (!this.prepped)
-      return this.prepForRoll(
-        isTailDragger,
-        engineCount,
-        state.altitude,
-        lat,
-        long,
-        heading,
-        trueHeading
-      );
-
-    // As long as we've not lifted off, throttle up to max
-    if (!this.liftoff) await this.throttleUp(engineCount);
-
-    // Try to keep us going in a straight line.
-    this.autoRudder(
-      onGround,
-      isTailDragger,
-      vs12,
-      minRotate,
-      currentSpeed,
-      lat,
-      long,
-      heading
-    );
+	  // And try to keep us rolling in a straight line:
+    this.autoRudder(flightModel, flightData);
 
     // Is it time to actually take off?
-    await this.checkRotation(
-      onGround,
-      currentSpeed,
-      lift,
-      dLift,
-      vs,
-      dVS,
-      totalWeight
-    );
+    this.checkRotation(flightModel, flightData);
 
     // Is it time to hand off flight to the regular auto pilot?
-    const altitudeGained = state.altitude - this.takeoffAltitude;
-    await this.checkHandoff(
-      title,
-      isTailDragger,
-      totalWeight,
-      vs,
-      dVS,
-      altitudeGained
-    );
+    this.checkHandoff(flightModel, flightData);
+  }
+  
+  // We'll look at the implementations for all of these in a bit
+  
+  async prepForRoll() {
+    console.log(`prep for roll`);
+  }
+
+  async throttleUp() {
+    console.log(`throttle up`);
+  }
+
+  async autoRudder() {
+    console.log(`run autorudder`);
+  }
+  
+  async checkRotation() {
+    console.log(`check rotation`);
+  }
+  
+  async checkHandoff() {
+    console.log(`check for handoff`);
   }
 }
 ```
 
-With the autopilot loading this class:
+Which we then import into the autopilot, but with some extra code to make the autopilot run faster when we're in auto-takeoff, because our half-second interval is too long for the auto-rudder to do its job (you can literally "spin out" in half a second when a heavy tail dragger goes from three wheels on the ground to only two wheels on the ground because it reached a speed that's fast enough for the tail to lift).
 
 ```javascript
 import { ..., AUTO_TAKEOFF } from "./constants.js";
 ...
 
-import { AutoTakeoff as ato } from "./auto-takeoff.js";
-let AutoTakeoff = ato;
+let autoTakeoff = false;
+let { AutoTakeoff } = await watch(
+  dirname,
+  `auto-takeoff.js`,
+  (lib) => {
+    AutoTakeoff = lib.AutoTakeoff;
+    if (autoTakeoff) {
+      Object.setPrototypeOf(autoTakeoff, AutoTakeoff.prototype);
+    }
+);
+
+const FAST_AUTOPILOT_INTERVAL = 100;
 
 export class AutoPilot {
-  constructor(api, onChange = () => {}) {
-
-  }
-
-  reset() {
-    this.modes = {
-      [LEVEL_FLIGHT]: false,
-      [HEADING_MODE]: false,
-      [ALTITUDE_HOLD]: false,
-      [AUTO_THROTTLE]: true,
-      [TERRAIN_FOLLOW]: false,
-      [AUTO_TAKEOFF]: false,
-    ];
-    this.autoTakeoff = false;
-  }
-
-  watchForUpdates() {
-    ...
-    watch(__dirname, `auto-takeoff.js`, (lib) => {
-      AutoTakeoff = lib.AutoTakeoff;
-      // since this is a class instance, run a copy construction:
-      this.autoTakeoff = new AutoTakeoff(this, this.autoTakeoff);
-    });
-  }
-
-  async processChange(type, oldValue, newValue) {
-    if (type === AUTO_TAKEOFF) {
-      if (oldValue === false && newValue === true) {
-        this.autoTakeoff = new AutoTakeoff(this);
-        this.trim = { x: 0, y: 0, z: 0 };
-      }
-      this.AP_INTERVAL = newValue ? FAST_AUTOPILOT : REGULAR_AUTOPILOT;
-    }
-    ...
-  }
-
-  async runAutopilot() {
-    ...
-    const state = new State(data, this.prevState);
-
-    if (!this.modes[AUTO_TAKEOFF] && state.speed < 15) {
-      // Disengage our autopilot, but preserve all settings
-      // in case we want to turn it back on momentarily.
-      return;
-    }
-
-    // Are we in auto-takeoff?
-    if (this.modes[AUTO_TAKEOFF]) this.autoTakeoff.run(state);
-
-    // Do we need to level the wings / fly a specific heading?
-    if (this.modes[LEVEL_FLIGHT]) flyLevel(this, state);
-
-    ...
-  }
-}
-```
-
-And another update to `altitude-hold.js`:
-
-```javascript
-function updateAltitudeFromWaypoint(autopilot, state) {
-  if (autopilot.modes[AUTO_TAKEOFF]) return;
-  if (autopilot.modes[TERRAIN_FOLLOW]) return;
-
-  const { waypoints } = autopilot;
-  const waypointAltitude = waypoints.getAltitude(state);
-  if (waypointAltitude) {
-    autopilot.setTarget(ALTITUDE_HOLD, waypointAltitude);
-  }
-}
-```
-
-As well as `fly-level.js`:
-
-```javascript
-function updateHeadingFromWaypoint(autopilot, state) {
-  if (autopilot.modes[AUTO_TAKEOFF]) return;
-
-  const { waypoints } = autopilot;
-  const waypointHeading = waypoints.getHeading(state);
-  if (waypointHeading) {
-    autopilot.setTarget(HEADING_MODE, waypointHeading);
-  }
-}
-```
-
-And finally in `waypoints.js`:
-
-```javascript
-export class WayPoints {
   ...
 
-  getHeading(state) {
-    // If we're in auto-takeoff, waypoints should not be active yet
-    const { modes } = this.autopilot;
-    if (modes[AUTO_TAKEOFF]) return;
+  reset() {
     ...
+    autoTakeoff = false;
+  }
+
+  async setTarget(key, value) {
+    ...
+    // Did we turn auto takeoff on or off?
+    if (key === AUTO_TAKEOFF) {
+      if (oldValue === false && newValue === true) {
+        autoTakeoff = new AutoTakeoff(this);
+        this.resetTrim();
+        this.AP_INTERVAL = FAST_AUTOPILOT_INTERVAL
+      } else if (newValue === false && autoTakeoff) {
+        autoTakeoff = false;
+        this.AP_INTERVAL = AUTOPILOT_INTERVAL;
+      }
+    }
+  }
+
+  async run() {
+    ...   
+    try {
+      ...
+      if (modes[AUTO_TAKEOFF]) autoTakeoff?.run(flightInformation);
+    } catch (e) {
+      console.warn(e);
+    }
   }
 }
 ```
 
-And with that out of the way, we can run through each step in the auto-takeoff process.
+With that out of the way, let's set up some stub implementations so that we can run this code in action while _we_ perform a takeoff.
+
+### Basic testing
+
+Step one: add some code so our functions do something:
+
+```javascript
+import { project, getPointAtDistance, getDistanceBetweenPoints, getCompassDiff } from "../utils/utils.js";
+import { FEET_PER_METER } from "../utils/constants.js";
+
+export class AutoTakeoff {
+  ...
+  
+  // what are our preroll settings?
+  async prepForRoll(
+    { isTailDragger },
+    { elevator, lat, long, flaps, parkingBrake, trueHeading, pitchTrim, aileronTrim, rudderTrim, tailWheelLock }
+  ) {
+    // Log the various settings we'll be working with when we implement the real prepForRoll
+    console.log(`prep for roll:`);
+    console.log(`parking break engaged: ${parkingBrake}`);
+    console.log(`flaps angle: ${flaps} degrees`);
+    console.log(`elevator: ${elevator}`);
+    console.log(`trim: elevator: ${pitchTrim}`);
+    console.log(`trim: aileron: ${aileronTrim}`);
+    console.log(`trim: rudder: ${rudderTrim}`);
+    if (isTailDragger) {
+			console.log(`tail wheel lock: ${tailWheelLock}`);
+    }
+    // Then, cache our takeoff line: we'll need it for auto-rudder.
+    this.heading = trueHeading;
+    this.start = getPointAtDistance(lat, long, -1, trueHeading);
+    this.end = getPointAtDistance(lat, long, 10, trueHeading);
+		// And we're done with prep
+    this.prepped = true;
+  }
+
+  // log for as long as we're not at 100% throttle
+  async throttleUp({ engineCount }, { throttle }) {
+    if (throttle <= 99) {
+      const engineWord = `engine${engineCount === 1 ? ``: `s`}`;
+      console.log(
+        `throttle up ${engineCount} ${engineWord} (currently at ${throttle.toFixed(2)}%`
+      );
+    }
+  }
+
+  // Check how much we're out wrt the runway center line
+  async autoRudder({}, { lat, long, trueHeading }) {
+    const { heading, start, end } = this;
+    const p = project(start.long, start.lat, end.long, end.lat, long, lat);
+    const d = getDistanceBetweenPoints(lat, long, p.y, p.x) * 1000 * FEET_PER_METER;
+    const hDiff = getCompassDiff(heading, trueHeading);
+    console.log(
+      `run autorudder: off by ${d.toFixed(3)}' (heading off by ${hDiff.toFixed(3)} degrees)`
+    );
+  }
+  
+  // Check if we're at a speed where we should rotate
+  async checkRotation({ minRotation, takeoffSpeed, }, { speed }) {
+    let minRotate = minRotation;
+    if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
+    console.log(`check rotation: ${speed >= minRotate ? `rotate` : `not yet`}.`);
+  }
+  
+  // Check if the plane's in a state where we can
+  // hand things off to the regular autopilot
+  async checkHandoff({}, { onGround, VS, altAboveGround }) {
+    const handoff = !onGround && VS > 100 && altAboveGround > 50;
+    console.log(`ready for handoff? ${handoff}`);
+    this.done = this.done || handoff;
+  }
+}
+```
+
+With all this in place, let's fire up MSFS, run our `node api-server.js` and our `node web-server.js --owner --browser` and put ourselves on a runway, then turn on the autopilot with only auto-takeoff enabled, and perform a takeoff. We should see something similar to the following log:
+
+```
+Engaging autopilot
+initial roll value for Milviz 310R CGTER: 5000 (4496/186.395 ≈ 24 psf)
+prep for roll:
+parking break engaged: true
+flaps angle: 0 degrees
+elevator: 0
+trim: elevator: 0
+trim: aileron: 0
+trim: rudder: 0
+throttle up 2 engines (currently at 0%)
+run autorudder: off by 3.065' (heading off by 0 degrees)
+check rotation: not yet.
+ready for handoff? false
+throttle up 2 engines (currently at 12.89%)
+run autorudder: off by 3.066' (heading off by -0.001 degrees)
+check rotation: not yet.
+ready for handoff? false
+...
+throttle up 2 engines (currently at 97.16%)
+run autorudder: off by 3.067' (heading off by 0.059 degrees)
+check rotation: not yet.
+ready for handoff? false
+run autorudder: off by 3.072' (heading off by 0.091 degrees)
+check rotation: not yet.
+ready for handoff? false
+...
+run autorudder: off by 2.910' (heading off by -0.615 degrees)
+check rotation: rotate.
+ready for handoff? false
+...
+run autorudder: off by 10.771' (heading off by -4.161 degrees)
+check rotation: rotate.
+ready for handoff? true
+```
+
+And now the challenge becomes replicating that in our autopilot.
 
 ### Preflight checklist
 
-The preflight checks are relatively easy:
+Our pre-flight checklist is relatively simple:
 
 - we want to make sure our altimeter is calibrated,
-- the parking brake is off,
-- flaps get fully retracted (some planes want flaps during takeoff, others don't, and we have no way of looking up which it is, so all planes get to lift off without the help of flaps. Use the runway, that's what it's for.)
+- we want to make sure the parking brake is off,
+- flaps get fully retracted (some planes want flaps during takeoff, others don't, and we have no way of looking up which it is, so all planes get to lift off without the help of flaps. *Use the runway, that's what it's for*.)
 - we reset all the trim values so that we start off neutral (again, some planes want trim for takeoff: too bad for them),
 - we set the elevator position to 0 (just in case it wasn't),
 - we set the fuel mixture somewhere between full rich and 65% depending on whether we're sitting at sea level or 8000 feet, or somewhere in between those two.
-- if the plane's a tail dragger, we lock the tail wheel
+- if the plane's a tail dragger, we lock the tail wheel.
 
-So, in code:
+Turning that into code:
 
 ```javascript
-  async prepForRoll(isTailDragger, engineCount, altitude, lat, long, heading, trueHeading) {
-    const { api, autopilot } = this;
-    console.log(`Prep for roll`);
+import {
+  constrainMap,
+  ...
+} from "../utils/utils.js";
 
-    // Record our initial heading and location, as well as a location along that heading
-    // somewhere in the distance, so that we have a line we can (try to) stick to.
-    if (!this.takeoffHeading) {
-      this.takeoffHeading = heading;
-      this.takeoffCoord = { lat, long };
-      this.futureCoord = getPointAtDistance(lat, long, 2, trueHeading);
-      autopilot.setTarget(HEADING_MODE, this.takeoffHeading);
-    }
+...
+
+export class AutoTakeoff {
+  ...
+  
+  async prepForRoll(
+    { isTailDragger, engineCount },
+    { alt, lat, long, flaps, parkingBrake, trueHeading, tailWheelLock }
+  ) {
+    const { api } = this;
+
+    // Cache our takeoff line: we'll need it for auto-rudder.
+    this.heading = trueHeading;
+    this.start = getPointAtDistance(lat, long, -1, trueHeading);
+    this.end = getPointAtDistance(lat, long, 10, trueHeading);
 
     // Ensure our barometric altimeter is calibrated
     api.trigger(`BAROMETRIC`);
 
     // Is the parking brake engaged? If so, let's take that off.
-    const { BRAKE_PARKING_POSITION } = await api.get(`BRAKE_PARKING_POSITION`);
-    if (BRAKE_PARKING_POSITION === 1) api.trigger(`PARKING_BRAKES`);
+    if (parkingBrake === 1) api.trigger(`PARKING_BRAKES`);
 
-    // We don't have a database of which plane needs how much flaps for takeoff, so we
-    // just... don't set flaps. It makes take-off take a bit longer, but then again:
-    // use the whole runway, that's literally what it's for.
-    let flaps = await api.get(`FLAPS_HANDLE_INDEX:1`);
-    flaps = flaps[`FLAPS_HANDLE_INDEX:1`];
+    // We don't have a database of which plane needs how much flaps for takeoff,
+    // so we/ just... don't set flaps. It makes take-off take a bit longer, but
+    // then again: use the whole runway, that's what it's for.
     if (flaps !== 0) api.set(`FLAPS_HANDLE_INDEX:1`, 0);
 
     // Reset all trim values before takeoff.
@@ -9856,35 +9925,52 @@ So, in code:
     api.set(`ELEVATOR_TRIM_POSITION`, 0);
     api.set(`RUDDER_TRIM_PCT`, 0);
 
-    // Set mixture to something altitude-appropriate and set props to 90%, mostly because we have no
-    // way to ask MSFS what the "safe" value for props is, and we don't want the engines to burn out.
-    const mixture = constrainMap(altitude, 3000, 8000, 100, 65);
+    // Set mixture to something altitude-appropriate and set props to 90%,
+    // mostly because we have no way to ask MSFS what the "safe" value for
+    // props is, and we don't want the engines to burn out.
+    const mixture = constrainMap(alt, 3000, 8000, 100, 65);
     for (let i = 1; i <= engineCount; i++) {
       api.set(`GENERAL_ENG_MIXTURE_LEVER_POSITION:${i}`, mixture);
       api.set(`GENERAL_ENG_PROPELLER_LEVER_POSITION:${i}`, 90);
     }
 
     // Lock the tailwheel. If we have one, of course.
-    if (isTailDragger) {
-      const { TAILWHEEL_LOCK_ON } = await api.get(`TAILWHEEL_LOCK_ON`);
-      if (TAILWHEEL_LOCK_ON === 0) api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
+    if (isTailDragger && tailWheelLock === 0) {
+      api.trigger(`TOGGLE_TAILWHEEL_LOCK`);
     }
 
     // Force neutral elevator
     await api.set(`ELEVATOR_POSITION`, 0);
+
+    // And we're done with prep
     this.prepped = true;
   }
+
+  ...
+}
 ```
 
-With those steps performed, we can start to throttle up and roll down the runway.
+Nothing particularly hard or complicated, just "set things to what they need to be so we can start our take-off". So... let's start our take-off?
 
 ### Runway roll
 
-Now, the _easy_ part is slowly throttling the engines up to 100%. The _hard_ part is keeping the plane on the runway: propeller torque as well as small differences in engine outputs on multi-engine aircrafts can _and will_ roll us off the runway if we don't use the pedals to steer us in the right direction. For instance, let's see what happens if we just throttle up the engines without any kind of rudder action:
+There's two aspects to a proper runway roll:
 
-FOUR IMAGES OF VARIOUS PLANES ROLLING WITHOUT RUDDER
+1. build up speed
+2. keep rolling straight
+3. `goto 1`
 
-It's not good, this is varying degrees of crashing into trees or buildings, so we're definitely going to need to implement an "auto-rudder" of sorts if we want to at least _pretend_ we're sticking to the runway during takeoff.
+Now, the easy part is throttling the engines up to 100%. The _hard_ part is keeping the plane on the runway: propeller torque as well as small differences in engine outputs on multi-engine aircrafts _can and will_ roll us off the runway if we don't use the pedals to steer us in the right direction. For instance, let's see what happens if we just throttle up the engines without any kind of rudder action:
+
+![image-20240210182744489](./image-20240210182744489.png)
+
+It's not good, this is varying degrees of either crashing into trees or buildings, or managing to take off in "nowhere near the direction of the runway". So we're definitely going to need to implement an auto-rudder of sorts if we want to at least _pretend_ we're sticking to the runway during takeoff.
+
+
+
+----- CONTINUE HERE ------
+
+
 
 One thing we notice is the difference between the 310R and the three tail draggers. As you may have guessed, this corresponds to the moment when the tail wheel no longer makes contact with the ground: up until that point we have the benefit of actually being able to (slightly) steer using the rear wheel, with the actual rudder having to do very little, but once it's off the ground we need to briefly work the rudder a lot harder to stop the plane from suddenly veering off.
 
