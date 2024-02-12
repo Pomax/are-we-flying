@@ -91,6 +91,12 @@ export class FlightInformation {
     // And create a convenience value for compass correction:
     data.declination = data.trueHeading - data.heading;
 
+    // As well as for how many wheels are on the ground
+    data.wheelsOnGround = 0;
+    if (data.centerWheelOnGround) data.wheelsOnGround++;
+    if (data.leftWheelOnGround) data.wheelsOnGround++;
+    if (data.rightWheeOnGround) data.wheelsOnGround++;
+
     // Finally: are we upside down?
     data.upsideDown = abs(data.bank) > 90;
     data.flipped = this.data.upsideDown !== data.upsideDown;

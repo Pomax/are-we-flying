@@ -102,8 +102,8 @@ export class Autopilot {
     // copy over the current values so that when we click the buttons,
     // we're just telling the plane to "keep going" instead of immediately
     // pushing a course or altitude change through.
-    if (!params[`ALT`]) altitude.value = round(flightData.alt);
-    if (!params[`HDG`]) heading.value = round(flightData.heading);
+    if (!params[`ALT`] && flightData) altitude.value = round(flightData.alt);
+    if (!params[`HDG`] && flightData) heading.value = round(flightData.heading);
 
     // what are we even doing?
     if (params[`HeadingTargets`]) {

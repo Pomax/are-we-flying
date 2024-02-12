@@ -43,6 +43,10 @@ export function registerWithAPI(clients, api, autopilot) {
     console.log(`Post-crash reset`);
     clients.forEach((client) => client.crashReset());
   });
+
+  api.on(SystemEvents.SIM_STOP, () => {
+    autopilot.reset();
+  });
 }
 
 export async function checkGameState(autopilot, clients, flightInformation) {

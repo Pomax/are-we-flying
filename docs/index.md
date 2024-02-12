@@ -9762,7 +9762,7 @@ With that out of the way, let's set up some stub implementations so that we can 
 
 ### Basic testing
 
-Step one: add some code so our functions do something:
+Step one: add some code so we can see our functions at least _do_ something:
 
 ```javascript
 import { project, getPointAtDistance, getDistanceBetweenPoints, getCompassDiff } from "../utils/utils.js";
@@ -9972,21 +9972,21 @@ One thing we notice is the difference between the 310R and the three tail dragge
 
 So our attempt at an auto-rudder will consist of a few phases:
 
-- pre-roll: where we make sure the plane's ready to roll (brakes, flaps, etc) and we record our start position,
+- pre-roll: where we make sure the plane's ready to roll (brakes, flaps, etc) and we record our center line,
   - which we already implemented!
-
 - initial roll, with all wheels on the ground, and plenty of control
-  - the more out-of-heading we are, the more we steer back towards the center line.
-  - if this is not a tail dragger, this phase effectively lasts for the entire roll.
-  - if it _is_ a tail dragger:
+  - slowly throttle up so we give ourselves time to ease the rudder in as well.
+  - pick a target on the center line about a kilometer ahead of us to "rudder towards"
+  - the more out-of-heading we get, the more we rudder in to get back onto the center line.
+  - if this is not a tail dragger, this phase effectively lasts for the entire roll, but if this _is_ a tail dragger:
     - there will be loss of control when the tail wheel comes off the ground,
-    - and then relatively stable control after the initial loss of control
+  
 
 If we're lucky (or we accept "good enough") we can come up with code that can handle all of these phases without knowing "which phase we're in", so we'll make some more observations:
 
 - the faster we're going, the less rudder we need to apply to get the same correction over time,
 - the closer to the center line we are, the less rudder we need to apply, and
-- every plane has rudder characteristics that we could use to finesse the code, but we don't have access to them.
+- every plane has rudder characteristics that we could use to finesse the code. But we don't have access to those.
 
 Now, the first two are relatively easy to implement (although we'll need a fair bit of code for step 2, even if it's simple code). It's that last point that's properly annoying. There's just no way to get the information we want, so if we want something that mostly kind of sort of works for mostly all planes, we're going to have run this code a million times for different planes and figure out what "magic constant" works for which plane. And then try to figure out what plane property that we _do_ have access to we can tie that to. To save you that headache, I've done that work for us, but suffice it to say we shouldn't feel good about this solution and ideally, one day, we will come up with something better.
 

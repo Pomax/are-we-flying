@@ -90,6 +90,10 @@ export class AutoPilot {
       [AUTO_TAKEOFF]: false,
     };
     this.resetTrim();
+    if (autoTakeoff) {
+      autoTakeoff.done = true;
+      autoTakeoff = false;
+    }
     this.onChange();
   }
 
@@ -179,6 +183,10 @@ export class AutoPilot {
     // If the switch was for our AP master, log that:
     if (key === `MASTER`) {
       console.log(`${value ? `E` : `Dise`}ngaging autopilot`);
+      const oldValue = modes[key];
+      if (oldValue === false && value === true) {
+        this.reset();
+      }
     }
 
     // When we turn the wing leveler on, make sure to copy the in-game
@@ -222,7 +230,6 @@ export class AutoPilot {
 
   async runAutopilot() {
     const { api, modes, paused } = this;
-    console.log(`${Date.now()} tick`);
 
     // Sanity check: *should* this code run?
     if (!api.connected) return;
