@@ -4709,7 +4709,6 @@ Effectively: "try to maintain cruise speed". And with that in place, what does o
 ![A fixed Kodiak 100](./images/combined/throttle/fixed.png)
 
 And once more: we live. You can see the auto-throttle keeping our speed around 174 knots (we go over a bit, we go under a bit) through pretty much the entire descent. And with that, we've exhausted the list of edge cases to look at. Which means our autopilot is done! Which means we can finally get down to writing the _real_ autopilot! ..._Wait, what?_
-
 # Part 4: Google maps for planes
 
 So far we've been looking at what we _call_ an autopilot, but is it? Can we just get in the plane, and then tell it to pilot itself? In the real world: no, absolutely not, for very good reasons. But we're not dealing with the real world, we're dealing with a video game that we have near enough full control over, so why would we stop at "what you can do in the real world" when we can make things _so_ much cooler by adding in the bits you won't get in real life? We now have the basics in place for making the plane go where we want it to go, so let's create a UI that lets use _tell it_ where we want it to go, starting _and ending_ on a runway. Because now we're ready to tackle the  _really_ interesting parts:
@@ -4720,6 +4719,10 @@ So far we've been looking at what we _call_ an autopilot, but is it? Can we just
 - adding auto-landing, so that at the end of the flight, the plane just finds a nearby airport, figures out the approach, and then lands itself.
 
 If that sounds like too much work: it might be. And no one would blame you if you stopped here. But if that sounds _amazing_... we're not at the bottom of this page yet, let's implement some crazy shit!
+
+## Intermission: Mocking an MSFS
+
+I want people to have a `node api-server --mock`
 
 ## Waypoint navigation
 
@@ -9993,26 +9996,40 @@ Now, the first two are relatively easy to implement (although we'll need a fair 
 So let's write some code:
 
 ```javascript
-  // throttle up for as long as we're not at 100% throttle
+  ...
+
+  /**
+   * throttle up for as long as we're not at 100% throttle
+   */
   async throttleUp({ engineCount }, { throttle }) {
     if (throttle > 99) return;
     const { api } = this;
     const throttleVar = `GENERAL_ENG_THROTTLE_LEVER_POSITION`;
-    for (let count = 1; count <= engineCount; count++)
+    for (let count = 1; count <= engineCount; count++) {
       api.set(`${throttleVar}:${count}`, throttle + 1);
+    }
   }
 
-  // Check how much we're out wrt the runway center line and correct 
-  async autoRudder({}, {lat, long, trueHeading} {
-    const { api, start, end } = this;
+  /**
+   * Check how much we're out with respect to the runway center line
+   */
+  async autoRudder({}, { lat, long, trueHeading, rudder }) {
+    const { end: target, api } = this;
 
-    // Much like our waypoint code, we're going to "target" a point
-    // on our center line, some distance away from the plane, so that
-    // we (hopefully) don't over- correct using the rudder.
+    // how "out of line" are we?
+    const targetHeading = getHeadingFromTo(lat, long, target.lat, target.long);
+    const prev_hDiff = this.hDiff;
+    let hDiff = (this.hDiff = getCompassDiff(trueHeading, targetHeading));
+    const dHeading = hDiff - prev_hDiff;
 
-    const rudder = 0;
-    api.set(`RUDDER_POSITION`, rudder);
+    // Let's correct for that!
+    let update = 0, cMax = 0.1;
+    update += constrainMap(hDiff, -30, 30, -cMax / 2, cMax / 2);
+    update += constrainMap(dHeading, -1, 1, -cMax, cMax);
+    api.set(`RUDDER_POSITION`, rudder/100 + update);
   }
+
+  ...
 ```
 
 And with that, what do things look like now?
