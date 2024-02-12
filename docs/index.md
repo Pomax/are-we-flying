@@ -10034,11 +10034,25 @@ So let's write some code:
 
 And with that, what do things look like now?
 
-THE SAME IMAGES BUT WITH RUDDER
+![image-20240211210723937](./image-20240211210723937.png)
 
-That looks straight to me! There's a bit of wibbling on the runway by the heavier two, but nothing that keeps them from taking off straight.
+That looks straight to me! Well, except for the acrobatic planes: we should probably reduce the rudder for those:
 
-So let's implement that whole "taking off" business!
+```javascript
+  ...
+  async autoRudder({ isAcrobatic }, { lat, long, trueHeading, rudder }) {
+    ...
+
+    const factor = isAcrobatic ? 0.2 : 1;
+    const newRudder = rudder / 100 + factor * update;
+    api.set(`RUDDER_POSITION`, newRudder);
+  }
+  ...
+```
+
+And now we get to figure out why terrain follow is broken.
+
+---------- continue here ----------
 
 ### Rotate/take-off
 
