@@ -41,13 +41,13 @@ export async function flyLevel(autopilot, state) {
     const wrongWay = sign(turnRate) !== sign(headingDiff);
     if (regularTurn || hardTurn || wrongWay) {
       const howMuch = isAcrobatic ? 10 : 50;
-      updateMaxDeflection(trim, howMuch, isTwitchy);
+      updateMaxDeflection(trim, howMuch, isTwitchy, weight);
     }
   }
   // Otherwise just ease it back down, with a special affordance for the Top Rudder:
   else {
     const howMuch = isTwitchy ? -50 : -10;
-    updateMaxDeflection(trim, howMuch, isTwitchy);
+    updateMaxDeflection(trim, howMuch, isTwitchy, weight);
   }
 
   // Are we flying upside down?
@@ -58,7 +58,7 @@ export async function flyLevel(autopilot, state) {
 
     // If we're tipping too much, reduce our max stick
     // because we were clearly giving it too much:
-    if (abs(tipAngle) > 30) updateMaxDeflection(trim, -50, isTwitchy);
+    if (abs(tipAngle) > 30) updateMaxDeflection(trim, -50, isTwitchy, weight);
 
     // And restrict our bank angle to 30 degrees on either side of 180:
     const s = sign(bank);
@@ -97,9 +97,11 @@ function getTargetHeading(parameters) {
 
 // A little helper function that lets us change the maximum stick
 // deflection allowed per autopilot iteration.
-function updateMaxDeflection(trim, byHowMuch, isTwitchy) {
+function updateMaxDeflection(trim, byHowMuch, isTwitchy, weight) {
   let { roll: value } = trim;
-  const maxValue = 2 ** (isTwitchy ? 12 : 13);
+  let maxValue = 2 ** (isTwitchy ? 12 : 13);
+  // literally ultra light?
+  if (weight < 1000) maxValue = 1000;
   value = constrain(value + byHowMuch, 300, maxValue) | 0;
   if (value !== trim.roll) {
     trim.roll = value;

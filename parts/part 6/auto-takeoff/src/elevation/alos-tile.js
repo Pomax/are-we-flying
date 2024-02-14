@@ -34,7 +34,6 @@ export class ALOSTile {
   load(filename) {
     const file = readFileSync(filename);
     const image = tiff.decode(file.buffer);
-    let start = Date.now();
     const { data, fields, width, height } = image[0];
     this.pixels = data;
     this.width = width;

@@ -120,6 +120,7 @@ export class Autopilot {
       });
 
       if (this.planeRadius) this.planeRadius.remove();
+
       if (radius) {
         this.planeRadius = L.circle(
           [flightData.lat, flightData.long],
@@ -130,7 +131,9 @@ export class Autopilot {
     }
 
     if (this.terrainProbe) {
-      this.terrainProbe.forEach((p) => p.remove());
+      this.terrainProbe.forEach((p) => {
+        p?.remove();
+      });
     }
 
     if (this.maxElevation) {
@@ -146,17 +149,19 @@ export class Autopilot {
           fill: true,
         })
       );
-      this.terrainProbe.forEach((p) => p.addTo(this.map));
-      // this.maxElevation = L.circle([maxElevation.lat, maxElevation.long], 100, {
-      //   color: `black`,
-      //   fill: true,
-      // });
-      // this.maxElevation.bindTooltip(maxElevation.elevation.feet + `'`, {
-      //   permanent: true,
-      //   direction: "top",
-      //   offset: L.point({x: 0, y: -20})
-      // });
-      // this.maxElevation.addTo(this.map);
+      this.terrainProbe.forEach((p) => {
+        p?.addTo(this.map);
+      });
+      this.maxElevation = L.circle([maxElevation.lat, maxElevation.long], 100, {
+        color: `black`,
+        fill: true,
+      });
+      this.maxElevation.bindTooltip(maxElevation.elevation.feet + `'`, {
+        permanent: true,
+        direction: "top",
+        offset: L.point({ x: 0, y: -20 }),
+      });
+      this.maxElevation.addTo(this.map);
     }
   }
 }

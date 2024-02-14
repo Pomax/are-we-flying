@@ -62,7 +62,7 @@ export const Questions = {
     elements.planeCrashed.checked = state.crashed;
     // And we'll do these two separately because they're a bit more than just a check mark:
     this.whereAreWeFlying(flightData);
-    this.modelLoaded(flightModel?.title);
+    this.modelLoaded(flightModel);
   },
 
   whereAreWeFlying(flightData) {
@@ -73,12 +73,12 @@ export const Questions = {
     elements.longitude.textContent = long ?? `-`;
   },
 
-  modelLoaded(modelName) {
+  modelLoaded({ title, weight }) {
     let model = `(...nothing yet?)`;
-    if (modelName) {
+    if (title) {
       let article = `a`;
-      if (vowels.includes(modelName.substring(0, 1))) article += `n`;
-      model = `...Looks like ${article} ${modelName}. Nice!`;
+      if (vowels.includes(title.substring(0, 1))) article += `n`;
+      model = `...Looks like ${article} (${weight | 0}lbs) ${title}. Nice!`;
     }
     elements.specificPlane.textContent = model;
   },

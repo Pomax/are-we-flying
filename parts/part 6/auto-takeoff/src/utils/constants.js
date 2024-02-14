@@ -26,4 +26,4 @@ export const AUTO_TAKEOFF = `ATO`;
 // terrain follow
 export const TERRAIN_FOLLOW = `TER`;
 export const TERRAIN_FOLLOW_DATA = `TerrainFollowData`;
-export const TERRAIN_FOLLOW_SAFETY = 25;
+export const TERRAIN_FOLLOW_SAFETY = 500;

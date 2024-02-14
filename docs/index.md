@@ -7648,9 +7648,11 @@ Of these three, the first is trivial, the last is surprisingly easy, and really 
 
 I know, geodata for the entire planet? Where do you even get that? Enter the Japanese Aerospace eXploration Agency, or [JAXA](https://global.jaxa.jp/), and their freely available ALOS ("Advanced Land Observing Satellite") [Digital Surface Model](https://en.wikipedia.org/wiki/Digital_elevation_model) datasets. Specifically, their [30 meter dataset](https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d30/aw3d30_e.htm), which has elevation data for the entire planet's land surface at a resolution finer than MSFS uses, and can be downloaded for free after signing up for an (also, free) account and agreeing to their [data license](https://earth.jaxa.jp/en/data/policy).
 
-There, however, one downside: an entire planet's worth of data isn't a small download: it's 450GB of on-disk data hosted as 150GB of downloads spread out over a few hundred files. But, on the upside, we know how to program, so scripting the downloads isn't terribly hard, and a 1TB SSD is cheap these days. So as long as you have an internet plan without a data cap (which, if you game: you probably do) then that's unlikely to _really_ be a problem.
+![image-20240213160714400](./image-20240213160714400.png)
 
-What _won't_ be easy is step 2, though: all that ALOS data is in the form of GeoTIFF files, which are TIFF images with metadata that describes what section of the planet they map to, and which mapping you need to use to go from pixel-coordinate to geo-coordinate. Again, perhaps unexpectedly, it's not the TIFF part that's going to be the problem (we can just use the [tiff](https://www.npmjs.com/package/tiff) package to load those in), and it's not the "which section of the planet" part that's going to be the problem (the data is neatly organized in directories and filenames that indicate which whole-angle GPS bounding box they're for) it's finding the pixel in the image that belongs to a _specific_ GPS coordinate that's going to require some work.
+There is, however, one downside: an entire planet's worth of data isn't a small download: it's 450GB of on-disk data hosted as 150GB of downloads spread out over a few hundred files. But, on the upside, we know how to program, so scripting the downloads isn't terribly hard, and a 1TB SSD is cheap these days. So as long as you have an internet plan without a data cap (which, if you game: you probably do) then that's unlikely to _really_ be a problem.
+
+What _won't_ be easy is step 2, though: all that ALOS data is in the form of GeoTIFF files, which are TIFF images with [metadata that describes what section of the planet they map to, and which mapping you need to use to go from pixel-coordinate to geo-coordinate](http://geotiff.maptools.org/spec/geotiff6.html). Again, perhaps unexpectedly, it's not the TIFF part that's going to be the problem (we can just use the [tiff](https://www.npmjs.com/package/tiff) package to load those in), and it's not the "which section of the planet" part that's going to be the problem (the data is neatly organized in directories and filenames that indicate which whole-angle GPS bounding box they're for) it's finding the pixel in the image that belongs to a _specific_ GPS coordinate that's going to require some work.
 
 Or, it would, if [I hadn't already done that work for us](https://stackoverflow.com/questions/47951513#75647596), so let's dive in: what do we need?
 
@@ -7658,9 +7660,9 @@ Or, it would, if [I hadn't already done that work for us](https://stackoverflow.
 
 Let's create a `src/elevation/` directory, and then define a new little server in `src/elevation/alos-server.js` that we can use to test the rest of the code we're about to write. Something that'll accept a URL like  http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 and then spits out the elevation at each of those three coordinates.
 
-We won't be using this server in our actual autopilot code, but it'll make developing and testing the elevation code on its own, before we try to integrate it into the autopilot, a lot easier. And that's always important. 
+We won't be using this server in our actual autopilot code, but it'll make developing and testing the elevation code on its own (before we try to integrate it into the autopilot) a lot easier. And that's always important. 
 
-However, let's not go overboard: no need for a full [Express.js](https://expressjs.com/) server, we just need a small, plain `node:http` server:
+However, let's not go overboard: no need for a full [Express.js](https://expressjs.com/) server, we just need something small that we can query with the browser, so a plain `node:http` server will do just fine:
 
 ```javascript
 import http from "node:http";
@@ -7714,7 +7716,7 @@ http.createServer(processRequest).listen(PORT, () => {
 });
 ```
 
-As long as we don't forget to add that new `ALOS_PORT` value to our `.env` file (I'm using `ALOS_PORT=9000` but obviously pick whichever port you like best) this should start up, and calling the earlier URL http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 will give us a JSON object with an elevation of `123` for each of those three coordinates:
+As long as we don't forget to add that new `ALOS_PORT` value to our `.env` file (I'm using `ALOS_PORT=9000` but obviously pick whichever port you like best) this should start up and log `Elevation server listening on http://localhost:9000`, so that calling the earlier URL http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 will give us a JSON object with an elevation value of `123` for each of those three coordinates:
 
 ```json
 {
@@ -7739,7 +7741,7 @@ As long as we don't forget to add that new `ALOS_PORT` value to our `.env` file 
 }
 ```
 
-Of course there's a sneaky little helper file that we also need to make, `shim-response-prototype.js` which is just a bit of helper code that turns Node's response object a little more into an Express.js object:
+Of course there's a sneaky little helper file that we also need to make, `shim-response-prototype.js`, which is just a bit of code that turns Node's response object into something a little bit more usable (and a little more into an Express.js response object):
 
 ```javascript
 export function shimResponsePrototype(responsePrototype) {
@@ -7971,11 +7973,11 @@ function processRequest(req, res) {
 }
 ```
 
-Neato! Of course, this won't do anything yet, because we still need to actually write the code that works with tiles... so...
+Neato! Of course, this still won't do anything yet, because we haven't written the code that works with tiles yet, so...
 
 ### Working with individual Geo tiles
 
-Back to the ALOS data: we still need something that turns "tiff images" into an object that we can work with, so let's write a `src/elevation/alos-tile.js` for that.
+Back to the ALOS data: we still need something that turns "tiff images" into objects that we can work with, so let's write a `src/elevation/alos-tile.js` for that.
 
 ```javascript
 // A pretty important import if want to work with tiff images:
@@ -7994,12 +7996,12 @@ export class ALOSTile {
   }
 
   /**
-   * Load in a GeoTIFF and parse the metadata so we can set
+   * Load in a GeoTIFF and parse its metadata so we can set
    * up our matrix transforms for geo-to-pixel and pixel-to-geo
    * coordinate conversions.
    *
    * See https://stackoverflow.com/questions/47951513#75647596
-   * ffor the full details on how that all works.
+   * for the full details on how that all works.
    */
   load(filename) {
     // Unpack the image
@@ -8088,7 +8090,7 @@ And suddenly we have a way to query elevations for GPS coordinates, without havi
 
 #### Optimizing our call time: adding caching
 
-If we look at the previous result's `ms` value, we see that it takes about 100 milliseconds to get a result... that's pretty long! Let's see where the holdup is in this process by [tracing the function calls](https://github.com/Pomax/js-call-tracer/tree/main):
+If we look at the previous result's `ms` value, we see that it takes about 100 milliseconds to get a result... that's pretty long! It might not seem very long, but we don't want to get "a handful of elevation values", we're going to want to get a _whole bunch_ of them and find the highest elevation amongst them, so we Let's see which part(s) of the code are taking up how much time, [tracing the function calls](https://github.com/Pomax/js-call-tracer/tree/main):
 
 ```javascript
 ╭┈┈
@@ -8145,7 +8147,7 @@ Let's run another trace:
 ...
 ```
 
-It looks like the runtime doesn't come from a function call, which means it's coming from a constructor: let's time our `new ALOSTile(...)` call:
+"why is the runtime 25ms when the inner calls take 0ms?" I imagine you to be asking at this point, and the reason for this is that the tracer can't trace constructors, it can only work once an object has already been constructed, so there's a constructor call in there somewhere, and the only candidate for scrutiny is our `new ALOSTile(...)` call. Let's add some `Date.now() - start` logic in that constructor to log how long the various parts take:
 
 ```javascript
 running ALOSTile.load()
@@ -8154,7 +8156,7 @@ running ALOSTile.load()
   extracting values took 0ms
 ```
 
-Turns out decoding 25MB tiff files takes a bit, and we do that _every time we ask for a coordinate_ so how about... we don't? Let's add a tile cache to our `alos-interface.js` so that we only load a tile once, cutting out the file loading and tiff decoding after the first time we need to load a specific tile:
+Turns out decoding 25MB tiff files takes a bit, and we do that _every time we ask for a coordinate_... so how about... we don't? Let's add a tile cache to our `alos-interface.js` so that we only load a tile once, cutting out the file loading and tiff decoding after the first time we need to load a specific tile:
 
 ```javascript
 ...
@@ -8241,13 +8243,11 @@ extracting values took 0ms
 ╰┈┈
 ```
 
-Sure, the initial load takes just as long as before, simply because it has to, but after that, any lookup using a cache tiles takes a millisecond. Sure, we now have a higher memory footprint, but RAM is cheap, and the gains are clearly worth it!
+Sure, the initial load takes just as long as before, simply because it has to, but any lookup using a cached tile now takes a millisecond. And sure, we now have a higher memory footprint, but RAM is cheap, and the gains are clearly worth it!
 
 ### Working with shapes
 
-Now, single point lookups are nice and all, but in order for this to be useful to our autopilot, we need to know what the maximum elevation is inside "some shape" rather than "at some point", which requires writing some more code.
-
-Specifically:
+As mentioned earlier, single point lookups are nice and all, but in order for this to be useful to our autopilot we need to know what the maximum elevation is inside "some shape" rather than "at some point", which requires writing some more code that can find all pixels within a shape and then turn all of those into a single "highest value". So:
 
 1. we'll want some code that can get the max elevation inside a shape that falls within a single tile,
 2. then, we'll want to extend that code so that we can "split up" a shape that covers more than one tile,
@@ -8581,13 +8581,13 @@ Which we can check for accuracy by looking that coordinate up on the map. Does t
 
 ![image-20240207213813384](./image-20240207213813384.png)
 
-It looks like we've found the peak(s) of Mount Olympus, in Olympic National Park, Washington, US, which is _by far_ the highest point around: great success!
+It looks like we've found the peak(s) of Mount Olympus, in Olympic National Park, Washington, US, which is _by far_ the highest point around for many miles (and thus, for "even manier kilometers"): great success!
 
 #### Optimizing our call time: coarse lookups
 
-Let's check some timings: if we repeat-run this query so that our tile is cached, it takes about 50 milliseconds to find the highest point in area that's around 10,000 square kilometers. And that certainly isn't bad, but is it _good_?
+Let's check some timings: if we repeat-run this query so that our tile is cached, it takes about 50 milliseconds to find the highest point in an area that's around 10,000 square kilometers. And while that certainly doesn't seem bad, is it.... _good_?
 
-Specifically: the ALOS data has a 30 meter resolution (meaning each pixel represents the elevation measured over a 30m x 30m area), which is smaller than the wing span of some planes (For example, the Airbus A320neo has a wingspan of 35 meters) so what if we turn our beautiful 30 meter resolution data into something a little coarser, like 60m x 60m or 120m x 120m, by resizing the image data while keeping "the highest values" instead of averaging them like a normal resize would?
+Specifically: the ALOS data has a 30 meter resolution (meaning each pixel represents the elevation measured over a 30m x 30m area), which is smaller than the wing span of some planes (For example, the [Airbus A320neo](https://en.wikipedia.org/wiki/Airbus_A320neo_family) has a wingspan of 35 meters) so what if we turn our beautiful 30 meter resolution data into something a little coarser, like 60m x 60m, or 120m x 120m, by resizing the image data while keeping "the highest values" instead of averaging them like a normal resize would?
 
 Let's update our `alos-tile.js` code:
 
@@ -8736,7 +8736,7 @@ export class ALOSTile {
 }
 ```
 
-So what's the effect of this? The first call, obviously, won't be using any scaling, but happens to our subsequent calls?
+So what's the effect of this? The first call, obviously, won't be using any scaling, so that'll perform the same as before, but what happens to our subsequent calls?
 
 ```json
 {
@@ -8982,7 +8982,7 @@ And now we can query across degree lines just fine: if we load http://localhost:
 }
 ```
 
-And that's still Mount Olympus, found in a 2 degree x 2 degree area (50,000 square kilometers), in only 26 milliseconds. I think we're good to go in terms of plugging this into our autopilot for terrain follow purposes!
+And that's still Mount Olympus, found in a 2 degree x 2 degree area (50,000 square kilometers), in only 26 milliseconds. I think we're good to go in terms of plugging this into our autopilot for terrain follow purposes, given that that's going to run every 500 milliseconds!
 
 ### Putting it all together
 
@@ -9341,7 +9341,34 @@ And with that, we've solved the "if we're not on the flight path yet" part of th
 
 ![image-20240209144406788](./image-20240209144406788.png)
 
-so let's move on to the "if we _are_ on the flight path" equivalent. If we're on the flight path, then the distances we used in the above check don't really apply: the distance between the plane and the end point of the leg is (by definition, really) always less than the distance between the two end points, so we're going to simply iterate over each leg, and if that's the one we're currently one, we form a partial "strip":
+Though we're going to have to massage that just a _tiny_ bit because if the first waypoint on a flight plan is far away from us, we don't want to check the entire length of the distance for a max elevation. We still only want to only check up to a distance of `probeLength`:
+
+```javascript
+      if (d1 > d2) {
+        const h = ...
+        // what's our distance to this target?
+        const d = getDistanceBetweenPoints(lat, long, current.lat, current.long);
+        // and what's the point ahead of us by probeLength?
+        const f = getPointAtDistance(lat, long, probeLength, h);
+        // Is our waypoint further away than we need for elevation purposes?
+        // If so, don't build out our elevation polygon to "the current
+        // waypoint", but only build it out to probeLength ahead of us.
+        const c = d > probeLength ? f : current;
+        const geoPoly = [
+          getPointAtDistance(lat, long, 1, h - 90),
+          getPointAtDistance(c.lat, c.long, 1, h - 90),
+          getPointAtDistance(c.lat, c.long, 1, h + 90),
+          getPointAtDistance(lat, long, 1, h + 90),
+        ].map(...);
+        ...
+      }
+```
+
+And now, rather than a "probe polygon" that runs all the way from our plane to the first waypoint, even if that distance is half the world away, we'll only use a polygon that's (at most) five minutes long.
+
+![image-20240213171035696](./image-20240213171035696.png)
+
+So let's move on to the "if we _are_ on the flight path" equivalent. If we're on the flight path, then the distances we used in the above check don't really apply: the distance between the plane and the end point of the leg is (by definition, really) always less than the distance between the two end points, so we're going to simply iterate over each leg, and if that's the one we're currently one, we form a partial "strip":
 
 ```javascript
     if (d1 > d2) {
@@ -10013,20 +10040,27 @@ So let's write some code:
   /**
    * Check how much we're out with respect to the runway center line
    */
-  async autoRudder({}, { lat, long, trueHeading, rudder }) {
-    const { end: target, api } = this;
+  async autoRudder({ isAcrobatic }, { onGround, lat, long, trueHeading, rudder }) {
+    // Only auto-rudder for as long as we're rolling.
+    if (!onGround) return;
 
-    // how "out of line" are we?
+    // What direction do we need to rudder in? (if any)
+    const { end: target, api } = this;
     const targetHeading = getHeadingFromTo(lat, long, target.lat, target.long);
     const prev_hDiff = this.hDiff;
     let hDiff = (this.hDiff = getCompassDiff(trueHeading, targetHeading));
     const dHeading = hDiff - prev_hDiff;
 
-    // Let's correct for that!
-    let update = 0, cMax = 0.1;
+    // Try to get onto the center line, but prioritize a stable heading
+    // delta, so we don't oscillate on the runway (...too much....)
+    let update = 0;
+    const cMax = 0.1;
     update += constrainMap(hDiff, -30, 30, -cMax / 2, cMax / 2);
     update += constrainMap(dHeading, -1, 1, -cMax, cMax);
-    api.set(`RUDDER_POSITION`, rudder/100 + update);
+
+    // And apply our update:
+    const newRudder = rudder / 100 + update;
+    api.set(`RUDDER_POSITION`, newRudder);
   }
 
   ...
@@ -10043,6 +10077,7 @@ That looks straight to me! Well, except for the acrobatic planes: we should prob
   async autoRudder({ isAcrobatic }, { lat, long, trueHeading, rudder }) {
     ...
 
+    // If we're in an acrobatic plane, just... rudder less?
     const factor = isAcrobatic ? 0.2 : 1;
     const newRudder = rudder / 100 + factor * update;
     api.set(`RUDDER_POSITION`, newRudder);
@@ -10050,179 +10085,208 @@ That looks straight to me! Well, except for the acrobatic planes: we should prob
   ...
 ```
 
-And now we get to figure out why terrain follow is broken.
+![image-20240213204457567](./image-20240213204457567.png)
 
----------- continue here ----------
+Certainly good enough to continue. Because we're going to have to, because these planes want to take off!
 
 ### Rotate/take-off
 
-Once we're at rolling at a good speed, we'll probably want to rotate the aeroplane (i.e. get its nose up) and take off to the skies, but what's a good speed
+Once we're at rolling at a good speed, we'll need to rotate at some point (i.e. get its nose up) and take to the skies, but what's a good speed for that?
 
-There are two special speeds that determine when an aeroplane can take off (from amongst a [truly humongous list](https://en.wikipedia.org/wiki/V_speeds) of "V- speeds"):
+There are two special speeds that determine when an aeroplane can take off (from amongst a [truly humongous list](https://en.wikipedia.org/wiki/V_speeds) of "V-speeds"):
 
-- `Vr`, or the "rotation speed", which is the speed at which you want to start pulling back on the stick or yoke to get the plane to lift off,and
-- `V1`, which is the cutoff speed for aborting a takeoff. If you haven't taken off by the time the plane reaches `V1`, you are taking off, whether you like it or not, because the alternative is a crash. It's the speed at which your plane can no longer safely slow down to a stop simply by throttling and braking, so you're going to keep speeding up and you **_will_** take off, even if you then find a suitable place to perform an emergency landing.
+- `Vr`, or the "rotation speed", which is the speed at which you want to start pulling back on the stick or yoke to get the plane to lift off, and
+- `V1`, which is the cutoff speed for aborting a takeoff. If you haven't taken off by the time the plane reaches `V1`, you are taking off, whether you like it or not, because the alternative is death. It's the speed at which your plane can no longer safely slow down to a stop simply by throttling and braking, so you're going to keep speeding up and you **_will_** take off, even if you then immediately need to find a suitable place to perform an emergency landing.
 
-For the purpose of our auto-takeoff we're going to _prefer_ to use `Vr`, but not every plane has a sensible value set for that (for... reasons? I have no idea, some planes have nonsense values like -1), so we'll use the rule "use `Vr` unless that's nonsense, then use `V1`".
+And MSFS adds a third value to that, called the "design takeoff speed", representing the ideal in-game speed at which the plane should be taking off. So for the purpose of our auto-takeoff we're going to _prefer_ to use `Vr`, but not every plane has a sensible value set for that (for... reasons? I have no idea, some MSFS planes have complete nonsense values like -1), so we'll use the rule "use `Vr`, unless that's nonsense, then use the design-takeoff-speed":
 
 ```javascript
-  async checkRotation(onGround, currentSpeed, lift, dLift, vs, totalWeight) {
-    const { api, autopilot } = this;
+  ...
 
-    let {
-      DESIGN_SPEED_MIN_ROTATION: minRotate, // this is our Vr
-      DESIGN_TAKEOFF_SPEED: takeoffSpeed,   // this is our V1
-    } = await api.get(`DESIGN_SPEED_MIN_ROTATION`, `DESIGN_TAKEOFF_SPEED`);
-
-    // Annoyingly both values are in "feet per second" instead of knots, so let's convert:
-    minRotate *= FPS_IN_KNOTS;
-    takeoffSpeed *= FPS_IN_KNOTS;
+  /**
+   * Check if we're at a speed where we should rotate
+   */
+  async checkRotation({ minRotation, takeoffSpeed, isAcrobatic }, { elevator, speed, VS, bank }) {
+    // Do we have a sensible Vr? 
+    let minRotate = minRotation;
     if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
-    // Just for safety, we'll pick our actual rotation speed as "the one that MSFS
-    // suggests should work, but let's add 5 knots, just in case":
-    const rotateSpeed = minRotate + 5;
+    const rotate = speed >= minRotate * 1.25;
 
-    // So now that we know when to rotate: are we in a rotation situation?
-    if (!onGround || currentSpeed > rotateSpeed) {
-      const { ELEVATOR_POSITION: elevator } = await api.get(`ELEVATOR_POSITION`);
+    const { api } = this;
 
-      // We're still on the ground: start pulling back on the stick/yoke
-      if (this.liftoff === false) {
-        this.liftoff = Date.now();
-        const pullBack = constrainMap(totalWeight, 3500, 14000, 0.05, 2);
-        api.set(`ELEVATOR_POSITION`, pullBack);
+    if (rotate) {
+      // This number has been scientifically determined by flying every
+      // plane I could think of and seeing if it worked:
+      let step = 0.005;
+
+      // Initial pull on the elevator
+      if (!this.rotating) {
+        this.rotating = true;
+        return api.set(`ELEVATOR_POSITION`, 5 * step);
       }
 
-      // If we're not on the ground anymore, there are two possibilities:
-      else {
-        // First, if we're climbing too fast, back off on the elevator a bit:
-        if (vs > 1000 && elevator > 0) {
-          const backoff = constrainMap(vs, 100, 3000, this.easeElevator / 100, this.easeElevator / 10);
-          api.set(`ELEVATOR_POSITION`, elevator - backoff);
-        }
+      // Then keep pulling back the elevator for as ong as we're
+      // not noticably going up...
+      if (VS < MIN_VS) {
+        const correction = constrainMap(abs(VS), 0, MIN_VS, step, 0);
+        const newElevator = elevator / 100 + correction;
+        api.set(`ELEVATOR_POSITION`, newElevator);
+      }
 
-        // But if we're not climbing fast enough, pull on that stick/yoke a bit more:
-        else if (dLift <= 0.2 && lift <= 300 && vs < 200) {
-          let touch = constrainMap(totalWeight, 3500, 14000, 0.02, 0.2);
-          touch = constrainMap(dLift, 0, 0.1, touch, 0);
-          api.set(`ELEVATOR_POSITION`, elevator + touch);
-        }
-
-        // Irrespective of which of those two we're in, we want to make sure that the wing leveler
-        // is turned on, because we absolutely positively want to fly straight during take-off:
-        if (!autopilot.modes[LEVEL_FLIGHT]) autopilot.setTarget(LEVEL_FLIGHT, true);
+      // ...but if we're gaining *too much* altitude, push that elevator back!
+      if (VS > 300) {
+        if (isAcrobatic) api.set(`RUDDER_POSITION`, 0);
+        step = constrainMap(VS, 100, 300, 0, step);
+        const newElevator = elevator / 100 - step/2;
+        api.set(`ELEVATOR_POSITION`, newElevator);
       }
     }
   }
+
+  ...
 ```
 
-And that's our take off code. The trick is to make sure we pull on the stick/yoke enough to make the plane "rotate" upwards (hence the name), but not so hard that it flies out of control, so we just use small steps, and as long as we're not climbing we just keep doing that. Eventually our pulling back the elevator will overcome gravity.
+And that's our take off code. It's pretty rudimentary, but we only need this to run for "just as long as we need to turn the real autopilot on". Although to save a bit of testing, there's just a _tiny_ problem with this code as written:
+
+![image-20240213205919956](./image-20240213205919956.png)
+
+No wing leveler. The moment some of the twitchier planes lift off, there's a good chance they'll just tip over and try to crash. So, since this code will only be in effect for a short time, and we just need a stopgap between "wheels off the ground" and "turning on the real autopilot", let's just add the most naive wing lever  code we possibly can:
+
+```javascript
+  ...
+  /**
+   * Check if we're at a speed where we should rotate
+   */
+  async checkRotation({ minRotation, takeoffSpeed, isAcrobatic }, { elevator, speed, VS, bank }) {
+    // Do we have a sensible Vr? 
+    let minRotate = minRotation;
+    if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
+    const rotate = speed >= minRotate * 1.25;
+
+    const { api } = this;
+
+    // For as long as we're taking off, use super naive bank-correction,
+    // so that twitchy planes stay mostly aligned with the runway on
+    // their rotation.
+    api.set(`AILERON_POSITION`, bank / 100);
+
+    ...
+  }
+...
+```
+
+As long as we only need it for a few seconds, dumb is good: if we're banking, proportionally set the aileron in the opposite direction. Would we want to fly with that? Heck no! But is it good enough to keep planes level enough to bridge the gap between takeoff and autopilot? You bet!
+
+And on that note...
 
 ### Handoff to the autopilot
 
-The final step in the auto-takeoff process is to signal that auto-takeoff is complete, and to turn out the autopilot with the heading we're already flying, and with terrain mode turned on, for the ultimate "one click flight" that starts on the runway instead of in mid-air with an MSFS autopilot set to who knows what (I love it when MSFS spawns you with the AP set to climb 2000 feet per minute).
-
-The code above suggests that there's a signal we can use to determine whether we've completed take-off, namely when we've leveling out the plane and we reach a point where we're no longer vertically accelerating. At that point we can safely switch to the autopilot and have it take over the whole "what altitude do we actually need to fly at?" business:
+The final step in the auto-takeoff process is to stop taking off: once the wheels are off the ground, and we have a decent enough vertical speed, we should just turn on the autopilot and let it deal with the rest of our flight. For our purposes that's going to be "is our VS more than 100 feet per minute, and are we at least 50 feet above the ground", both of which happen _pretty_ quickly after takeoff.
 
 ```javascript
-  async checkHandoff(title, isTailDragger, totalWeight, vs, dVS, altitudeGained) {
-    const { api, autopilot } = this;
+  ...
 
-    // If the plane is leveling out, and we're not vertically accelerating, switch to the autopilot!
-    if (this.levelOut && dVS <= 0) {
-      // Set the elevator trim (scaled for the plane's trim limits) so that the
-      // autopilot doesn't start in neutral and we don't suddenly pitch down hard.
-      const { ELEVATOR_TRIM_UP_LIMIT: trimLimit } = await api.get(`ELEVATOR_TRIM_UP_LIMIT`);
+  /**
+   * Check if the plane's in a state where we can hand things off to the regular autopilot
+   */
+  async checkHandoff({ isAcrobatic, engineCount }, { alt, onGround, VS, altAboveGround, declination }) {
+    const handoff = !onGround && VS > MIN_VS && altAboveGround > 50;
+    if (handoff) {
+      const { api, autopilot } = this;
 
-      // Note that these values are guesses: there does not appear to be anything in MSFS that lets
-      // use set the trim value to what it needs to be, the best it can give us is "cruise pitch",
-      // which unfortunately does not translate to trim values at all. As such, some planes can
-      // absolutely still pitch down hard and crash, like the PAC P-750 XSTOL...
-      const trim = trimLimit * constrainMap(totalWeight, 3000, 6500, 0.0003, 0.003);
+      // Make sure that this is the last thing we do. Even if
+      // we get called again for some reason, this flag will
+      // prevent auto-takeoff code from kicking in.
+      this.done = true;
 
-      // So just to show off how to deal with a problematic plane:
-      if (title.toLowerCase().includes(`orbx p-750`)) {
-        trim *= 4; // Seriously, it needs four times as much trim as most other planes.
+      // Then: gear up, if we have retractible gear
+      api.trigger(`GEAR_UP`);
+
+      // And ease the throttle back a little to "not maxed out"
+      for (let i = 1; i <= engineCount; i++) {
+        api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 90);
       }
 
-      await api.set("ELEVATOR_TRIM_POSITION", trim);
+      // Also, if we're in an acrobatic plane, immediately
+      // set the rudder back to zero so we don't bias the flight.
+      if (isAcrobatic) {
+        api.set(`RUDDER_POSITION`, 0);
+      }
 
-      // Then reset the elevator since it's not required for the autopilot to do its job:
-      await api.set("ELEVATOR_POSITION", 0);
-
-      // And then turn on terrain follow, while turning off auto-takeoff. In order for terrain follow
-      // to kick in, we do need an altitude, but that can be any value, since it's going to immediately
-      // get overruled by the waypoint or terrain follow code.
-      autopilot.setTarget(ALTITUDE_HOLD, 10000);
-      autopilot.setTarget(TERRAIN_FOLLOW, true);
-      autopilot.setTarget(AUTO_TAKEOFF, false);
-    }
-
-    // If the plane is not level yet: mark the plane as leveling out so that the above "what to do
-    // while leveling out" code paths kick in:
-    const limit = constrainMap(totalWeight, 3000, 6500, 300, 1000);
-    if (!this.levelOut && (vs > limit || altitudeGained > 100)) {
-      this.levelOut = true;
-      console.log(`level out`);
-      const { ELEVATOR_POSITION } = await api.get(`ELEVATOR_POSITION`);
-      this.easeElevator = ELEVATOR_POSITION;
-
-      // And now that we're leveling off, run through the post-takeoff procedure:
-      api.set(`RUDDER_POSITION`, 0);
-      api.trigger(`GEAR_UP`);
-      // Normally we'd also raise flaps, but we never lowered them, so we're already winning!
+      // And then, of course: turn the "regular" autopilot on.
+      autopilot.setParameters({
+        MASTER: true,
+        [AUTO_THROTTLE]: true,
+        [LEVEL_FLIGHT]: true,
+        [ALTITUDE_HOLD]: alt + 500,
+        [HEADING_MODE]: this.heading - declination,
+        [TERRAIN_FOLLOW]: true,
+        [AUTO_TAKEOFF]: false,
+      });
     }
   }
+}
 ```
 
-And... that's it, we implemented auto-takeoff! One-button flying, here we go!
+And... that's it, we implemented auto-takeoff! After the ordeal that was terrain-follow, this was almost no effort! So... who wants to fly around New Zealand's South Island for a bit?
+
+![image-20240213211816394](./image-20240213211816394.png)
 
 ### Testing our code
 
-As always, we'll want to update our web page so that we can actually click that "one click flight" button:
+And with that, we should be able to just spawn planes, click `AP`, click `auto takeoff` and just... fly. And because it's a gorgeous place to fly out of, let's head on over to [Dingleburn Station](https://dingleburn.co.nz/) in [Wānaka ](https://en.wikipedia.org/wiki/W%C4%81naka, and do some flying. The nice thing about Dingleburn station is that if we just take off and keep going in a straight line,  we end up putting the autopilot through its paces:
 
-```html
-<div class="controls">
-  <link rel="stylesheet" href="/css/autopilot.css" />
-  <button class="MASTER">AP</button>
-  <button title="level wings" class="LVL">LVL</button>
-  <label>Target altitude: </label>
-  <input
-    class="altitude"
-    type="number"
-    min="0"
-    max="40000"
-    value="4500"
-    step="100"
-  />
-  <button title="altitude hold" class="ALT">ALT</button>
-  <button title="auto throttle" class="ATT">ATT</button>
-  <button title="terrain follow" class="TER">TER</button>
-  <label>Target heading: </label>
-  <input class="heading" type="number" min="1" max="360" value="360" step="1" />
-  <button title="heading mode" class="HDG">HDG</button>
-  <!-- make the magic happen! -->
-  <button title="auto take-off" class="ATO">take off</button>
-</div>
-```
+![image-20240213212355664](./image-20240213212355664.png)
 
-That's getting crowded, but it's the last thing we're adding. No client-side JS changes, other than updating our list of autopilot strings:
+#### DeHavilland DHC-2 Beaver
+
+Come on. This is what bush planes were made for. Let's go already!
+
+![image-20240213212643808](./image-20240213212643808.png)
+
+I think it's safe to say, this is working brilliantly.
+
+#### Cessna 310R
+
+Now, this is not a very long runway, but it _is_ downhill, so we might make it!
+
+![image-20240213212849446](./image-20240213212849446.png)
+
+cmon cmon cmon c-
+
+![image-20240213212913151](./image-20240213212913151.png)
+
+nope.
+
+What if we get a little more aggressive in our takeoff?
 
 ```javascript
-export const AP_DEFAULT = {
-  MASTER: false,
-  LVL: false,
-  ALT: false,
-  ATT: false,
-  TER: false,
-  HDG: false,
-  ATO: false,
-};
+  ...
+  
+  async checkRotation({ minRotation, takeoffSpeed, isAcrobatic }, { elevator, speed, VS, bank }) {
+    let minRotate = minRotation;
+    if (minRotate < 0) minRotate = takeoffSpeed; // Goodbye, 1.5x safety margin...
+    const rotate = speed >= minRotate; // And goodbye, additional 1.25x safety margin!
+
+    ...
+  }
+
+  ...
 ```
 
-And with that, we should be able to just spawn planes on a run and... fly.
+There, how do we do now?
 
-In fact, we already did! All the graphs for terrain follow that started on the runway started with pressing the auto-takeoff button.
+![image-20240213213207296](./image-20240213213207296.png)
+
+Seriously? I've flown out of this place in the 310R, it's a joy, what more do you want?
+
+... as it turns out, what it wants is something that knows that there's trees at the end of the "runway" and thus knows to pull up hard to avoid them, which our autopilot just can't do. That's okay though, we can still take off from [Anchorage]() instead. But with our safeties still gone. There is no reason why this wouldn't work, honestly.
+
+
+
+
+
+
 
 ## Auto-landing
 

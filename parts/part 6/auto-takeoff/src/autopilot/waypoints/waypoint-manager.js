@@ -14,6 +14,7 @@ import {
   HEADING_TARGETS,
   KM_PER_NM,
   ONE_KTS_IN_KMS,
+  KNOTS_IN_KM_PER_MINUTE,
   TERRAIN_FOLLOW,
   ENV_PATH,
 } from "../../utils/constants.js";
@@ -284,7 +285,17 @@ export class WayPointManager {
     // where X is a full minute if we're near stall speed, or only 30
     // seconds if we're going at cruise speed.
     else {
+      // Get our target, but if it's more than 5 minutes away, ignore
+      // any projections we might have gotten here and instead target
+      // the waypoint itself.
       target = this.getTarget(lat, long, p1, radiusInKM, targets);
+
+      if (target) {
+        const d = getDistanceBetweenPoints(lat, long, target.lat, target.long);
+        if (d > speed * KNOTS_IN_KM_PER_MINUTE * 5) {
+          target = p1;
+        }
+      }
 
       if (target) {
         // We now know which GPS coordinate to target, so let's
@@ -440,7 +451,7 @@ export class WayPointManager {
   /**
    * ...
    */
-  getMaxElevation(lat, long, probeLength) {
+  getMaxElevation(lat, long, probeLength, declination) {
     const { currentWaypoint: c } = this;
     let maxElevation = { elevation: { meter: ALOS_VOID_VALUE } };
     let geoPolies = [];
@@ -453,13 +464,21 @@ export class WayPointManager {
       const d2 = target.distance * KM_PER_NM;
 
       // If we haven't quite reached the current waypoint yet,
-      // we need to add a "sliver" from our plane to the waypoint.
+      // we need a "leg" from our plane to the waypoint.
       if (d1 > d2) {
         const h = getHeadingFromTo(lat, long, current.lat, current.long);
+        const d = getDistanceBetweenPoints(
+          lat,
+          long,
+          current.lat,
+          current.long
+        );
+        const f = getPointAtDistance(lat, long, probeLength, h);
+        const c = d > probeLength ? f : current;
         const geoPoly = [
           getPointAtDistance(lat, long, 1, h - 90),
-          getPointAtDistance(current.lat, current.long, 1, h - 90),
-          getPointAtDistance(current.lat, current.long, 1, h + 90),
+          getPointAtDistance(c.lat, c.long, 1, h - 90),
+          getPointAtDistance(c.lat, c.long, 1, h + 90),
           getPointAtDistance(lat, long, 1, h + 90),
         ].map(({ lat, long }) => [lat, long]);
         const partialMax = alos.getMaxElevation(geoPoly);
@@ -467,12 +486,6 @@ export class WayPointManager {
           maxElevation = partialMax;
         }
         geoPolies.push(geoPoly);
-        const d = getDistanceBetweenPoints(
-          lat,
-          long,
-          current.lat,
-          current.long
-        );
         probeLength -= d;
       }
     }

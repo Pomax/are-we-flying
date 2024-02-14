@@ -36,7 +36,7 @@ export async function terrainFollow(autopilot, flightInformation) {
   // figure out the shape we're using, because it knows where
   // all the waypoints are.
   if (waypoints.active) {
-    const result = waypoints.getMaxElevation(lat, long, probeLength);
+    const result = waypoints.getMaxElevation(lat, long, probeLength, declination);
     geoPolies = result.geoPolies;
     maxElevation = result.maxElevation;
   }
@@ -45,6 +45,7 @@ export async function terrainFollow(autopilot, flightInformation) {
   // a base that's 1km on either side of us, and a tip that's
   // simply the point 5 minutes ahaead of us:
   else {
+    console.log(`terrain followed without waypoints`);
     let heading = trueHeading;
     if (modes[HEADING_MODE]) {
       heading = modes[HEADING_MODE] + declination;
@@ -56,6 +57,7 @@ export async function terrainFollow(autopilot, flightInformation) {
     ].map(({ lat, long }) => [lat, long]);
     geoPolies = [geoPoly];
     maxElevation = alos.getMaxElevation(geoPoly);
+    console.log(lat, long, maxElevation);
   }
 
   // if this didn't yield elevation data (e.g. we're flying
@@ -67,7 +69,7 @@ export async function terrainFollow(autopilot, flightInformation) {
   // we want to be above the max elevation, based on the
   // constant/ we declared earlier, and then round that up
   // to some multiple of 100 feet.
-  const bracketed = TERRAIN_FOLLOW_SAFETY + ceil(alt / 100) * 100;
+  const bracketed = ceil((alt + TERRAIN_FOLLOW_SAFETY) / 100) * 100;
   autopilot.setParameters({
     [ALTITUDE_HOLD]: bracketed,
     // And for visualization purposes, also add the polygon(s)

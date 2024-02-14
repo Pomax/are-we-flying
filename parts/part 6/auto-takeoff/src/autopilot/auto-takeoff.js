@@ -58,7 +58,7 @@ export class AutoTakeoff {
       wheelsOnGround,
     }
   ) {
-    const { api } = this;
+    const { api, autopilot } = this;
     console.log(`prep for roll`);
 
     // Cache our takeoff line: we'll need it for auto-rudder.
@@ -124,7 +124,12 @@ export class AutoTakeoff {
   /**
    * Check how much we're out with respect to the runway center line
    */
-  async autoRudder({}, { lat, long, trueHeading, rudder }) {
+  async autoRudder(
+    { isAcrobatic },
+    { onGround, lat, long, trueHeading, rudder }
+  ) {
+    if (!onGround) return;
+
     const { end: target, api } = this;
 
     const targetHeading = getHeadingFromTo(lat, long, target.lat, target.long);
@@ -133,49 +138,51 @@ export class AutoTakeoff {
     const dHeading = hDiff - prev_hDiff;
 
     let update = 0;
-    const cMax = 0.1; // constrainMap(speed, 0, vs1, 0.1, 0.0);
+    const cMax = 0.1;
     update += constrainMap(hDiff, -30, 30, -cMax / 2, cMax / 2);
     update += constrainMap(dHeading, -1, 1, -cMax, cMax);
 
-    const newRudder = rudder / 100 + update;
+    const factor = isAcrobatic ? 0.2 : 1;
+    const newRudder = rudder / 100 + factor * update;
     api.set(`RUDDER_POSITION`, newRudder);
   }
 
   /**
    * Check if we're at a speed where we should rotate
    */
-  async checkRotation(
-    { minRotation, takeoffSpeed },
-    { onGround, declination, elevator, speed, VS }
-  ) {
+  async checkRotation({ minRotation, takeoffSpeed, isAcrobatic }, { elevator, speed, VS, bank }) {
     let minRotate = minRotation;
-    if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
-    const rotate = speed >= minRotate * 1.25;
+    if (minRotate < 0) minRotate = takeoffSpeed;
+    const rotate = speed >= minRotate;
+
+    const { api } = this;
+    let step = 0.005;
+
+    // For as long as we're taking off, use super naive bank-correction,
+    // so that twitchy planes stay mostly aligned with the runway on
+    // their rotation.
+    api.set(`AILERON_POSITION`, bank / 100);
 
     if (rotate) {
-      const { api, autopilot } = this;
-      const { modes } = autopilot;
+      // Initial pull on the elevator
+      if (!this.rotating) {
+        this.rotating = true;
+        return api.set(`ELEVATOR_POSITION`, 5 * step);
+      }
 
       // pull back the elevator if we're not taking off enough...
       if (VS < MIN_VS) {
-        const correction = constrainMap(abs(VS), 0, MIN_VS, 0.01, 0);
+        const correction = constrainMap(abs(VS), 0, MIN_VS, step, 0);
         const newElevator = elevator / 100 + correction;
         api.set(`ELEVATOR_POSITION`, newElevator);
       }
 
       // ...but if we're gaining too much altitude, push that elevator back.
-      if (VS > 1000) {
-        const newElevator = elevator / 100 - 0.015;
+      if (VS > MIN_VS) {
+        if (isAcrobatic) api.set(`RUDDER_POSITION`, 0);
+        step = constrainMap(VS, 100, 300, 0, step);
+        const newElevator = elevator / 100 - step/2;
         api.set(`ELEVATOR_POSITION`, newElevator);
-      }
-
-      // Also, i we're no longer on the ground, make sure we have our
-      // wing leveler turned on, with the runway's heading set
-      if (!onGround && !modes[LEVEL_FLIGHT]) {
-        autopilot.setParameters({
-          [LEVEL_FLIGHT]: true,
-          [HEADING_MODE]: this.heading - declination,
-        });
       }
     }
   }
@@ -184,16 +191,12 @@ export class AutoTakeoff {
    * Check if the plane's in a state where we can
    * hand things off to the regular autopilot
    */
-  async checkHandoff(
-    { engineCount },
-    { alt, onGround, VS, altAboveGround, declination }
-  ) {
+  async checkHandoff({ isAcrobatic, engineCount }, { alt, onGround, VS, altAboveGround, declination }) {
     const handoff = !onGround && VS > MIN_VS && altAboveGround > 50;
     if (handoff) {
       const { api, autopilot } = this;
 
       // This should be the last run of the auto-takeoff code.
-      this.done = true;
 
       // Gear up, if we have retractible gear...
       api.trigger(`GEAR_UP`);
@@ -203,7 +206,14 @@ export class AutoTakeoff {
         api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 90);
       }
 
+      // Also, if we're in an acrobatic plane, immediately
+      // set the rudder back to zero. It has to be neutral.
+      if (isAcrobatic) {
+        api.set(`RUDDER_POSITION`, 0);
+      }
+
       // And switch to the regular autopilot.
+      this.done = true;
       autopilot.setParameters({
         MASTER: true,
         [AUTO_THROTTLE]: true,
