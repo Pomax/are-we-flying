@@ -142,6 +142,7 @@ export class AutoTakeoff {
     update += constrainMap(hDiff, -30, 30, -cMax / 2, cMax / 2);
     update += constrainMap(dHeading, -1, 1, -cMax, cMax);
 
+    // FIXME: TODO: do we need to reduce rudder for the acrobatic planes?
     const factor = isAcrobatic ? 0.2 : 1;
     const newRudder = rudder / 100 + factor * update;
     api.set(`RUDDER_POSITION`, newRudder);

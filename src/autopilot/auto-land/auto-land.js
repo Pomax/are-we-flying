@@ -102,9 +102,7 @@ class AutoLand {
   }
 
   /**
-   *
-   * @param {*} flightInformation
-   * @returns
+   * ...
    */
   async land(flightInformation, ICAO = undefined, WAYPOINTS = true) {
     this.flightInformation = flightInformation;

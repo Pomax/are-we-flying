@@ -10098,7 +10098,7 @@ There are two special speeds that determine when an aeroplane can take off (from
 - `Vr`, or the "rotation speed", which is the speed at which you want to start pulling back on the stick or yoke to get the plane to lift off, and
 - `V1`, which is the cutoff speed for aborting a takeoff. If you haven't taken off by the time the plane reaches `V1`, you are taking off, whether you like it or not, because the alternative is death. It's the speed at which your plane can no longer safely slow down to a stop simply by throttling and braking, so you're going to keep speeding up and you **_will_** take off, even if you then immediately need to find a suitable place to perform an emergency landing.
 
-And MSFS adds a third value to that, called the "design takeoff speed", representing the ideal in-game speed at which the plane should be taking off. So for the purpose of our auto-takeoff we're going to _prefer_ to use `Vr`, but not every plane has a sensible value set for that (for... reasons? I have no idea, some MSFS planes have complete nonsense values like -1), so we'll use the rule "use `Vr`, unless that's nonsense, then use the design-takeoff-speed":
+And MSFS adds a third value to that, called the "design takeoff speed", representing the ideal in-game speed at which the plane should be taking off, so for the purpose of our auto-takeoff we're going to _prefer_ to use `Vr`, but not every plane has a sensible value set for that (for... reasons? I have no idea, some MSFS planes have complete nonsense values like -1), so we'll use the rule "use `Vr`, unless that's nonsense, then use the design-takeoff-speed":
 
 ```javascript
   ...
@@ -10150,19 +10150,15 @@ And that's our take off code. It's pretty rudimentary, but we only need this to 
 
 ![image-20240213205919956](./image-20240213205919956.png)
 
-No wing leveler. The moment some of the twitchier planes lift off, there's a good chance they'll just tip over and try to crash. So, since this code will only be in effect for a short time, and we just need a stopgap between "wheels off the ground" and "turning on the real autopilot", let's just add the most naive wing lever  code we possibly can:
+No wing leveler. The moment some of the twitchier planes lift off, there's a good chance they'll just tip over and try to crash. So, since this code will only be in effect for a short time, and we just need a stopgap between "wheels off the ground" and "turning on the real autopilot", let's just add the most naive wing lever code we possibly can:
 
 ```javascript
   ...
   /**
-   * Check if we're at a speed where we should rotate
+   * Check if we're at a speed where we should rotate, with our bank angle used to keep the plane levelish
    */
   async checkRotation({ minRotation, takeoffSpeed, isAcrobatic }, { elevator, speed, VS, bank }) {
-    // Do we have a sensible Vr? 
-    let minRotate = minRotation;
-    if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
-    const rotate = speed >= minRotate * 1.25;
-
+    ...
     const { api } = this;
 
     // For as long as we're taking off, use super naive bank-correction,
@@ -10175,13 +10171,13 @@ No wing leveler. The moment some of the twitchier planes lift off, there's a goo
 ...
 ```
 
-As long as we only need it for a few seconds, dumb is good: if we're banking, proportionally set the aileron in the opposite direction. Would we want to fly with that? Heck no! But is it good enough to keep planes level enough to bridge the gap between takeoff and autopilot? You bet!
+As long as we only need it for a few seconds, dumb is good: if we're banking, proportionally set the aileron in the opposite direction. Would we want to _fly_ with that? Heck no! But is it good enough to keep planes "level enough" to bridge the gap between takeoff and autopilot? You bet!
 
 And on that note...
 
 ### Handoff to the autopilot
 
-The final step in the auto-takeoff process is to stop taking off: once the wheels are off the ground, and we have a decent enough vertical speed, we should just turn on the autopilot and let it deal with the rest of our flight. For our purposes that's going to be "is our VS more than 100 feet per minute, and are we at least 50 feet above the ground", both of which happen _pretty_ quickly after takeoff.
+The final step in the auto-takeoff process is, of course, concluding the auto-takeoff procedure and handing things off to the regular autopilot. Once the wheels are off the ground, and we have a decent enough vertical speed, we should just turn on the autopilot and let it deal with the rest of our flight. For our purposes, that's going to be "is our VS more than 100 feet per minute, and are we at least 50 feet above the ground", both of which happen _pretty_ quickly after takeoff.
 
 ```javascript
   ...
@@ -10280,9 +10276,11 @@ There, how do we do now?
 
 Seriously? I've flown out of this place in the 310R, it's a joy, what more do you want?
 
-... as it turns out, what it wants is something that knows that there's trees at the end of the "runway" and thus knows to pull up hard to avoid them, which our autopilot just can't do. That's okay though, we can still take off from [Anchorage]() instead. But with our safeties still gone. There is no reason why this wouldn't work, honestly.
+... as it turns out, what it wants is something that knows that there's trees at the end of the "runway" and thus knows to pull up hard to avoid them, which our autopilot just can't do. Of course, this code isn't done: we _could_ spend the next few days trying to refine it so that planes take off as early and as steeply as they physically can, but that sounds more like an exercise for the reader. In the mean time, we can still take off from something a little more "runway" than a grass field.
 
 
+
+---- insert graphics of a takeoff at Tahiti or the like ----
 
 
 
@@ -10290,43 +10288,205 @@ Seriously? I've flown out of this place in the 310R, it's a joy, what more do yo
 
 ## Auto-landing
 
-Of course, a flight consists of three parts: takeoff, "the flight" and landing, so... before we consider all of this "done", I'd say there's one thing left we should take a crack at. And because we can, let's implement this as a browser experiment (as a demonstration of how we _can_ do things purely client side).
-
-This no longer uses a browser experiment.
+Of course, a flight consists of three parts: takeoff, "the flight" and landing, so... before we consider end this thing I'd say there's one more thing we should take a crack at.
 
 
 ### Auto-landing phases
 
-There's a couple of steps and phases that we need to implement, starting with the most obvious one: finding an airport to land at. MSFS has two ways to check for airports, one that just gets every airport in the game, which isn't super useful, and one that gets all airport that are in the current "local reality bubble" (that's literally what the SDK calls it).
-
-<table>
-<tr>
-<td style="width:33%"><img src="./runways-macro.png" alt="image-20230615120232718"></td>
-<td style="width:28%"><img src="./runways-meso.png" alt="image-20230615120256440"></td>
-<td style="width:38%"><img src="./runways-local.png" alt="image-20230615120308207"></td>
-</tr>
-</table>
-
-Uhh, so... yeah: that can still be a _lot_ of airports, and not every plane can land at every airport (ever tried landing a regular plane on a water runway? Not the best landing), so we'll need a few checks:
+There's a couple of steps and phases that we need to implement, starting with the most obvious one: finding an airport to land at. MSFS has two ways to check for airports, one that just gets every airport in the game, which is maybe a bit much,  and one that gets all airports in the current "local reality bubble" (the SDK term for how much of the world is loaded in), with two event listeners for when new airports get loaded into, or are removed from, the bubble. To make life a little easier (and faster), the api wrapper we're using comes with an airport database (based on MSFS's own data) that makes finding nearby airports a little easier as we're not tied to the local reality bubble but can instead ask for airports withing a certain radius of our plane.
 
 1. Find all nearby airports,
-2. Reduce that list to, say, 10 airports,
-3. Remove any airport that we can't land at,
-4. Find all approach points for all runways and check how close we are to each, where an approach point is "a gps coordinate several miles ahead of the runway where we can start our approach". Even if one airport is closer than another, that may not be true for their approach points.
-5. Determine a waypoint based path to that approach point (because we need to execute up to a 180 degree turn in order to end up flying in the right heading, and we don't want to do that at the last second).
+   1. if we're flying a flight plan, we'll assume we want that relative to the last waypoint,
+   2. otherwise, we'll want that relative to the plane.
+2. sort that list by distance and then for the nearest 10:
+   1. find the approach(es) we'd need to fly (even if one airport is closer than another, that may not be true for their approach points)
+   2. remove any airport from the list for which the approach is too hard (or downright impossible: don't try to land a DC-3 at a float plane dock. It's probably not going to end well).
+3. From the list of airports left, pick the one with the nearest approach point, and then
+4. Determine how many waypoints we need to place, and where, so that the plane can fly that (part of the) flight path as a dedicated "landing approach".
 
-Once we have a flight plan towards a runway, and we've flown it to the approach, the auto-landing procedure consists of the following phases:
+That part will get us lined up with a runway, after which we'll actually be able to start our landing, consisting of the following phases:
 
-1. The slow-down phase, where we throttle down in order to get to "we should survive landing" speed,
-2. The descent phase, where we slowly drop to an altitude from which we'll survive landing,
-3. The "short final" phase, where we're basically at the runway and drop the landing gear (if it's retractable) send the plane down towards the ground (this may involve flaring the aircraft at some distance above the ground),
-4. The initial touch down, where we engage the brakes
-5. The roll-out, where we keep applying brakes and use the rudder to keep us straight on the runway as we slow down, and
-6. The end, where the plane has stopped, we can let go of the breaks, retract the flaps, and because we're in a sim, turn off the engine(s).
+1. The slow-down phase, where we try to slow the plane down to where "we should survive landing",
+2. the descent phase, where we slowly drop to an altitude from which we'll survive landing
+   1. During this phase we'll drop gear and add flaps (once we're going slow enough to safely be able to do those)
 
-Note that this is a pretty simplified landing that you'd never fly in real life, or even in-sim if you're flying yourself, but the subtleties of landing are lost on a computer, we need to be explicit about every step, and in order to get auto-landing to work _at all_ we're taking some shortcuts. Refinements and finessing can always come later, if desired.
+3. The "short final" phase, where we're basically at the runway and send the plane down towards the ground (this may involve flaring the aircraft at some distance above the ground),
+4. The initial touch down, where we cut the throttle,
+5. The roll-out, where we apply brakes and use the rudder to keep us straight on the runway as we slow down, and finally
+6. The end of our landing, where the plane has stopped, we can let go of the breaks, retract the flaps, and because we're in a sim, turn off the engine(s) in the middle of the runway.
+
+Note that this is a rather a "simplified landing" that you'd never fly in real life, or even in-sim if you're flying the plane yourself, but we're already trying to do more than we set out to do, and we're not going for realism so much as "can we get JS to land a plane _at all_?"
 
 So, let's write some code
+
+### A basic framework
+
+Let's start with (what else) a new file in `src/autopilot` called `auto-landing.js` that can run through a sequence of stages:
+
+```javascript
+const steps = [];
+
+// We'll define a simple sequencer that we can use 
+// to step through the various stgages of our landing.
+class Sequence {
+  constructor(api) {
+    this.api = api;
+    this.reset();
+  }
+  reset(steps = this.steps) {
+    this.step = false;
+    this.steps = steps.slice();
+  }
+  start() {
+    return this.nextStage();
+  }
+  nextStage() {
+    this.step = this.steps.shift();
+    return this.step;
+  }
+}
+
+// And our autolanding class. Which does nothing yet =)
+export class Autolanding {
+  constructor(lat, long, isFloatPlane) {
+    this.running = false;
+    this.stage = new Sequence([]);
+    this.findAndBindApproach(lat, long, isFloatPlane)
+  }
+  start() {
+    this.running = true;
+    this.stage.start();
+  }
+  async findAndBindApproach(lat, long, waterLanding) {
+    // Do the work required to find the nearest "doable" landing
+  }
+  async run(flightInformation) {
+    // check which phase we're in, and call the phase-appropriate function
+  }
+}
+```
+
+With the `autopilot.js` code updated to run this code:
+
+```javascript
+import { ..., AUTO_LANDING } from "../utils/constants.js";
+
+...
+
+let autoLanding = false;
+let { AutoLanding } = await watch(dirname, `auto-landing.js`, (lib) => {
+  AutoLanding = lib.AutoLanding;
+  if (autoLanding) {
+    Object.setPrototypeOf(autoLanding, AutoLanding.prototype);
+  }
+});
+
+export class Autopilot {
+  ...
+
+  reset(...) {
+    ...
+    this.modes = {
+      ...
+      [AUTO_LANDING]: false,
+    };
+    ...
+  }
+    
+  ...
+  
+  async setTarget(key, value) {
+    const { api, modes, trim } = this;
+    ...
+
+    // Did we turn auto landing on or off?
+    if (key === AUTO_LANDING) {
+      if (!autoLanding && value === true) {
+        autoLanding = new AutoLanding(this);
+      } else if (value === false && autoLanding) {
+        autoLanding = false;
+      }
+    }
+  }
+  ...
+  
+  async run() {
+    ...
+    try {
+      ...
+      if (modes[AUTO_LANDING] && autoLanding?.running) autoLanding.run(flightInformation);
+    } catch (e) {
+      console.warn(e);
+    }
+  }
+}
+```
+
+And the associated new mode constant in `constants.js`:
+
+```javascript
+...
+export const AUTO_LANDING = `ATL`;
+```
+
+And then more of the same updates for our browser page. First, `public/js/autopilot.js`:
+
+```javascript
+...
+export const AP_OPTIONS = {
+  ...
+  ATL: false,
+};
+...
+```
+
+And our `public/autopilot.html`:
+
+```html
+<div class="controls">
+  ...
+  <fieldset>
+    <button title="terrain follow" class="TER">terrain follow</button>
+    <button title="auto takeoff" class="ATO">take off</button>
+    <button title="auto landing" class="ATL">land</button>
+  </fieldset>
+</div>
+```
+
+Which is our prep work done, and we can get to implementing the auto landing logic.
+
+### Finding nearby airports
+
+Finding airports is pretty straight forward:
+
+```javascript
+...
+
+export class Autolanding {
+  ...
+  async findAndBindApproach(lat, long, waterLanding = false) {
+    // The api wrapper returns a list that is conveniently
+    // pre-sorted on distance to our reference coordinate
+    let { NEARBY_AIRPORTS: list } = await this.api.get(`NEARBY_AIRPORTS`);
+
+    // So let's rule out runways we can't use:
+    list = list.filter((a) =>
+      a.runways.some((r) =>
+        !!(r.surface?.includes(`water`)) === waterLanding
+      )
+    );
+ 
+    // and then return the 10 closest ones
+    return list.slice(0, 10).map(r => {
+      delete r.d;
+      return r;
+    });
+  }
+```
+
+
+
+---- does the api wrapper already sort airports on proximity? If so, we don't need to do our own sorting ----
 
 ### Finding an approach
 
