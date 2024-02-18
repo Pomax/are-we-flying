@@ -59,9 +59,9 @@ export class WayPointManager {
     return this.points.slice();
   }
 
-  add(lat, long, alt, resequence = true) {
+  add(lat, long, alt, resequence = true, landing = false) {
     const { points } = this;
-    const waypoint = new Waypoint(lat, long, alt);
+    const waypoint = new Waypoint(lat, long, alt, landing);
     points.push(waypoint);
     // If we don't have a "current" point, this is now it.
     if (!this.currentWaypoint) {

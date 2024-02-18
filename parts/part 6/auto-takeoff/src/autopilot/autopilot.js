@@ -12,7 +12,8 @@ import {
   TERRAIN_FOLLOW,
   TERRAIN_FOLLOW_DATA,
   AUTO_TAKEOFF,
-} from "../utils/constants.js?t=2";
+  AUTO_LANDING,
+} from "../utils/constants.js";
 
 let { flyLevel } = await watch(
   dirname,
@@ -88,6 +89,7 @@ export class AutoPilot {
       [TERRAIN_FOLLOW]: false,
       [TERRAIN_FOLLOW_DATA]: false,
       [AUTO_TAKEOFF]: false,
+      [AUTO_LANDING]: false,
     };
     this.resetTrim();
     if (autoTakeoff) {
@@ -268,8 +270,12 @@ export class AutoPilot {
       if (modes[ALTITUDE_HOLD]) altitudeHold(this, flightInformation);
       if (modes[AUTO_THROTTLE]) autoThrottle(this, flightInformation);
       if (modes[TERRAIN_FOLLOW]) terrainFollow(this, flightInformation);
-      if (modes[AUTO_TAKEOFF] && autoTakeoff)
+      if (modes[AUTO_TAKEOFF] && autoTakeoff) {
         autoTakeoff.run(flightInformation);
+      }
+      if (modes[AUTO_LANDING] && autoLanding?.running) {
+        autoLanding.run(flightInformation);
+      }
     } catch (e) {
       console.warn(e);
     }

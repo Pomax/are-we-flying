@@ -10070,24 +10070,7 @@ And with that, what do things look like now?
 
 ![image-20240211210723937](./image-20240211210723937.png)
 
-That looks straight to me! Well, except for the acrobatic planes: we should probably reduce the rudder for those:
-
-```javascript
-  ...
-  async autoRudder({ isAcrobatic }, { lat, long, trueHeading, rudder }) {
-    ...
-
-    // If we're in an acrobatic plane, just... rudder less?
-    const factor = isAcrobatic ? 0.2 : 1;
-    const newRudder = rudder / 100 + factor * update;
-    api.set(`RUDDER_POSITION`, newRudder);
-  }
-  ...
-```
-
-![image-20240213204457567](./image-20240213204457567.png)
-
-Certainly good enough to continue. Because we're going to have to, because these planes want to take off!
+That looks straight to me! Although those last two reveal an interesting problem: the acrobat planes take off _really quickly_, at which point their wings are not level, and they start to veer. So let's keep that in the back of our mind as we implement...
 
 ### Rotate/take-off
 
@@ -10146,11 +10129,13 @@ And MSFS adds a third value to that, called the "design takeoff speed", represen
   ...
 ```
 
-And that's our take off code. It's pretty rudimentary, but we only need this to run for "just as long as we need to turn the real autopilot on". Although to save a bit of testing, there's just a _tiny_ problem with this code as written:
+And that's our take off code. It's pretty rudimentary, but we only need this to run for "just as long as we need to turn the real autopilot on". Although to save a bit of testing, there's just a _tiny_ problem with this code as written that we already saw in the previous auto-rudder pictures:
 
 ![image-20240213205919956](./image-20240213205919956.png)
 
-No wing leveler. The moment some of the twitchier planes lift off, there's a good chance they'll just tip over and try to crash. So, since this code will only be in effect for a short time, and we just need a stopgap between "wheels off the ground" and "turning on the real autopilot", let's just add the most naive wing lever code we possibly can:
+No wing leveler.
+
+The moment some of the twitchier planes lift off, there's a good chance they'll just tip over and try to crash. So, since this code will only be in effect for a short time, and we just need a stopgap between "wheels off the ground" and "turning on the real autopilot", let's just add the most naive wing lever code we possibly can:
 
 ```javascript
   ...
@@ -10293,7 +10278,7 @@ Of course, a flight consists of three parts: takeoff, "the flight" and landing, 
 
 ### Auto-landing phases
 
-There's a couple of steps and phases that we need to implement, starting with the most obvious one: finding an airport to land at. MSFS has two ways to check for airports, one that just gets every airport in the game, which is maybe a bit much,  and one that gets all airports in the current "local reality bubble" (the SDK term for how much of the world is loaded in), with two event listeners for when new airports get loaded into, or are removed from, the bubble. To make life a little easier (and faster), the api wrapper we're using comes with an airport database (based on MSFS's own data) that makes finding nearby airports a little easier as we're not tied to the local reality bubble but can instead ask for airports withing a certain radius of our plane.
+There's a couple of steps and phases that we need to implement, starting with the most obvious one: finding an airport to land at. MSFS has two ways to check for airports, one that just gets every airport in the game, which is maybe a bit much,  and one that gets all airports in the current "local reality bubble" (the SDK term for how much of the world is loaded in), with two event listeners for when new airports get loaded into, or are removed from, the bubble. To make life a little easier (and faster), the API wrapper we're using comes with an airport database (based on MSFS's own data) that makes finding nearby airports a little easier as we're not tied to the local reality bubble but can instead ask for airports within a certain radius of our plane.
 
 1. Find all nearby airports,
    1. if we're flying a flight plan, we'll assume we want that relative to the last waypoint,
@@ -10329,39 +10314,51 @@ const steps = [];
 // We'll define a simple sequencer that we can use 
 // to step through the various stgages of our landing.
 class Sequence {
-  constructor(api) {
+  constructor(api, steps = LANDING_STEPS) {
     this.api = api;
-    this.reset();
+    this.reset(steps);
   }
-  reset(steps = this.steps) {
+  
+  reset(steps) {
     this.step = false;
     this.steps = steps.slice();
   }
+  
   start() {
     return this.nextStage();
   }
+  
   nextStage() {
     this.step = this.steps.shift();
     return this.step;
   }
 }
 
-// And our autolanding class. Which does nothing yet =)
+// And our autolanding class. Which does nothing yet.
 export class Autolanding {
-  constructor(lat, long, isFloatPlane) {
+  constructor(autopilot, lat, long, flightModel) {
+    const { vs1, cruiseSpeed, isFloatPlane } = flightModel;
     this.running = false;
-    this.stage = new Sequence([]);
-    this.findAndBindApproach(lat, long, isFloatPlane)
+    this.stage = new Sequence();
+    this.approachData = this.determineLanding(lat, long, vs1, cruiseSpeed, isFloatPlane);
   }
+  
   start() {
-    this.running = true;
-    this.stage.start();
+    if (!this.approachData) {
+      return console.error(`Autoland'er? I haven't even met 'er! Also there is nowhere to land...`);
+    }
+    if (!this.running) {
+      this.running = true;
+      this.stage.start();
+    }
   }
-  async findAndBindApproach(lat, long, waterLanding) {
-    // Do the work required to find the nearest "doable" landing
+
+  async determineLanding(lat, long, vs1, cruiseSpeed, isFloatPlane) {
+    // Figure out which airport, and which runway at that airport, to land at.
   }
+  
   async run(flightInformation) {
-    // check which phase we're in, and call the phase-appropriate function
+    // Check which phase we're in, and call the phase-appropriate function.
   }
 }
 ```
@@ -10455,105 +10452,358 @@ And our `public/autopilot.html`:
 
 Which is our prep work done, and we can get to implementing the auto landing logic.
 
-### Finding nearby airports
+### Finding our landing
 
-Finding airports is pretty straight forward:
+Finding airports is pretty straight forward, thanks to the `msfs-simconnect-api-wrapper`'s built-in `loadAirportDB` function:
 
 ```javascript
 ...
 
+// Load every airport known to MSFS. This will use up less than
+// 100MB of memory. Which is literally nothing for any desktop computer:
+import { loadAirportDB } from "msfs-simconnect-api-wrapper";
+const airports = loadAirportDB();
+
 export class Autolanding {
   ...
-  async findAndBindApproach(lat, long, waterLanding = false) {
-    // The api wrapper returns a list that is conveniently
-    // pre-sorted on distance to our reference coordinate
-    let { NEARBY_AIRPORTS: list } = await this.api.get(`NEARBY_AIRPORTS`);
 
-    // So let's rule out runways we can't use:
-    list = list.filter((a) =>
-      a.runways.some((r) =>
-        !!(r.surface?.includes(`water`)) === waterLanding
+  /**
+   * The function name really explains itself...
+   */
+  determineLanding(lat, long, vs1, cruiseSpeed, waterLanding) {
+    // Step one: get the shortlist of 10 airports near us that we can land at.
+    const shortList = airports
+      // By making sure we pick a "not water landing" for planes
+      // that can't land on water. However, float planes generally
+      // *can* land on runways, you just need to be real careful.   
+      .filter((a) => {
+        if (waterLanding) return a; // float planes *can* land on real runways
+        else return a.runways.some((r) => r.surface.includes(`water`) === false)
+      })
+      // add distance-to-reference to each remaining airport
+      .map((a) => {
+        a.distance = getDistanceBetweenPoints(
+          lat,
+          long,
+          a.latitude,
+          a.longitude
+        );
+        return a;
+      })
+      // then sort on distance
+      .sort((a, b) => a.distance - b.distance)
+      // and then keep the top 10 candidates
+      .slice(0, 10);
+
+    // Then for each of these airports, determine their approach(es) or rule them out:
+    shortList.forEach((airport) => {
+      airport.runways.forEach((runway) => {
+        this.calculateRunwayApproaches(lat, long, vs1, cruiseSpeed, airport, runway);
+      });
+    });
+
+    // Then figure out which approach will be our best/safest option
+    const approachData = this.findAndBindApproach(shortList);
+
+    // If that's none of them: sucks to be us! O_O
+    if (!approachData) {
+      console.error(`There is nowhere to land!`);
+      return false;
+    }
+
+    // Otherwise, this is the approach we'll be flying.
+    return approachData;
+  }
+
+  /**
+   * This is an involved bit of code, and we'll look at it in a bit
+   */
+  calculateRunwayApproaches(lat, long, vs1, cruiseSpeed, airport, runway) {
+    // ...
+  }
+
+  /**
+   * In order to maximize the odds of autolanding success, we want to prioritise
+   * runway length. The longer the runway, the more likely the approach is easier,
+   * too, since a long runway pretty much guarantees a "safe" glide slope.
+   */
+  findAndBindApproach(airports) {
+    const flatList = [];
+    airports.forEach((airport) =>
+      airport.runways.forEach((runway) =>
+        runway.approach.forEach((approach) => {
+          // only add approaches that we know can work...
+          if (approach.works) {
+            flatList.push({
+              airport,
+              runway,
+              approach,
+            });
+          }
+        })
       )
     );
- 
-    // and then return the 10 closest ones
-    return list.slice(0, 10).map(r => {
-      delete r.d;
-      return r;
-    });
+    // then return the top-sort-rated result.
+    return flatList.sort((a, b) => b.runway.length - a.runway.length)[0];
   }
-```
-
-
-
----- does the api wrapper already sort airports on proximity? If so, we don't need to do our own sorting ----
-
-### Finding an approach
-
-First, let's find the approach we'll need in order to land, which as we saw in the previous section means finding an airport, runway, and waypoints to get us lined up:
-
-```javascript
-function getNearestApproach(plane, approachDistance, airportCount = 10, icao = undefined) {
-  const candidates = [];
-
-  // Just because we can, if we already know the airport we want to land at,
-  // we can bypass the "find a nearby airport" part of the approach-finding-code:
-  if (icao) {
-    const simvar = `AIRPORT:${icao}`;
-    const airport = (await getAPI(simvar))[simvar];
-    candidates.push(airport);
-  } else {
-    // If we don't, get all nearby airports. This will give us a list of airport
-    // summaries, which isn't much more than their GPS coordinate, name, and ICAO code.
-    const { NEARBY_AIRPORTS: nearby } = await getAPI(`NEARBY_AIRPORTS`);
-
-    // We then reduce that to "airportCount" airports, since most will be nowhere near us:
-    const { lat, long } = plane.lastUpdate;
-    const reduced = nearby
-      .map((e) => {
-        e.d = getDistanceBetweenPoints(lat, long, e.latitude, e.longitude);
-        return e;
-      })
-      .sort((a, b) => a.d - b.d)
-      .slice(0, (airportCount = 10));
-
-    // We can then ask for the full airport details for each of those.
-    for await (let airport of reduced) {
-      const simvar = `AIRPORT:${airport.icao}`;
-      const fullAirport = (await getAPI(simvar))[simvar];
-      fullAirport.distance = airport.d;
-      candidates.push(fullAirport);
-    }
-  }
-
-  // Now that we have our shortlist, let's calculate all their approach points.
-  candidates.forEach((airport) =>
-    computeApproachCoordinates(
-      plane,
-      airport,
-      approachDistance,
-      MARGIN_DISTANCE
-    )
-  );
-
-  // We can then sort on how close we are to each approach point...
-  let approaches = candidates
-    .map((airport) => airport.runways.map((runway) => runway.approach))
-    .flat(Infinity)
-    .sort((a, b) => a.distanceToPlane - b.distanceToPlane);
-
-  // And then remove any water landings if we can't land on water!
-  const { FLOATS: isFloatPlane } = plane.flightModel.values;
-  if (!isFloatPlane)
-    approaches = approaches.filter((e) => {
-      const surface = e.runway.surface;
-      return !surface.includes(`water`);
-    });
-
-  // The first element left in the list is our approach!
-  return  approaches[0];
 }
 ```
+
+It's the `calculateRunwayApproaches` part that's a little more work. And by a little, I mean a lot. Conceptually, it's not too complicated:
+
+- for each airport:
+  - for each runway at that airport:
+    - for both possible approaches for that runway:
+      - set up an approach flight path and check whether the terrain information allows us to fly that
+
+Of course the "set up an approach flight path" is doing a lot of heavy lifting here, because we'll want a path that lets us perform a bunch of different actions:
+
+- figure out a flight plan that gets us straight (enough) onto our approach 
+- slow down from cruise speed to "safe to land at" speed,
+- drop from "whatever altitude we're flying" all the way down to a runway
+- _actually touch down on a runway without crashing_
+- etc.
+
+Which means that we'll need to do a bit of thinking about what an approach looks like.
+
+DRAW A DIAGRAM HERE
+
+So, how do we capture that in code? First of all, we'll need to determine where all these points are, so... let's do that. And fair warning: this will be more code than you probably thought it would be: 
+
+```javascript
+import {
+  getHeadingFromTo,
+  getDistanceBetweenPoints,
+  getPointAtDistance,
+  getCompassDiff,
+  constrainMap,
+  project,
+} from "../utils/utils.js";
+
+import { FEET_PER_METER, KM_PER_NM, ENV_PATH } from "../utils/constants.js";
+
+import { loadAirportDB } from "msfs-simconnect-api-wrapper";
+const airports = loadAirportDB();
+
+// We're going to need our ALOS server, so let's load that in:
+import { watch } from "../utils/reload-watcher.js";
+import dotenv from "dotenv";
+dotenv.config({ path: ENV_PATH });
+const { DATA_FOLDER } = process.env;
+const __dirname = import.meta.dirname;
+let alos;
+let { ALOSInterface } = await watch(
+  __dirname,
+  `../elevation/alos-interface.js`,
+  (lib) => {
+    ALOSInterface = lib.ALOSInterface;
+    if (alos) {
+      Object.setPrototypeOf(alos, ALOSInterface.prototype);
+    }
+  }
+);
+alos = new ALOSInterface(DATA_FOLDER);
+
+const { sign } = Math;
+
+
+export class AutoLanding {
+  ...
+
+  calculateRunwayApproaches(lat, long, vs1, cruiseSpeed, airport, runway) {
+    const { start, end } = runway;
+
+    runway.approach.forEach((approach, idx) => {
+      // first, let's assume this approach will work.
+      approach.works = true;
+
+      /*
+        We're modelling the approach in stages:
+
+                                                          _______________
+                                                 __,..-''' |     |     |
+                                        __,..-'''          |     |     |
+                               __,..-'''                   |     |     |
+        ________________,..-'''                            |     |     |
+        -o5----o4-----o3----------------------------------o2----o1-----A-
+
+        In this:
+
+          A = a waypoint in-line with the approach so that by the time we get to o1, we're flying straight.
+          o1--o2 = slow down from cruise to vs1 + 20.
+          o2--o3 = glide to runway + 100.
+          o3--o4 = glide to runway + 20.
+          o4--o5 = touch down on runway.
+
+        We assign the following properties to each track:
+
+          o1--o2 = flight alt, 2 minutes of flight at cruiseSpeed.
+          o2--o3 = flight alt -> ground alt + 100, 5 minutes of flight at vs1 + 20.
+          o3--o4 = ground alt + 100 -> ground alt + 20, lerp(vs1, 50, 100, 0, 1) km from runway.
+          o4--o5 = alt: ground. dist: however long we need to brake.
+
+        And the following behaviour:
+
+          A  = disable terrain follow.
+          o1 = set ATT to vs1 + 20.
+          o2 = initiate rolling ALT.
+
+            during o2--o3, if we're at "safe to gear" speed, drop gear.
+            during o2--o3, if we're at "safe to work flaps" speed, 1 notch of flaps.
+
+          o3 = initiate slow rolling ALT.
+          o4 = cut the engines (or set in reverse) and start braking.
+          o5 = engines off and abandon the plane on the runway. that's someone else's problem now.
+      */
+
+      // Let's calculate those distances:
+      const d12 = (1 * (cruiseSpeed * KM_PER_NM)) / 60;
+      const glideSpeed = vs1 + 20;
+      const d23 = (3 * (glideSpeed * KM_PER_NM)) / 60;
+      const d34 = constrainMap(vs1, 50, 100, 0.05, 1);
+
+      // And then calculate how far out approach points are.
+      const t = idx === 0 ? start : end; // where do we touch down?
+      const e = idx === 0 ? end : start; // and where does it end?
+      const heading = getHeadingFromTo(e[0], e[1], t[0], t[1]);
+
+      const d1 = d12 + d23 + d34;
+      const d2 = d23 + d34;
+      const d3 = d34;
+
+      // Calculate our "A" coordinate:
+      const dA = d1 + 2;
+      const { lat: pAt, long: pAg } = getPointAtDistance(t[0], t[1], dA, heading);
+      approach.pA = [pAt, pAg];
+
+      // Is this approach even possible given a standard 3 deg (5.25%) glide slope?
+      const alt23 = d23 * 0.0525 * 1000 * FEET_PER_METER;
+      const terrainAlt = alos.lookup(pAt, pAg) * FEET_PER_METER;
+
+      if (terrainAlt > alt23) {
+        console.log({ "it's": "no good", alt23, terrainAlt });
+        return (approach.works = false);
+      }
+
+      // It might be: let's keep going.
+      const { lat: p1t, long: p1g } = getPointAtDistance(t[0], t[1], d1, heading);
+      approach.p1 = [p1t, p1g];
+
+      const { lat: p2t, long: p2g } = getPointAtDistance(t[0], t[1], d2, heading);
+      approach.p2 = [p2t, p2g];
+
+      const { lat: p3t, long: p3g } = getPointAtDistance(t[0], t[1], d3, heading);
+      approach.p3 = [p3t, p3g];
+
+      approach.p4 = t; // start of the runway, relative to our approach.
+      approach.p5 = e; // end of the runway, relative to our approach.
+
+      /*
+        Let's also look at the approach from above: if the plane is to the "right" of A (with respect
+        to the approach heading) then we don't need offset points, and the plane can simply target
+        A as a waypoint. If the plane is to the "left" of A, we'll need at least one offset point,
+        either above or below A depending on the position of the plane. If the plane is above the top
+        f1, or below the bottom f1, we don't need additional points, but if the plane is somewhere
+        between f1 and the approach, we need a second offset f2 tho make sure the plane can turn onto
+        the approach correctly.
+
+           |                                                   f2----- f1
+           |                                                            |
+           |                                                            |
+        ---o5----o4-----o3-------------------------------o2----o1-------A
+           |                                                            |
+           |                                                            |
+           |                                                   f2----- f1
+      */
+
+      // Use a nice and safe 60 second turn distance.
+      const offsetDistance = (cruiseSpeed * KM_PER_NM) / 60;
+      const aHeading = getHeadingFromTo(pAt, pAg, lat, long);
+      const hDiff = getCompassDiff(heading, aHeading);
+
+      // Do we need to set up f1?
+      if (hDiff < -90 || hDiff > 90) {
+        const sgn = sign(hDiff);
+        const { lat: f1t, long: f1g } = getPointAtDistance(pAt, pAg, offsetDistance, heading + sgn * 90);
+        approach.f1 = [f1t, f1g];
+
+        // Do we also need to set up f2?
+        const p = project(t[1], t[0], e[1], e[0], long, lat);
+        const rd = getDistanceBetweenPoints(lat, long, p.y, p.x);
+        if (rd < offsetDistance) {
+          const { lat: f2t, long: f2g } = getPointAtDistance(f1t, f1g, offsetDistance, (heading + 180) % 360);
+          approach.f2 = [f2t, f2g];
+        }
+      }
+
+      const { pA, p1, p2, p3, p4, p5, f1, f2 } = approach;
+
+      // Then, set up the altitudes we'd *like* to fly:
+      const approachAlt = alt23 | 0;
+      if (f2) f2[2] = approachAlt;
+      if (f1) f1[2] = approachAlt;
+      pA[2] = approachAlt;
+      p1[2] = approachAlt;
+      p2[2] = approachAlt;
+      p3[2] = (alos.lookup(p3[0], p3[1]) * FEET_PER_METER + 100) | 0;
+      p4[2] = t[2] + 20;
+      p5[2] = e[2];
+
+      // Then verify that f2--f1, f1--A, and A--p2 have no terrain in between the points:
+      if (f2 && alos.isObstructed(f1, f2)) return (approach.works = false);
+      if (f1 && alos.isObstructed(f1, pA)) return (approach.works = false);
+      if (this.isObstructed(pA, p2)) return (approach.works = false);
+      if (this.isObstructed(p2, p3)) return (approach.works = false);
+
+      // At this point we know the approach is good, and we record
+      // the distance to the reference coordinate so we can find the
+      // closest approach.
+      const target = f2 ? f2 : f1 ? f1 : pA;
+      approach.distance = getDistanceBetweenPoints(lat, long, target[0], target[1]);
+    });
+  }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 Of course this does rely on that `computeApproachCoordinates` function, for turning runway information into actual approaches:
 

@@ -37,7 +37,7 @@ export function calculateRunwayApproaches(flightInformation, runway) {
     const heading = approach.heading;
 
     // Calculate the distance based on the plane's current altitude,
-    // and the runway's altitude, given a 3 degree glidelslope.
+    // and the runway's altitude, given a 3 degree glide slope.
 
     const altDiff = alt - altitude; // in feet
     const distance = tan(radians(3)) * altDiff; // in feet

@@ -20,11 +20,12 @@ export class Waypoint {
     return () => id++;
   })();
 
-  constructor(lat, long, alt = false) {
+  constructor(lat, long, alt = false, landing = false) {
     this.id = Waypoint.nextId();
     this.reset();
     this.setPosition(lat, long);
     this.setElevation(alt);
+    this.setLanding(landing);
   }
 
   reset() {
@@ -42,6 +43,10 @@ export class Waypoint {
   setElevation(alt) {
     alt = parseFloat(alt);
     this.alt = !isNaN(alt) && alt > 0 ? alt : false;
+  }
+
+  setLanding(landing) {
+    this.landing = landing;
   }
 
   activate() {
