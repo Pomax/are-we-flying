@@ -189,6 +189,19 @@ export class ALOSTile {
     );
     return maximum;
   }
+
+  isObstructed(p1, p2) {
+    const px1 = this.geoToPixel(p1.lat, p1.long);
+    const px2 = this.geoToPixel(p2.lat, p2.long);
+    const line = [];
+    fillScanLines(...px1, ...px2, (x, y) => line.push([x, y]));
+    line.forEach(([x, y]) => {
+      const pos = x + y * ref.width;
+      let value = ref.pixels[pos];
+      // TODO: is this value higher than our line allows?
+    });
+    return false;
+  }
 }
 
 /**
@@ -204,7 +217,10 @@ function formScanLines(poly) {
   // console.log(`running fillScanLines`);
   for (let i = 1, e = poly.length, a = poly[0], b; i < e; i++) {
     const b = poly[i];
-    fillScanLines(a[0], a[1], b[0], b[1], scanLines);
+    fillScanLines(a[0], a[1], b[0], b[1], (x, y) => {
+      scanLines[y] ??= [];
+      scanLines[y].push(x);
+    });
     a = b;
   }
 
@@ -221,7 +237,7 @@ function formScanLines(poly) {
  * This is Bresenham's Line Algorithm,
  * https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm
  */
-function fillScanLines(x, y, x2, y2, scanLines = []) {
+function fillScanLines(x, y, x2, y2, handlePixel = () => {}) {
   const dx = x2 - x,
     dy = y2 - y;
   const ax = abs(dx),
@@ -231,9 +247,8 @@ function fillScanLines(x, y, x2, y2, scanLines = []) {
   let threshold = ax - ay;
 
   while (true) {
-    scanLines[y] ??= [];
-    scanLines[y].push(x);
-    if (x === x2 && y === y2) return scanLines;
+    handlePixel(x, y);
+    if (x === x2 && y === y2) return;
     const error = 2 * threshold;
     if (error > -ay) {
       x += sx;

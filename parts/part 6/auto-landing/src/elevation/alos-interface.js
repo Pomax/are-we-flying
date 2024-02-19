@@ -211,8 +211,9 @@ export class ALOSInterface {
    * on the map.
    */
   isObstructed(p1, p2) {
-    // ...TODO: FIXME: code goes here
-    return false;
+    // get the tiles that the p1-p2 line is in
+    const tile = this.getTileFor(p1.lat, p1.long);
+    return tile.isObstructed(p1, p2);
   }
 }
 
