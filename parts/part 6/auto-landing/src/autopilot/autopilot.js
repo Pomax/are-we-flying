@@ -249,7 +249,15 @@ export class AutoPilot {
     if (key === AUTO_LANDING) {
       if (value === true) {
         if (!this.autoLanding) {
-          const { lat, long } = this.flightInformation.data;
+          // If we're turning it on, does it need run relative
+          // to our position, or the last waypoint?
+          const { waypoints } = this;
+          let { lat, long } = this.flightInformation.data;
+          if (waypoints.active) {
+            const { lat: t, long: g } = waypoints.getWaypoints().at(-1);
+            lat = t;
+            long = g;
+          }
           this.autoLanding = new AutoLanding(
             this,
             lat,
@@ -298,6 +306,7 @@ export class AutoPilot {
 
   async run() {
     const { modes, flightInformation, waypoints } = this;
+    const { currentWaypoint: waypoint } = waypoints;
 
     this.flightInfoUpdateHandler(await flightInformation.update());
 
@@ -308,7 +317,7 @@ export class AutoPilot {
       if (modes[TERRAIN_FOLLOW]) await terrainFollow(this, flightInformation);
       if (modes[AUTO_TAKEOFF] && autoTakeoff) {
         await autoTakeoff.run(flightInformation);
-      } else if (waypoints.currentWaypoint?.landing && this.autoLanding) {
+      } else if (waypoint?.landing || this.autoLanding.running) {
         await this.autoLanding.run(flightInformation);
       }
     } catch (e) {

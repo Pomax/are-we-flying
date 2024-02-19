@@ -2,7 +2,6 @@ import {
   constrain,
   constrainMap,
   getCompassDiff,
-  lerp,
 } from "../utils/utils.js";
 
 const { abs, sign } = Math;
@@ -73,12 +72,18 @@ export async function flyLevel(autopilot, state) {
     }
   }
 
+  // What's our new aileron position?
   let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
   proportion = sign(proportion) * abs(proportion);
-
   const maxStick = -trim.roll;
   const newAileron = proportion * maxStick + offset;
-  api.trigger("AILERON_SET", newAileron | 0);
+
+  // Ease us into the new aileron if it's too big of a change.
+  const { AILERON_POSITION: current } = await api.get(`AILERON_POSITION`);
+  const oldAileron = current * -(2 ** 14);
+  const diff = constrain(newAileron - oldAileron, -1000, 1000);
+  let setValue = oldAileron + diff;
+  api.trigger("AILERON_SET", setValue | 0);
 }
 
 // And our updated heading function
@@ -99,7 +104,7 @@ function getTargetHeading(parameters) {
 // deflection allowed per autopilot iteration.
 function updateMaxDeflection(trim, byHowMuch, isTwitchy, weight) {
   let { roll: value } = trim;
-  let maxValue = 2 ** (isTwitchy ? 12 : 13);
+  let maxValue = 2 ** (isTwitchy ? 11 : 12);
   // literally ultra light?
   if (weight < 1000) maxValue = 1000;
   value = constrain(value + byHowMuch, 300, maxValue) | 0;

@@ -98,11 +98,12 @@ export class AutoLanding {
     if (this.approachData) return;
 
     // If not, find a nearby approach:
-    const { vs1, cruiseSpeed, isFloatPlane } = flightModel;
+    const { vs1, climbSpeed, cruiseSpeed, isFloatPlane } = flightModel;
     const approachData = (this.approachData = determineLanding(
       lat,
       long,
       vs1,
+      climbSpeed,
       cruiseSpeed,
       isFloatPlane
     ));
@@ -142,8 +143,25 @@ export class AutoLanding {
     if (!flightInformation) return;
     const { model: flightModel, data: flightData } = flightInformation;
     if (!flightModel || !flightData) return;
-    const { vs0, climbSpeed, engineCount, isTailDragger } = flightModel;
-    const { altAboveGround, speed, onGround, lat, long, alt } = flightData;
+    const {
+      hasRetractibleGear,
+      isTailDragger,
+      engineCount,
+      climbSpeed,
+      vs0,
+      vs1,
+    } = flightModel;
+    const {
+      alt,
+      altAboveGround,
+      bank,
+      gearSpeedExceeded,
+      isGearDown,
+      lat,
+      long,
+      onGround,
+      speed,
+    } = flightData;
 
     const { approachData, autopilot, stage } = this;
     const { points } = approachData.approach;
@@ -152,14 +170,26 @@ export class AutoLanding {
     const { currentWaypoint: target } = waypoints;
     const { step } = stage;
 
+    if (!points.includes(target)) return;
+
     if (step === GETTING_ONTO_GLIDE_SLOPE) {
-      console.log(step, target.id, pA.id, p1.id);
-      if ((f2 && target === f2) || (f1 && target === f1)) {
+      if (f2 && target === f2) {
+        const d = getDistanceBetweenPoints(lat, long, f2.lat, f2.long);
+        if (d > 5) return;
         autopilot.setParameters({
-          [TERRAIN_FOLLOW]: false,
+          [TERRAIN_FOLLOW]: d > 1,
           [ALTITUDE_HOLD]: p2.alt,
         });
       }
+      if (f1 && target === f1) {
+        const d = getDistanceBetweenPoints(lat, long, f1.lat, f1.long);
+        if (d > 5) return;
+        autopilot.setParameters({
+          [TERRAIN_FOLLOW]: d > 1,
+          [ALTITUDE_HOLD]: p2.alt,
+        });
+      }
+      console.log(step, target.id, pA.id, p1.id);
       if (target === pA || target === p1) {
         autopilot.setParameters({
           [ALTITUDE_HOLD]: p2.alt,
@@ -185,10 +215,19 @@ export class AutoLanding {
       const d2 = getDistanceBetweenPoints(p2.lat, p2.long, p3.lat, p3.long);
       const lerpAlt = constrainMap(d1 / d2, 0, 1, p3.alt, p2.alt);
       autopilot.setParameters({ [ALTITUDE_HOLD]: min(alt, lerpAlt) });
+
+      // Drop gears when it's safe to do so
+      if (d1 / d2 < 0.5 && abs(bank) < 3) {
+        if (hasRetractibleGear && !gearSpeedExceeded && !isGearDown) {
+          api.trigger(`GEAR_DOWN`);
+        }
+      }
+
+      // And transition to short final when we're close enough
       if (target === p3) {
         autopilot.setParameters({
           [ALTITUDE_HOLD]: p4.alt,
-          [AUTO_THROTTLE]: climbSpeed - 10,
+          [AUTO_THROTTLE]: vs1,
         });
         stage.nextStage();
       }
@@ -196,7 +235,9 @@ export class AutoLanding {
 
     if (step === GET_TO_RUNWAY) {
       console.log(step);
-      if (altAboveGround < 10) {
+      const d1 = getDistanceBetweenPoints(lat, long, p5.lat, p5.long);
+      const d2 = getDistanceBetweenPoints(p4.lat, p4.long, p5.lat, p5.long);
+      if (altAboveGround < 15 || d1 / d2 < 1) {
         // cut the engines
         autopilot.setParameters({ [AUTO_THROTTLE]: false });
         for (let i = 1; i <= engineCount; i++) {
@@ -269,6 +310,7 @@ export class AutoLanding {
         for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 10);
       }
 
+      // TODO: maybe add "roll to the end of the runway"?
       if (speed < 5) stage.nextStage();
     }
 
@@ -299,7 +341,12 @@ function setBrakes(api, percentage) {
 /**
  * ...
  */
-function autoRudder(api, target, { onGround, lat, long, trueHeading, rudder }) {
+function autoRudder(
+  api,
+  target,
+  { onGround, lat, long, trueHeading, rudder },
+  cMax = 0.01
+) {
   if (!onGround) return;
   const targetHeading = getHeadingFromTo(lat, long, target.lat, target.long);
   let hDiff = getCompassDiff(trueHeading, targetHeading);
@@ -307,7 +354,6 @@ function autoRudder(api, target, { onGround, lat, long, trueHeading, rudder }) {
   prev_hDiff = hDiff;
 
   let update = 0;
-  const cMax = 0.01;
   update += constrainMap(hDiff, -30, 30, -cMax / 2, cMax / 2);
   update += constrainMap(dHeading, -1, 1, -cMax, cMax);
 
@@ -318,7 +364,14 @@ function autoRudder(api, target, { onGround, lat, long, trueHeading, rudder }) {
 /**
  * ...
  */
-function determineLanding(lat, long, vs1, cruiseSpeed, waterLanding) {
+function determineLanding(
+  lat,
+  long,
+  vs1,
+  climbSpeed,
+  cruiseSpeed,
+  waterLanding
+) {
   // Get the shortlist of 10 airports near us that we can land at.
   const shortList = airports
     .filter((a) => {
@@ -335,7 +388,15 @@ function determineLanding(lat, long, vs1, cruiseSpeed, waterLanding) {
   // Then for each of these airports, determine their approach(es) or rule them out.
   shortList.forEach((airport) => {
     airport.runways.forEach((runway) => {
-      calculateRunwayApproaches(lat, long, vs1, cruiseSpeed, airport, runway);
+      calculateRunwayApproaches(
+        lat,
+        long,
+        vs1,
+        climbSpeed,
+        cruiseSpeed,
+        airport,
+        runway
+      );
     });
   });
 
@@ -359,6 +420,7 @@ function calculateRunwayApproaches(
   lat,
   long,
   vs1,
+  climbSpeed,
   cruiseSpeed,
   airport,
   runway
@@ -409,9 +471,8 @@ function calculateRunwayApproaches(
     */
 
     // let's calculate those distances
-    const d12 = (1 * (cruiseSpeed * KM_PER_NM)) / 60;
-    const glideSpeed = climbSpeed + 20;
-    const d23 = (3 * (glideSpeed * KM_PER_NM)) / 60;
+    const d12 = (1 / 60) * (cruiseSpeed * KM_PER_NM);
+    const d23 = (3 / 60) * (climbSpeed * KM_PER_NM);
     const d34 = constrainMap(vs1, 50, 100, 0.05, 1);
 
     // console.log({ vs1, cruiseSpeed, d12, d23, d34 });
