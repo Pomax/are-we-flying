@@ -63,8 +63,10 @@ const LANDING_STEPS = [
   END_OF_LANDING,
 ];
 
-// We'll define a simple sequencer that we can use
-// to step through the various stgages of our landing.
+/**
+ * We'll define a simple sequencer that we can use
+ * to step through the various stgages of our landing.
+ */
 class Sequence {
   constructor(api) {
     this.api = api;
@@ -82,7 +84,9 @@ class Sequence {
   }
 }
 
-// And our autolanding class. Which does nothing yet =)
+/**
+ * And our autolanding class.
+ */
 export class AutoLanding {
   constructor(autopilot, lat, long, flightModel) {
     console.log(`autolanding:`, lat, long);
@@ -95,7 +99,7 @@ export class AutoLanding {
 
     // If not, find a nearby approach:
     const { vs1, cruiseSpeed, isFloatPlane } = flightModel;
-    const approachData = (this.approachData = this.determineLanding(
+    const approachData = (this.approachData = determineLanding(
       lat,
       long,
       vs1,
@@ -121,287 +125,13 @@ export class AutoLanding {
     }
   }
 
+  /**
+   * ...
+   */
   reset() {
     prev_hDiff = 0;
     this.running = true;
     this.stage = new Sequence(this.autopilot);
-  }
-
-  determineLanding(lat, long, vs1, cruiseSpeed, waterLanding) {
-    // Get the shortlist of 10 airports near us that we can land at.
-    const shortList = airports
-      .filter((a) => {
-        if (waterLanding) return a; // float planes *can* land on real runways
-        else
-          return a.runways.some((r) => r.surface.includes(`water`) === false);
-      })
-      .map((a) => {
-        a.distance = getDistanceBetweenPoints(
-          lat,
-          long,
-          a.latitude,
-          a.longitude
-        );
-        return a;
-      })
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 10);
-
-    // Then for each of these airports, determine their approach(es) or rule them out.
-    shortList.forEach((airport) => {
-      airport.runways.forEach((runway) => {
-        this.calculateRunwayApproaches(
-          lat,
-          long,
-          vs1,
-          cruiseSpeed,
-          airport,
-          runway
-        );
-      });
-    });
-
-    // Then figure out which approach will be our best/safest option
-    const approachData = this.findAndBindApproach(shortList);
-
-    // If that's none of them: sucks to be us! O_O
-    if (!approachData) {
-      console.error(`There is nowhere to land!`);
-      return false;
-    }
-
-    // Otherwise, this is the approach we'll be flying.
-    return approachData;
-  }
-
-  calculateRunwayApproaches(lat, long, vs1, cruiseSpeed, airport, runway) {
-    const { start, end } = runway;
-
-    runway.approach.forEach((approach, idx) => {
-      // first, let's assume this approach will work.
-      approach.works = true;
-
-      /*
-        We're modelling the approach in stages:
-
-                                                        _______________
-                                                __,..-'' ╎     ╎     ╎
-                                        __,..-''         ╎     ╎     ╎
-                                __,..-''                 ╎     ╎     ╎
-          ________________,..-''                         ╎     ╎     ╎
-          ─o5────o4─────o3──────────────────────────────o2────o1─────A─
-
-        In this:
-
-          A = a waypoint in-line with the approach so that by the time we get to o1, we're flying straight.
-          o1--o2 = slow down from cruise to vs1 + 20.
-          o2--o3 = glide to runway + 100.
-          o3--o4 = glide to runway + 20.
-          o4--o5 = touch down on runway.
-
-        We assign the following properties to each track:
-
-          o1--o2 = flight alt, 2 minutes of flight at cruiseSpeed.
-          o2--o3 = flight alt -> ground alt + 100, 5 minutes of flight at vs1 + 20.
-          o3--o4 = ground alt + 100 -> ground alt + 20, lerp(vs1, 50, 100, 0, 1) km from runway.
-          o4--o5 = alt: ground. dist: however long we need to brake.
-
-        And the following behaviour:
-
-          A  = disable terrain follow.
-          o1 = set ATT to vs1 + 20.
-          o2 = initiate rolling ALT.
-
-            during o2--o3, if we're at "safe to gear" speed, drop gear.
-            during o2--o3, if we're at "safe to work flaps" speed, 1 notch of flaps.
-
-          o3 = initiate slow rolling ALT.
-          o4 = cut the engines (or set in reverse) and start braking.
-          o5 = engines off and abandon the plane on the runway. that's someone else's problem now.
-      */
-
-      // let's calculate those distances
-      const d12 = (1 * (cruiseSpeed * KM_PER_NM)) / 60;
-      const glideSpeed = vs1 + 20;
-      const d23 = (3 * (glideSpeed * KM_PER_NM)) / 60;
-      const d34 = constrainMap(vs1, 50, 100, 0.05, 1);
-
-      // console.log({ vs1, cruiseSpeed, d12, d23, d34 });
-
-      // and then calculate how far out approach points are.
-      const t = idx === 0 ? start : end; // where do we touch down?
-      const e = idx === 0 ? end : start; // and where does it end?
-      const heading = getHeadingFromTo(e[0], e[1], t[0], t[1]);
-
-      const d1 = d12 + d23 + d34;
-      const d2 = d23 + d34;
-      const d3 = d34;
-
-      // console.log({ d1, d2, d3 });
-
-      // Calculate our A coordinate
-      const dA = d1 + 2;
-      const { lat: pAt, long: pAg } = getPointAtDistance(
-        t[0],
-        t[1],
-        dA,
-        heading
-      );
-      const pA = [pAt, pAg];
-
-      // Is this approach even possible given a standard 3 deg (5.25%) glide slope?
-      const alt23 = d23 * 0.0525 * 1000 * FEET_PER_METER;
-      const terrainAlt = alos.lookup(pAt, pAg) * FEET_PER_METER;
-      if (terrainAlt > alt23) {
-        console.log({ "it's": "no good", alt23, terrainAlt });
-        return (approach.works = false);
-      }
-
-      // It might be: let's keep going.
-      const { lat: p1t, long: p1g } = getPointAtDistance(
-        t[0],
-        t[1],
-        d1,
-        heading
-      );
-      const p1 = [p1t, p1g];
-
-      const { lat: p2t, long: p2g } = getPointAtDistance(
-        t[0],
-        t[1],
-        d2,
-        heading
-      );
-      const p2 = [p2t, p2g];
-
-      const { lat: p3t, long: p3g } = getPointAtDistance(
-        t[0],
-        t[1],
-        d3,
-        heading
-      );
-      const p3 = [p3t, p3g];
-
-      const p4 = t;
-      const p5 = e;
-
-      /*
-        Let's also look at the approach from above: if the plane is to the "right" of A (with respect
-        to the approach heading) then we don't need offset points, and the plane can simply target
-        A as a waypoint. If the plane is to the "left" of A, we'll need at least one offset point,
-        either above or below A depending on the position of the plane. If the plane is above the top
-        f1, or below the bottom f1, we don't need additional points, but if the plane is somewhere
-        between f1 and the approach, we need a second offset f2 tho make sure the plane can turn onto
-        the approach correctly.
-
-          ╎                                            (f2?)╸╸╸╸╸╸(f1?)
-          ╎                                                         ╏
-          ╎                                                         ╏
-          o5────o4─────o3──────────────────────────────o2────o1─────A
-          ╎                                                         ╏
-          ╎                                                         ╏
-          ╎                                            (f2?)╸╸╸╸╸╸(f1?)
-      */
-
-      // Use a nice and safe 60 second turn distance.
-      const offsetDistance = (cruiseSpeed * KM_PER_NM) / 60;
-      const aHeading = getHeadingFromTo(pAt, pAg, lat, long);
-      const hDiff = getCompassDiff(heading, aHeading);
-      let f1, f2;
-
-      // Do we need to set up f1?
-      if (hDiff < -90 || hDiff > 90) {
-        const sgn = sign(hDiff);
-        const { lat: f1t, long: f1g } = getPointAtDistance(
-          pAt,
-          pAg,
-          offsetDistance,
-          heading + sgn * 90
-        );
-        f1 = [f1t, f1g];
-        // Do we also need to set up f2?
-        const p = project(t[1], t[0], e[1], e[0], long, lat);
-        const rd = getDistanceBetweenPoints(lat, long, p.y, p.x);
-        if (airport.icao === `CYYJ`) {
-          console.log({ p, rd });
-        }
-        if (abs(rd) < offsetDistance) {
-          const { lat: f2t, long: f2g } = getPointAtDistance(
-            f1t,
-            f1g,
-            offsetDistance,
-            (heading + 180) % 360
-          );
-          f2 = [f2t, f2g];
-        }
-      }
-
-      // Then, set up the altitudes we'd *like* to fly:
-      const approachAlt = alt23 | 0;
-      if (f2) f2[2] = approachAlt;
-      if (f1) f1[2] = approachAlt;
-      pA[2] = approachAlt;
-      p1[2] = approachAlt;
-      p2[2] = approachAlt;
-      p3[2] = (alos.lookup(p3[0], p3[1]) * FEET_PER_METER + 100) | 0;
-      p4[2] = t[2] + 20;
-      p5[2] = e[2];
-
-      // Then verify that f2--f1, f1--A, and A--p2 have no terrain
-      // in between the points:
-      if (f2 && this.isObstructed(f1, f2)) return (approach.works = false);
-      if (f1 && this.isObstructed(f1, pA)) return (approach.works = false);
-      if (this.isObstructed(pA, p2)) return (approach.works = false);
-      if (this.isObstructed(p2, p3)) return (approach.works = false);
-
-      // At this point we know the approach is good, and we record
-      // the distance to the reference coordinate so we can find the
-      // closest approach.
-      approach.points = [p5, p4, p3, p2, p1, pA];
-      if (f1) approach.points.push(f1);
-      if (f2) approach.points.push(f2);
-      approach.target = f2 ? f2 : f1 ? f1 : pA;
-      approach.distance = getDistanceBetweenPoints(
-        lat,
-        long,
-        approach.target[0],
-        approach.target[1]
-      );
-    });
-  }
-
-  /**
-   * Check whether there is terrain obstruction between
-   * these two points, given their relative altitudes.
-   */
-  isObstructed(p1, p2) {
-    return alos.isObstructed(p1, p2);
-  }
-
-  /**
-   * Find the airport, runway, and approach for which the distance
-   * to our reference point was the shortest.
-   */
-  findAndBindApproach(airports) {
-    const flatList = [];
-    airports.forEach((airport) =>
-      airport.runways.forEach((runway) =>
-        runway.approach.forEach((approach) => {
-          if (approach.works) {
-            flatList.push({
-              airport,
-              runway,
-              approach,
-            });
-          }
-        })
-      )
-    );
-
-    flatList.sort((a, b) => b.runway.length - a.runway.length);
-    const result = flatList[0];
-    console.log(result);
-    return result;
   }
 
   /**
@@ -557,12 +287,18 @@ export class AutoLanding {
   }
 }
 
+/**
+ * ...
+ */
 function setBrakes(api, percentage) {
   const value = map(percentage, 0, 100, -16383, 16383) | 0;
   api.trigger(`AXIS_LEFT_BRAKE_SET`, value);
   api.trigger(`AXIS_RIGHT_BRAKE_SET`, value);
 }
 
+/**
+ * ...
+ */
 function autoRudder(api, target, { onGround, lat, long, trueHeading, rudder }) {
   if (!onGround) return;
   const targetHeading = getHeadingFromTo(lat, long, target.lat, target.long);
@@ -577,4 +313,251 @@ function autoRudder(api, target, { onGround, lat, long, trueHeading, rudder }) {
 
   const newRudder = rudder / 100 + update;
   api.set(`RUDDER_POSITION`, newRudder);
+}
+
+/**
+ * ...
+ */
+function determineLanding(lat, long, vs1, cruiseSpeed, waterLanding) {
+  // Get the shortlist of 10 airports near us that we can land at.
+  const shortList = airports
+    .filter((a) => {
+      if (waterLanding) return a; // float planes *can* land on real runways
+      else return a.runways.some((r) => r.surface.includes(`water`) === false);
+    })
+    .map((a) => {
+      a.distance = getDistanceBetweenPoints(lat, long, a.latitude, a.longitude);
+      return a;
+    })
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, 10);
+
+  // Then for each of these airports, determine their approach(es) or rule them out.
+  shortList.forEach((airport) => {
+    airport.runways.forEach((runway) => {
+      calculateRunwayApproaches(lat, long, vs1, cruiseSpeed, airport, runway);
+    });
+  });
+
+  // Then figure out which approach will be our best/safest option
+  const approachData = findAndBindBestApproach(shortList);
+
+  // If that's none of them: sucks to be us! O_O
+  if (!approachData) {
+    console.error(`There is nowhere to land!`);
+    return false;
+  }
+
+  // Otherwise, this is the approach we'll be flying.
+  return approachData;
+}
+
+/**
+ * ...
+ */
+function calculateRunwayApproaches(
+  lat,
+  long,
+  vs1,
+  cruiseSpeed,
+  airport,
+  runway
+) {
+  const { start, end } = runway;
+
+  runway.approach.forEach((approach, idx) => {
+    // first, let's assume this approach will work.
+    approach.works = true;
+
+    /*
+      We're modelling the approach in stages:
+
+                                                      _______________
+                                              __,..-'' ╎     ╎     ╎
+                                      __,..-''         ╎     ╎     ╎
+                              __,..-''                 ╎     ╎     ╎
+        ________________,..-''                         ╎     ╎     ╎
+        ─o5────o4─────o3──────────────────────────────o2────o1─────A─
+
+      In this:
+
+        A = a waypoint in-line with the approach so that by the time we get to o1, we're flying straight.
+        A--o2 = slow down from cruise to climb speed + 20.
+        o2--o3 = glide to runway + 100.
+        o3--o4 = glide to runway + 20.
+        o4--o5 = touch down on runway.
+
+      We assign the following properties to each track:
+
+        o1--o2 = ground + 1200, 2 minutes of flight at cruiseSpeed.
+        o2--o3 = ground + 1200 -> runway + 100, 5 minutes of flight at climb speed + 20.
+        o3--o4 = ground alt + 100 -> ground alt + 20, lerp(vs1, 50, 100, 0, 1) km from runway.
+        o4--o5 = alt: ground. dist: however long we need to brake.
+
+      And the following behaviour:
+
+        A  = disable terrain follow.
+        o1 = set ATT to vs1 + 20.
+        o2 = initiate rolling ALT.
+
+          during o2--o3, if we're at "safe to gear" speed, drop gear.
+          during o2--o3, if we're at "safe to work flaps" speed, 1 notch of flaps.
+
+        o3 = initiate slow rolling ALT.
+        o4 = cut the engines (or set in reverse) and start braking.
+        o5 = engines off and abandon the plane on the runway. that's someone else's problem now.
+    */
+
+    // let's calculate those distances
+    const d12 = (1 * (cruiseSpeed * KM_PER_NM)) / 60;
+    const glideSpeed = climbSpeed + 20;
+    const d23 = (3 * (glideSpeed * KM_PER_NM)) / 60;
+    const d34 = constrainMap(vs1, 50, 100, 0.05, 1);
+
+    // console.log({ vs1, cruiseSpeed, d12, d23, d34 });
+
+    // and then calculate how far out approach points are.
+    const t = idx === 0 ? start : end; // where do we touch down?
+    const e = idx === 0 ? end : start; // and where does it end?
+    const heading = getHeadingFromTo(e[0], e[1], t[0], t[1]);
+
+    const d1 = d12 + d23 + d34;
+    const d2 = d23 + d34;
+    const d3 = d34;
+
+    // console.log({ d1, d2, d3 });
+
+    // Calculate our A coordinate
+    const dA = d1 + 2;
+    const { lat: pAt, long: pAg } = getPointAtDistance(t[0], t[1], dA, heading);
+    const pA = [pAt, pAg];
+
+    // Is this approach even possible given a standard 3 deg (5.25%) glide slope?
+    const alt23 = d23 * 0.0525 * 1000 * FEET_PER_METER;
+    const terrainAlt = alos.lookup(pAt, pAg) * FEET_PER_METER;
+    if (terrainAlt > alt23) {
+      console.log({ "it's": "no good", alt23, terrainAlt });
+      return (approach.works = false);
+    }
+
+    // It might be: let's keep going.
+    const { lat: p1t, long: p1g } = getPointAtDistance(t[0], t[1], d1, heading);
+    const p1 = [p1t, p1g];
+
+    const { lat: p2t, long: p2g } = getPointAtDistance(t[0], t[1], d2, heading);
+    const p2 = [p2t, p2g];
+
+    const { lat: p3t, long: p3g } = getPointAtDistance(t[0], t[1], d3, heading);
+    const p3 = [p3t, p3g];
+
+    const p4 = t;
+    const p5 = e;
+
+    /*
+      Let's also look at the approach from above: if the plane is to the "right" of A (with respect
+      to the approach heading) then we don't need offset points, and the plane can simply target
+      A as a waypoint. If the plane is to the "left" of A, we'll need at least one offset point,
+      either above or below A depending on the position of the plane. If the plane is above the top
+      f1, or below the bottom f1, we don't need additional points, but if the plane is somewhere
+      between f1 and the approach, we need a second offset f2 tho make sure the plane can turn onto
+      the approach correctly.
+
+        ╎                                            (f2?)╸╸╸╸╸╸(f1?)
+        ╎                                                         ╏
+        ╎                                                         ╏
+        o5────o4─────o3──────────────────────────────o2────o1─────A
+        ╎                                                         ╏
+        ╎                                                         ╏
+        ╎                                            (f2?)╸╸╸╸╸╸(f1?)
+    */
+
+    // Use a nice and safe 60 second turn distance.
+    const offsetDistance = (cruiseSpeed * KM_PER_NM) / 60;
+    const aHeading = getHeadingFromTo(pAt, pAg, lat, long);
+    const hDiff = getCompassDiff(heading, aHeading);
+    let f1, f2;
+
+    // Do we need to set up f1?
+    if (hDiff < -90 || hDiff > 90) {
+      const sgn = sign(hDiff);
+      const { lat: f1t, long: f1g } = getPointAtDistance(
+        pAt,
+        pAg,
+        offsetDistance,
+        heading + sgn * 90
+      );
+      f1 = [f1t, f1g];
+      // Do we also need to set up f2?
+      const p = project(t[1], t[0], e[1], e[0], long, lat);
+      const rd = getDistanceBetweenPoints(lat, long, p.y, p.x);
+      if (airport.icao === `CYYJ`) {
+        console.log({ p, rd });
+      }
+      if (abs(rd) < offsetDistance) {
+        const { lat: f2t, long: f2g } = getPointAtDistance(
+          f1t,
+          f1g,
+          offsetDistance,
+          (heading + 180) % 360
+        );
+        f2 = [f2t, f2g];
+      }
+    }
+
+    // Then, set up the altitudes we'd *like* to fly:
+    const approachAlt = alt23 | 0;
+    if (f2) f2[2] = approachAlt;
+    if (f1) f1[2] = approachAlt;
+    pA[2] = approachAlt;
+    p1[2] = approachAlt;
+    p2[2] = approachAlt;
+    p3[2] = (alos.lookup(p3[0], p3[1]) * FEET_PER_METER + 100) | 0;
+    p4[2] = t[2] + 20;
+    p5[2] = e[2];
+
+    // Then verify that f2--f1, f1--A, and A--p2 have no terrain
+    // in between the points:
+    if (f2 && alos.isObstructed(f1, f2)) return (approach.works = false);
+    if (f1 && alos.isObstructed(f1, pA)) return (approach.works = false);
+    if (alos.isObstructed(pA, p2)) return (approach.works = false);
+    if (alos.isObstructed(p2, p3)) return (approach.works = false);
+
+    // At this point we know the approach is good, and we record
+    // the distance to the reference coordinate so we can find the
+    // closest approach.
+    approach.points = [p5, p4, p3, p2, p1, pA];
+    if (f1) approach.points.push(f1);
+    if (f2) approach.points.push(f2);
+    approach.target = f2 ? f2 : f1 ? f1 : pA;
+    approach.distance = getDistanceBetweenPoints(
+      lat,
+      long,
+      approach.target[0],
+      approach.target[1]
+    );
+  });
+}
+
+/**
+ * Find the airport, runway, and approach with the longest
+ * runway, to give ourselves the best possible chance of success.
+ */
+function findAndBindBestApproach(airports) {
+  const flatList = [];
+
+  airports.forEach((airport) =>
+    airport.runways.forEach((runway) =>
+      runway.approach.forEach((approach) => {
+        if (approach.works) {
+          flatList.push({
+            airport,
+            runway,
+            approach,
+          });
+        }
+      })
+    )
+  );
+
+  return flatList.sort((a, b) => b.runway.length - a.runway.length)[0];
 }
