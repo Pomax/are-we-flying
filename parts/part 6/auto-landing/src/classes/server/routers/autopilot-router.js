@@ -37,6 +37,10 @@ export class AutopilotRouter {
     autopilot.waypoints.setWaypointElevation(id, alt);
   }
 
+  setWaypointHardness(client, id, hardness) {
+    autopilot.waypoints.setWaypointHardness(id, hardness);
+  }
+
   removeWaypoint(client, id) {
     autopilot.waypoints.remove(id);
   }
@@ -55,6 +59,10 @@ export class AutopilotRouter {
 
   toggleRepeating(client, value) {
     autopilot.waypoints.toggleRepeating(value);
+  }
+
+  goAround(client) {
+    autopilot.waypoints.goAround();
   }
 
   revalidate(client, lat, long) {

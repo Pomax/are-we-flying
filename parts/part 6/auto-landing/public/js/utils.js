@@ -1,4 +1,7 @@
-const { sin, cos, atan2, sqrt } = Math;
+const { sin, cos, atan2, sqrt, PI } = Math;
+
+const degrees = (v) => (v / PI) * 180;
+const radians = (v) => (v / 180) * PI;
 
 // Return a promise that doesn't resolve until `fn()` returns a truthy value, or we run out of retries.
 export function waitFor(fn, timeout = 5000, retries = 100) {

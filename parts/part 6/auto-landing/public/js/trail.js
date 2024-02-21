@@ -39,6 +39,11 @@ export class Trail {
     this.line.addLatLng(pair);
   }
 
+  // Get the most recently added coordinate
+  getLast() {
+    return this.coords.at(-1);
+  }
+
   // Remove this trail from the map
   remove() {
     this.line.remove();

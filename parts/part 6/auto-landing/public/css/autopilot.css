@@ -1,17 +1,15 @@
 #autopilot {
   margin: 0.5em 0;
+
+  fieldset.viz {
+    button.active {
+      background: #249eea;
+      color: white;
+    }
+  }
 }
 
 .terrain-probe {
   stroke: #00ffc8;
   fill: #00ffc8;
-}
-
-/*
-  When terrain follow is enabled, we hide the
-  waypoint marker elevation indicators, because
-  they're not actually getting used.
-*/
-body:has(.TER.active) .waypoint-div::before {
-  content: "";
 }

@@ -41,4 +41,6 @@ Alternatively, do we want to compute strips along a waypoint so we're working wi
 
 backport and document: ENV_PATH in constants.js
 
-CHECK THAT ALL AUTOPILOTS ACTUALLY RUN AT 500MS INSTEAD OF MULTIPLE TIMES PER MILLISECOND
+- add ALOS tile explorer to the ALOS server so we can check elevations graphically?
+
+- MUCH TIGHTER VS CONTROL DURING LANDING OMGWTF

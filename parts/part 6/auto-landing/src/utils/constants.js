@@ -31,3 +31,5 @@ export const TERRAIN_FOLLOW_SAFETY = 500;
 // auto landing
 export const AUTO_LANDING = `ATL`;
 export const AUTO_LANDING_DATA = `ALD`;
+export const GLIDE_SLOPE_DURATION = 3; // minutes
+export const GLIDE_SLOPE_MAX_VS = 400; // feet per minute

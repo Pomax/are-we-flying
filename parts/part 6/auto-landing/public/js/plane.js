@@ -9,7 +9,7 @@ import { Autopilot } from "./autopilot.js";
 import { WaypointOverlay } from "./waypoint-overlay.js";
 import { getDistanceBetweenPoints } from "./utils.js";
 
-const { abs, sqrt } = Math;
+const { abs, sqrt, min } = Math;
 
 export class Plane {
   constructor(
@@ -82,6 +82,8 @@ export class Plane {
   async updateState(state) {
     this.state = state;
     const now = Date.now();
+    const prev = this.lastUpdate.time || now - 1000;
+    if (now - prev < 100) return;
     Questions.update(state);
 
     // Check if we started a new flight because that requires
@@ -96,7 +98,7 @@ export class Plane {
     }
 
     // Keep our map up to date:
-    this.updateMap(state.flightInformation);
+    this.updateMap(now, state.flightInformation);
 
     const flightData = state.flightInformation.data;
     if (flightData) {
@@ -119,32 +121,23 @@ export class Plane {
   /**
    * A dedicated function for updating the map!
    */
-  async updateMap({ model: flightModel, data: flightData, general }) {
+  async updateMap(now, { model: flightModel, data: flightData, general }) {
     if (!flightData) return;
 
     const { map, marker, planeIcon } = this;
-    const { lat, long } = flightData;
+    const { cruiseSpeed } = flightModel;
+    const { lat, long, speed } = flightData;
 
     // Do we have a GPS coordinate? (And not the 0,0 off the West coast
     // of Africa that you get while you're not in game?)
     if (lat === undefined || long === undefined) return;
     if (abs(lat) < 0.1 && abs(long) < 0.1) return;
 
-    try {
-      // First off: did we teleport? E.g. did the plane's position change
-      // impossibly fast, due to restarting a flight, or by using the
-      // "teleport" function in Parallel 42's "Flow" add-on, etc? Because
-      // if so, we need to start a new trail.
-      const { lat: lat2, long: long2 } = this.lastUpdate.flightInformation.data;
+    // Then, did we teleport?
+    if (this.lastUpdate && this.trail) {
+      const [lat2, long2] = this.trail.getLast() || [lat, long];
       const d = getDistanceBetweenPoints(lat, long, lat2, long2);
-      const kmps = (speed ?? 0) / 1944;
-
-      // We'll call ourselves "teleported" if we moved at a speed of over
-      // 0.75 kilometers per second, which is 1450 knots, or  mach 2.17
-      const teleported = this.lastUpdate.flightData && d > 0.5 * kmps;
-      if (teleported) this.startNewTrail([lat, long]);
-    } catch (e) {
-      // this will als fail if we don't have lastUpdate yet, and that's still fine.
+      if (d > 1) this.startNewTrail([lat, long]);
     }
 
     // With all that done, we can add the current position to our current trail:

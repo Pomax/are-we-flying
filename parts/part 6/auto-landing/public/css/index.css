@@ -62,20 +62,11 @@ button.active {
 }
 
 body {
-  &:has(#show-labels:not(:checked)) {
-    #map .waypoint-div .waypoint-marker {
-      & .pre,
-      & .post {
-        display: none;
-      }
-    }
+  #science.hidden {
+    display: none;
   }
 
-  &:has(#tiny-waypoints:checked) {
-    #map .waypoint-div .waypoint-marker {
-      & img {
-        transform: translate(0, 10px) scale(0.4);
-      }
-    }
+  &:has(#science.hidden) {
+    margin-bottom: 5em;
   }
 }

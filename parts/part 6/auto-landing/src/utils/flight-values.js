@@ -259,7 +259,11 @@ export function renameData(data, previousValues) {
   const d = {};
   const now = Date.now();
   const before = previousValues?.__date_time ?? now - 0.001;
-  const dt = (now - before) / 1000; // delta per second seconds
+
+  // delta per second, but make sure that pausing the game
+  // doesn't lead to insanely high values here:
+  let dt = (now - before) / 1000;
+  if (dt > 2) dt = 2;
 
   // Then perform the name mapping, but with extra code for getting
   // our "delta" values, which we'll add into a `.d` property.

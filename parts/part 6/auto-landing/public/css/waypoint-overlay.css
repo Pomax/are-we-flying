@@ -59,3 +59,31 @@
     }
   }
 }
+
+body {
+  &:has(#show-labels:not(:checked)) {
+    #map .waypoint-div .waypoint-marker {
+      & .pre,
+      & .post {
+        display: none;
+      }
+    }
+  }
+
+  &:has(#tiny-waypoints:checked) {
+    #map .waypoint-div .waypoint-marker {
+      & img {
+        transform: translate(0, 10px) scale(0.4);
+      }
+    }
+  }
+
+  /*
+    When terrain follow is enabled, we hide the
+    waypoint marker elevation indicators, because
+    they're not actually getting used.
+  */
+  &:has(.TER.active) .waypoint-div:not(:has(.landing))::before {
+    content: "";
+  }
+}

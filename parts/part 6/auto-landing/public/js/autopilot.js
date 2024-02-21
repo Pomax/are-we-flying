@@ -61,6 +61,12 @@ export class Autopilot {
       evt.target.blur();
     });
 
+    domAP.querySelector(`.ATO`)?.addEventListener(`click`, ({ target }) => {
+      if (!target.classList.contains(`active`)) {
+        server.autopilot.update({ MASTER: true });
+      }
+    });
+
     domAP.querySelector(`.arm-all`).addEventListener(`click`, () => {
       Object.entries(AP_OPTIONS).forEach(([key, value]) => {
         if (key === `MASTER`) return;
@@ -70,6 +76,37 @@ export class Autopilot {
         }
       });
     });
+
+    const radius = domAP.querySelector(`.radius`);
+    if (radius) {
+      radius.addEventListener(`click`, ({ target: btn }) => {
+        radius.classList.toggle(`active`);
+        this.showPlaneRadius = btn.classList.contains(`active`);
+      });
+      this.showPlaneRadius = radius.classList.contains(`active`);
+    }
+
+    const probe = domAP.querySelector(`.probe`);
+    if (probe) {
+      probe.addEventListener(`click`, ({ target: btn }) => {
+        probe.classList.toggle(`active`);
+        this.showTerrainProbe = btn.classList.contains(`active`);
+      });
+      this.showTerrainProbe = probe.classList.contains(`active`);
+    }
+
+    const science = domAP.querySelector(`.science`);
+    if (science) {
+      science.addEventListener(`click`, ({ target: btn }) => {
+        science.classList.toggle(`active`);
+        document
+          .getElementById(`science`)
+          .classList.toggle(`hidden`, !science.classList.contains(`active`));
+      });
+      document
+        .getElementById(`science`)
+        .classList.toggle(`hidden`, !science.classList.contains(`active`));
+    }
   }
 
   // And then we also add some ALT-specific code to our update function:
@@ -124,10 +161,10 @@ export class Autopilot {
 
       if (this.planeRadius) this.planeRadius.remove();
 
-      if (radius) {
+      if (this.showPlaneRadius && radius) {
         this.planeRadius = L.circle(
           [flightData.lat, flightData.long],
-          radius * 1000
+          radius.transition * 1000
         );
         this.planeRadius.addTo(this.map);
       }
@@ -144,7 +181,7 @@ export class Autopilot {
     }
 
     const { TerrainFollowData: data, TER } = params;
-    if (TER && data) {
+    if (this.showTerrainProbe && TER && data) {
       const { maxElevation, geoPolies } = data;
       this.terrainProbe = geoPolies.map((coords) =>
         L.polyline([...coords, coords[0]], {

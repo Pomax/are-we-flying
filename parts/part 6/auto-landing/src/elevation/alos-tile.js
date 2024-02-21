@@ -2,7 +2,8 @@ import tiff from "tiff";
 
 import { readFileSync } from "node:fs";
 import { ALOS_VOID_VALUE, NO_ALOS_DATA_VALUE } from "./alos-constants.js";
-import { KM_PER_ARC_DEGREE } from "../utils/constants.js";
+import { FEET_PER_METER, KM_PER_ARC_DEGREE } from "../utils/constants.js";
+import { lerp } from "../utils/utils.js";
 
 const { abs, ceil, sign, max } = Math;
 
@@ -191,16 +192,21 @@ export class ALOSTile {
   }
 
   isObstructed(p1, p2) {
-    const px1 = this.geoToPixel(p1.lat, p1.long);
-    const px2 = this.geoToPixel(p2.lat, p2.long);
+    const coarse = !!this.coarse;
+    const ref = coarse ? this.coarse : this;
+    const px1 = this.geoToPixel(p1[0], p1[1]);
+    const px2 = this.geoToPixel(p2[0], p2[1]);
+    const dist = (x1, y1, x2, y2) => ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5;
+    const totalLength = dist(...px1, ...px2);
     const line = [];
     fillScanLines(...px1, ...px2, (x, y) => line.push([x, y]));
-    line.forEach(([x, y]) => {
+    return line.some(([x, y]) => {
       const pos = x + y * ref.width;
-      let value = ref.pixels[pos];
-      // TODO: is this value higher than our line allows?
+      let elevation = ref.pixels[pos] * FEET_PER_METER;
+      const d = dist(...px1, x, y);
+      let cutoff = lerp(d / totalLength, p2[3], p1[3]);
+      return elevation + 20 > cutoff;
     });
-    return false;
   }
 }
 

@@ -1,8 +1,5 @@
-import {
-  constrain,
-  constrainMap,
-  getCompassDiff,
-} from "../utils/utils.js";
+import { AUTO_LANDING } from "../utils/constants.js";
+import { constrain, constrainMap, getCompassDiff } from "../utils/utils.js";
 
 const { abs, sign } = Math;
 const FEATURES = {
@@ -10,7 +7,7 @@ const FEATURES = {
 };
 
 export async function flyLevel(autopilot, state) {
-  const { trim, api } = autopilot;
+  const { trim, api, waypoints } = autopilot;
   const { data: flightData, model: flightModel } = state;
 
   const { weight, wingArea, isAcrobatic } = flightModel;
@@ -18,7 +15,7 @@ export async function flyLevel(autopilot, state) {
   const isTwitchy = wpa < 5 || isAcrobatic;
 
   // get our turn rate
-  const { bank, turnRate, upsideDown } = flightData;
+  const { bank, turnRate, upsideDown, lat, long } = flightData;
   const aTurnRate = abs(turnRate);
 
   // get our target heading
@@ -40,13 +37,31 @@ export async function flyLevel(autopilot, state) {
     const wrongWay = sign(turnRate) !== sign(headingDiff);
     if (regularTurn || hardTurn || wrongWay) {
       const howMuch = isAcrobatic ? 10 : 50;
-      updateMaxDeflection(trim, howMuch, isTwitchy, weight);
+      updateMaxDeflection(
+        autopilot,
+        trim,
+        howMuch,
+        isTwitchy,
+        weight,
+        aHeadingDiff,
+        lat,
+        long
+      );
     }
   }
   // Otherwise just ease it back down, with a special affordance for the Top Rudder:
   else {
     const howMuch = isTwitchy ? -50 : -10;
-    updateMaxDeflection(trim, howMuch, isTwitchy, weight);
+    updateMaxDeflection(
+      autopilot,
+      trim,
+      howMuch,
+      isTwitchy,
+      weight,
+      aHeadingDiff,
+      lat,
+      long
+    );
   }
 
   // Are we flying upside down?
@@ -57,7 +72,17 @@ export async function flyLevel(autopilot, state) {
 
     // If we're tipping too much, reduce our max stick
     // because we were clearly giving it too much:
-    if (abs(tipAngle) > 30) updateMaxDeflection(trim, -50, isTwitchy, weight);
+    if (abs(tipAngle) > 30)
+      updateMaxDeflection(
+        autopilot,
+        trim,
+        -50,
+        isTwitchy,
+        weight,
+        aHeadingDiff,
+        lat,
+        long
+      );
 
     // And restrict our bank angle to 30 degrees on either side of 180:
     const s = sign(bank);
@@ -72,9 +97,19 @@ export async function flyLevel(autopilot, state) {
     }
   }
 
+  // // Try to force our way onto an approach line if we're landing?
+  // if (waypoints.isLanding()) {
+  //   const landingOffset = constrainMap(headingDiff, -3, 3, -1000, 1000);
+  //   console.log(
+  //     `heading diff is ${headingDiff}, adding landing offset ${landingOffset}`
+  //   );
+  //   offset -= landingOffset;
+  // }
+
   // What's our new aileron position?
   let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
-  proportion = sign(proportion) * abs(proportion);
+  proportion = sign(proportion) * abs(proportion) ** 0.5;
+
   const maxStick = -trim.roll;
   const newAileron = proportion * maxStick + offset;
 
@@ -102,9 +137,23 @@ function getTargetHeading(parameters) {
 
 // A little helper function that lets us change the maximum stick
 // deflection allowed per autopilot iteration.
-function updateMaxDeflection(trim, byHowMuch, isTwitchy, weight) {
+function updateMaxDeflection(
+  autopilot,
+  trim,
+  byHowMuch,
+  isTwitchy,
+  weight,
+  aHeadingDiff,
+  lat,
+  long
+) {
+  const { waypoints, autoLanding } = autopilot;
   let { roll: value } = trim;
-  let maxValue = 2 ** (isTwitchy ? 11 : 12);
+  const order = constrainMap(aHeadingDiff, 0, 10, 12, 13);
+  const landing = waypoints.isLanding();
+  let maxValue = landing
+    ? autoLanding.getMaxDeflection(aHeadingDiff, lat, long)
+    : 2 ** (isTwitchy ? order - 1 : order);
   // literally ultra light?
   if (weight < 1000) maxValue = 1000;
   value = constrain(value + byHowMuch, 300, maxValue) | 0;

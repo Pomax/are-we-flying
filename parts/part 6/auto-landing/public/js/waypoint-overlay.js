@@ -26,6 +26,12 @@ export class WaypointOverlay {
       });
 
     document
+      .querySelector(`#map-controls .go-around`)
+      .addEventListener(`click`, () => {
+        server.autopilot.goAround();
+      });
+
+    document
       .querySelector(`#map-controls .revalidate`)
       .addEventListener(`click`, () => {
         const { lat, long } = this.plane?.state.flightInformation?.data || {};

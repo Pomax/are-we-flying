@@ -17,6 +17,7 @@ import {
   KNOTS_IN_KM_PER_MINUTE,
   TERRAIN_FOLLOW,
   ENV_PATH,
+  AUTO_LANDING,
 } from "../../utils/constants.js";
 
 import dotenv from "dotenv";
@@ -40,6 +41,7 @@ export class WayPointManager {
   reset() {
     this.points = [];
     this.currentWaypoint = undefined;
+    this.landing = false;
     this.repeating = false;
     this.autopilot.onChange();
   }
@@ -62,6 +64,25 @@ export class WayPointManager {
     console.log(`getLanding`, !!airport, !!runway, !!approach);
     if (!airport) return;
     return { airport, runway, approach };
+  }
+
+  isLanding() {
+    // We're only "landing" if we've started on the glide slope.
+    let left = 0;
+    let p = this.currentWaypoint || this.points.at(-1);
+    const { landing } = p;
+    while (p) {
+      left++;
+      p = p.next;
+    }
+    return left > 0 && left <= 5 && landing;
+  }
+
+  goAround() {
+    this.resetWaypoints();
+    while (!this.currentWaypoint.landing) {
+      this.transition();
+    }
   }
 
   getWaypoints() {
@@ -97,6 +118,10 @@ export class WayPointManager {
   setWaypointElevation(id, alt) {
     this.points.find((e) => e.id === id)?.setElevation(alt);
     this.resequence();
+  }
+
+  setWaypointHardness(id, hardness) {
+    this.points.find((e) => e.id === id)?.setHardness(hardness);
   }
 
   /**
@@ -168,6 +193,8 @@ export class WayPointManager {
 
     if (this.repeating) {
       points.at(-1).setNext(points[0]);
+    } else {
+      points[0].setHardness(true);
     }
 
     // push the update to clients
@@ -272,7 +299,8 @@ export class WayPointManager {
   }) {
     const { modes } = autopilot;
     let { currentWaypoint: p1 } = this;
-    const radiusInKM = this.getTransitionRadius(
+
+    const transitionRadiusInKM = this.getTransitionRadius(
       lat,
       long,
       speed,
@@ -280,6 +308,7 @@ export class WayPointManager {
       cruiseSpeed,
       p1
     );
+    const targetRadiusInKM = transitionRadiusInKM;
 
     let target;
     let targets = [];
@@ -300,7 +329,14 @@ export class WayPointManager {
       // Get our target, but if it's more than 5 minutes away, ignore
       // any projections we might have gotten here and instead target
       // the waypoint itself.
-      target = this.getTarget(lat, long, p1, radiusInKM, targets);
+      target = this.getTarget(
+        lat,
+        long,
+        p1,
+        targetRadiusInKM,
+        transitionRadiusInKM,
+        targets
+      );
 
       if (target) {
         const d = getDistanceBetweenPoints(lat, long, target.lat, target.long);
@@ -330,7 +366,10 @@ export class WayPointManager {
     // For visualization purposes, update the targets involved in this code:
     autopilot.setParameters({
       [HEADING_TARGETS]: {
-        radius: radiusInKM,
+        radius: {
+          target: targetRadiusInKM,
+          transition: transitionRadiusInKM,
+        },
         targets,
       },
     });
@@ -341,17 +380,34 @@ export class WayPointManager {
   /**
    * ...
    */
-  getTarget(lat, long, p1, radiusInKM, targets = []) {
+  getTarget(
+    lat,
+    long,
+    p1,
+    targetRadiusInKM,
+    transitionRadiusInKM,
+    targets = []
+  ) {
     let p2, p3, target;
 
     // Do we only have a single point?
     p2 = p1.next;
     if (!p2) {
-      this.checkTransition(lat, long, p1, radiusInKM);
+      this.checkTransition(lat, long, p1, transitionRadiusInKM);
     }
 
+    // FIXME: TODO: fix the waypoint.hard logic here...
+
+    // Do we have more, but p1 is a hard point?
+    // else if (
+    //   p1.hard &&
+    //   !this.checkTransition(lat, long, p1, transitionRadiusInKM)
+    // ) {
+    //   return p1;
+    // }
+
     // If we have at least two points, let's do some projective planning.
-    else if (p2 && !this.checkTransition(lat, long, p2, radiusInKM)) {
+    else if (p2 && !this.checkTransition(lat, long, p2, transitionRadiusInKM)) {
       // project the plane
       const { x, y } = project(p1.long, p1.lat, p2.long, p2.lat, long, lat);
       const fp = { lat: y, long: x };
@@ -360,7 +416,7 @@ export class WayPointManager {
 
       // if we're close enough, project forward by radial distance
       const a = getDistanceBetweenPoints(lat, long, fp.lat, fp.long);
-      const h = radiusInKM;
+      const h = targetRadiusInKM;
       if (a < h) {
         const b = (h ** 2 - a ** 2) ** 0.5;
         target = getPointAtDistance(

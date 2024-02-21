@@ -221,16 +221,11 @@ export class AutoPilot {
         "ELEVATOR_TRIM_POSITION"
       );
       trim.pitch = pitch;
-      // console.log(
-      //   `Engaging altitude hold at ${value} feet. Initial trim:`,
-      //   trim.pitch
-      // );
     }
 
     if (key === HEADING_MODE && value !== false) {
       // When we set a heading, update the "heading bug" in-game:
       api.set(`AUTOPILOT_HEADING_LOCK_DIR`, value);
-      // console.log(`Engaging heading hold at ${value} degrees`);
     }
 
     // Did we turn auto takeoff on or off?
@@ -247,17 +242,18 @@ export class AutoPilot {
 
     // Did we turn auto landing on or off?
     if (key === AUTO_LANDING) {
-      if (value === true) {
+      if (value === true && this.flightInformation?.data) {
+        let { lat, long } = this.flightInformation.data;
+        const { waypoints } = this;
+        if (waypoints.active) {
+          const { lat: t, long: g } = waypoints.getWaypoints().at(-1);
+          lat = t;
+          long = g;
+        }
+
         if (!this.autoLanding) {
           // If we're turning it on, does it need run relative
           // to our position, or the last waypoint?
-          const { waypoints } = this;
-          let { lat, long } = this.flightInformation.data;
-          if (waypoints.active) {
-            const { lat: t, long: g } = waypoints.getWaypoints().at(-1);
-            lat = t;
-            long = g;
-          }
           this.autoLanding = new AutoLanding(
             this,
             lat,
@@ -269,7 +265,7 @@ export class AutoPilot {
             this.autoLanding.approachData ?? {}
           );
         }
-        this.autoLanding.reset();
+        this.autoLanding.reset(this, lat, long, this.flightInformation.model);
       } else if (value === false) {
         // don't remove the autolanding object, we'll need it later
       }
@@ -317,7 +313,7 @@ export class AutoPilot {
       if (modes[TERRAIN_FOLLOW]) await terrainFollow(this, flightInformation);
       if (modes[AUTO_TAKEOFF] && autoTakeoff) {
         await autoTakeoff.run(flightInformation);
-      } else if (waypoint?.landing || this.autoLanding.running) {
+      } else if (waypoint?.landing && !this.autoLanding.done) {
         await this.autoLanding.run(flightInformation);
       }
     } catch (e) {

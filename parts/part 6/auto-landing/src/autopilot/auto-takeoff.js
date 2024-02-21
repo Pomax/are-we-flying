@@ -74,6 +74,12 @@ export class AutoTakeoff {
     // Ensure our barometric altimeter is calibrated:
     api.trigger(`BAROMETRIC`);
 
+    // Turn on our lights, if they're not on yet
+    api.trigger(`BEACON_LIGHTS_ON`);
+    api.trigger(`NAV_LIGHTS_ON`);
+    api.trigger(`STROBES_ON`);
+    api.trigger(`LANDING_LIGHTS_ON`);
+
     // Is the parking brake engaged? If so, let's take that off.
     if (parkingBrake) api.trigger(`PARKING_BRAKES`);
 
@@ -142,14 +148,17 @@ export class AutoTakeoff {
     update += constrainMap(hDiff, -30, 30, -cMax / 2, cMax / 2);
     update += constrainMap(dHeading, -1, 1, -cMax, cMax);
 
-        const newRudder = rudder / 100 + update;
+    const newRudder = rudder / 100 + update;
     api.set(`RUDDER_POSITION`, newRudder);
   }
 
   /**
    * Check if we're at a speed where we should rotate
    */
-  async checkRotation({ minRotation, takeoffSpeed, isAcrobatic }, { elevator, speed, VS, bank }) {
+  async checkRotation(
+    { minRotation, takeoffSpeed, isAcrobatic },
+    { elevator, speed, VS, bank }
+  ) {
     let minRotate = minRotation;
     if (minRotate < 0) minRotate = takeoffSpeed;
     const rotate = speed >= minRotate;
@@ -180,7 +189,7 @@ export class AutoTakeoff {
       if (VS > MIN_VS) {
         if (isAcrobatic) api.set(`RUDDER_POSITION`, 0);
         step = constrainMap(VS, 100, 300, 0, step);
-        const newElevator = elevator / 100 - step/2;
+        const newElevator = elevator / 100 - step / 2;
         api.set(`ELEVATOR_POSITION`, newElevator);
       }
     }
@@ -190,7 +199,10 @@ export class AutoTakeoff {
    * Check if the plane's in a state where we can
    * hand things off to the regular autopilot
    */
-  async checkHandoff({ isAcrobatic, engineCount }, { alt, onGround, VS, altAboveGround, declination }) {
+  async checkHandoff(
+    { isAcrobatic, engineCount },
+    { alt, onGround, VS, altAboveGround, declination }
+  ) {
     const handoff = !onGround && VS > MIN_VS && altAboveGround > 50;
     if (handoff) {
       const { api, autopilot } = this;
@@ -199,6 +211,9 @@ export class AutoTakeoff {
 
       // Gear up, if we have retractible gear...
       api.trigger(`GEAR_UP`);
+
+      // Turn off our landing lights (even though it's "too early")
+      api.trigger(`LANDING_LIGHTS_OFF`);
 
       // Ease back the throttle to "not maxed out"...
       for (let i = 1; i <= engineCount; i++) {

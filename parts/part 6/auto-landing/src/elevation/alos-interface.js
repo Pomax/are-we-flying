@@ -211,8 +211,10 @@ export class ALOSInterface {
    * on the map.
    */
   isObstructed(p1, p2) {
+    // FIXME: TODO: this needs to take degree-splits into account.
     // get the tiles that the p1-p2 line is in
-    const tile = this.getTileFor(p1.lat, p1.long);
+    const tile = this.getTileFor(p1[0], p1[1]);
+    if (!tile) return true;
     return tile.isObstructed(p1, p2);
   }
 }
