@@ -6,7 +6,6 @@ import {
   constrainMap,
   project,
   map,
-  radians,
   constrain,
 } from "../utils/utils.js";
 import {
@@ -81,7 +80,6 @@ class Sequence {
     this.reset();
   }
   reset(steps = LANDING_STEPS) {
-    this.step = false;
     this.steps = steps.slice();
     this.nextStage();
   }
@@ -488,7 +486,7 @@ function determineLanding(
       return a;
     })
     .sort((a, b) => a.distance - b.distance)
-    .filter((a) => a.distance < 50);
+    .filter((a) => a.distance < 25 * KM_PER_NM);
 
   // And do a quick clone so we don't overwrite the airport DB
   // when we do our calculations (which will involve updating
@@ -607,6 +605,7 @@ function calculateRunwayApproaches(
     const pA = [pAt, pAg];
 
     // Is this approach even possible given a standard 3 deg (5.25%) glide slope?
+    // FIXME: TODO: we should validate the entire path, really.
     const alt23 = runwayAlt + GLIDE_SLOPE_DURATION * GLIDE_SLOPE_MAX_VS;
     const terrainAlt = alos.lookup(pAt, pAg) * FEET_PER_METER;
     if (terrainAlt > alt23) {
