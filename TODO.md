@@ -44,3 +44,5 @@ backport and document: ENV_PATH in constants.js
 - add ALOS tile explorer to the ALOS server so we can check elevations graphically?
 
 - MUCH TIGHTER VS CONTROL DURING LANDING OMGWTF
+
+- fly level requires "actual flight heading", not "airplane heading". We need to know our actual GPS track heading.

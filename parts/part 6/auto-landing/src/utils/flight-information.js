@@ -4,6 +4,7 @@ import {
   convertValues,
   renameData,
 } from "./flight-values.js";
+import { getHeadingFromTo } from "./utils.js";
 
 const { abs } = Math;
 
@@ -54,7 +55,7 @@ export class FlightInformation {
       data.title.toLowerCase().includes(t.toLowerCase())
     );
 
-    const acrobatic = ["Pitts", "Gee Bee R3", "Top Rudder"];
+    const acrobatic = ["Pitts", "Gee Bee R3", "Top Rudder", "Extra 330"];
     data.isAcrobatic = acrobatic.some((t) =>
       data.title.toLowerCase().includes(t.toLowerCase())
     );
@@ -90,6 +91,17 @@ export class FlightInformation {
 
     // And create a convenience value for compass correction:
     data.declination = data.trueHeading - data.heading;
+
+    // As well as an "actually true heading" based on our
+    // GPS track rather than the direction the plane is
+    // pointing in
+    if (this.data) {
+      data.flightHeading =
+        getHeadingFromTo(this.data.lat, this.data.long, data.lat, data.long) -
+        data.declination;
+    } else {
+      data.flightHeading = data.trueHeading;
+    }
 
     // As well as for how many wheels are on the ground
     data.wheelsOnGround = 0;

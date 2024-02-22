@@ -14,7 +14,7 @@ import {
   AUTO_TAKEOFF,
 } from "../utils/constants.js";
 
-const { abs } = Math;
+const { abs, max } = Math;
 const MIN_VS = 500;
 
 export class AutoTakeoff {
@@ -75,6 +75,7 @@ export class AutoTakeoff {
     api.trigger(`BAROMETRIC`);
 
     // Turn on our lights, if they're not on yet
+    api.trigger(`TAXI_LIGHTS_OFF`);
     api.trigger(`BEACON_LIGHTS_ON`);
     api.trigger(`NAV_LIGHTS_ON`);
     api.trigger(`STROBES_ON`);
@@ -159,9 +160,7 @@ export class AutoTakeoff {
     { minRotation, takeoffSpeed, isAcrobatic },
     { elevator, speed, VS, bank }
   ) {
-    let minRotate = minRotation;
-    if (minRotate < 0) minRotate = takeoffSpeed;
-    const rotate = speed >= minRotate;
+    const rotate = speed >= max(minRotation, takeoffSpeed);
 
     const { api } = this;
     let step = isAcrobatic ? 0.001 : 0.005;
@@ -212,7 +211,7 @@ export class AutoTakeoff {
       // Gear up, if we have retractible gear...
       api.trigger(`GEAR_UP`);
 
-      // Turn off our landing lights (even though it's "too early")
+      // Turn off our strobe and landing lights (even though it's "too early")
       api.trigger(`LANDING_LIGHTS_OFF`);
 
       // Ease back the throttle to "not maxed out"...

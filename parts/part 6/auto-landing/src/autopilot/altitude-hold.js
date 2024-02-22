@@ -5,7 +5,7 @@ import {
 
 const GLIDE_SLOPE_MAX_VS = 400; // feet per minute
 
-import { constrain, constrainMap, exceeds } from "../utils/utils.js";
+import { constrain, constrainMap, exceeds, lerp } from "../utils/utils.js";
 const { abs, sign } = Math;
 
 // Our default vertical speed target, if we want to hold our current
@@ -126,7 +126,7 @@ export async function altitudeHold(autopilot, flightInformation) {
     }
   }
 
-  trim.pitch += update;
+  trim.pitch = lerp(0.5, trim.pitch, trim.pitch + update);
   api.set(`ELEVATOR_TRIM_POSITION`, trim.pitch);
 }
 

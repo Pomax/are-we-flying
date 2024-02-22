@@ -306,6 +306,12 @@ export class AutoPilot {
 
     this.flightInfoUpdateHandler(await flightInformation.update());
 
+    // console.log({
+    //   landing: waypoint?.landing,
+    //   autolanding: !this.autoLanding.done,
+    //   run: waypoint?.landing || (this.autoLanding && !this.autoLanding.done),
+    // });
+
     try {
       if (modes[LEVEL_FLIGHT]) await flyLevel(this, flightInformation);
       if (modes[ALTITUDE_HOLD]) await altitudeHold(this, flightInformation);
@@ -313,7 +319,10 @@ export class AutoPilot {
       if (modes[TERRAIN_FOLLOW]) await terrainFollow(this, flightInformation);
       if (modes[AUTO_TAKEOFF] && autoTakeoff) {
         await autoTakeoff.run(flightInformation);
-      } else if (waypoint?.landing && !this.autoLanding.done) {
+      } else if (
+        waypoint?.landing ||
+        (this.autoLanding && !this.autoLanding.done)
+      ) {
         await this.autoLanding.run(flightInformation);
       }
     } catch (e) {

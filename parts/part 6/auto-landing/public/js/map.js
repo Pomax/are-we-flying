@@ -8,7 +8,9 @@ export const DUNCAN_AIRPORT = [48.7566, -123.71134];
 const L = await waitFor(async () => window.L);
 
 // With our "L" object available, let's make a map, centered on Duncan airport:
-export const map = L.map("map").setView(DUNCAN_AIRPORT, 15);
+export const map = L.map("map", {
+  zoomSnap: 0.1,
+}).setView(DUNCAN_AIRPORT, 15);
 
 // Let's make our layers a little more "data driven" by first defining a list of sources:
 const sources = [

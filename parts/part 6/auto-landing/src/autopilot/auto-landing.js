@@ -7,6 +7,7 @@ import {
   project,
   map,
   radians,
+  constrain,
 } from "../utils/utils.js";
 import {
   FEET_PER_METER,
@@ -55,7 +56,6 @@ const THROTTLE_TO_CLIMB_SPEED = `THROTTLE_TO_CLIMB_SPEED`;
 const FLYING_THE_GLIDE_SLOPE = `FLYING_THE_GLIDE_SLOPE`;
 const RIDE_OUT_SHORT_FINAL = `RIDE_OUT_SHORT_FINAL`;
 const GET_TO_RUNWAY_START = `GET_TO_RUNWAY_START`;
-const DROPPING_ONTO_RUNWAY = `DROPPING_ONTO_RUNWAY`;
 const LANDING_ON_RUNWAY = `LANDING_ON_RUNWAY`;
 const ROLLING_AND_BRAKING = `ROLLING_AND_BRAKING`;
 const END_OF_LANDING = `END_OF_LANDING`;
@@ -66,7 +66,6 @@ const LANDING_STEPS = [
   FLYING_THE_GLIDE_SLOPE,
   RIDE_OUT_SHORT_FINAL,
   GET_TO_RUNWAY_START,
-  DROPPING_ONTO_RUNWAY,
   LANDING_ON_RUNWAY,
   ROLLING_AND_BRAKING,
   END_OF_LANDING,
@@ -167,9 +166,12 @@ export class AutoLanding {
    * ...
    */
   async run(flightInformation) {
+    // console.log(`tick`, this.stage.step);
+
     if (!flightInformation) return;
     const { model: flightModel, data: flightData } = flightInformation;
     if (!flightModel || !flightData) return;
+
     const {
       hasRetractibleGear,
       isTailDragger,
@@ -178,6 +180,7 @@ export class AutoLanding {
       vs0,
       vs1,
     } = flightModel;
+
     const {
       alt,
       altAboveGround,
@@ -194,11 +197,13 @@ export class AutoLanding {
     const { points } = approachData.approach;
     const [p5, p4, p3, p2, p1, pA, f1, f2] = points;
     const { api, waypoints } = autopilot;
-    const { currentWaypoint: target } = waypoints;
+    let { currentWaypoint: target } = waypoints;
     this.target = target;
     const { step } = stage;
 
-    if (!points.includes(target)) return;
+    if (!target) {
+      target = p5;
+    } else if (!points.includes(target)) return;
 
     // console.log(`target = ${target.id}`);
 
@@ -262,14 +267,17 @@ export class AutoLanding {
         if (hasRetractibleGear && !gearSpeedExceeded && !isGearDown) {
           console.log(`gear down`);
           api.trigger(`GEAR_DOWN`);
+          console.log(`touch of flaps`);
+          for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 2);
         }
       }
 
       // And transition to short final when we're close enough
       if (target === p3) {
         console.log(`short final reached`);
-        // force the gears, just in case a tail wheel is stuck
+        // force gears and flaps, in case something was stuck
         api.trigger(`GEAR_DOWN`);
+        for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 2);
         stage.nextStage();
       }
     }
@@ -279,13 +287,19 @@ export class AutoLanding {
 
       const d1 = getDistanceBetweenPoints(lat, long, p4.lat, p4.long);
       const d2 = getDistanceBetweenPoints(p3.lat, p3.long, p4.lat, p4.long);
-      const lerpAlt = constrainMap(d1 / d2, 0, 1, p4.alt, p3.alt);
+      const ratio = constrain(d1 / d2, 0, 1);
+      const lerpAlt = constrainMap(ratio, 0, 1, p4.alt, p3.alt);
+
       autopilot.setParameters({
+        [AUTO_THROTTLE]: min(climbSpeed, 100),
         [ALTITUDE_HOLD]: lerpAlt,
       });
 
-      if (target === p4) {
-        console.log(`time to get to the runway`);
+      const d5 = getDistanceBetweenPoints(lat, long, p5.lat, p5.long);
+      const d45 = getDistanceBetweenPoints(p4.lat, p4.long, p5.lat, p5.long);
+
+      if (d5 < d45 || target === p5) {
+        console.log(`runway reached`);
         stage.nextStage();
       }
     }
@@ -293,61 +307,31 @@ export class AutoLanding {
     if (step === GET_TO_RUNWAY_START) {
       console.log(step);
 
-      const d5 = getDistanceBetweenPoints(lat, long, p5.lat, p5.long);
-      const d45 = getDistanceBetweenPoints(p4.lat, p4.long, p5.lat, p5.long);
-      if (d5 > d45) {
-        const d1 = getDistanceBetweenPoints(lat, long, p4.lat, p4.long);
-        const d2 = getDistanceBetweenPoints(p3.lat, p3.long, p4.lat, p4.long);
-        const lerpAlt = constrainMap(d1 / d2, 0, 1, p4.alt, p3.alt);
-        autopilot.setParameters({
-          [ALTITUDE_HOLD]: lerpAlt,
-          [AUTO_THROTTLE]: climbSpeed - 10,
-        });
-      } else {
-        console.log(`runway reached`);
-        console.log(`cut engines`);
-
-        // cut the engines
-        autopilot.setParameters({ [AUTO_THROTTLE]: false });
-        for (let i = 1; i <= engineCount; i++) {
-          await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
-        }
-
-        console.log(`drop to runway altitude`);
-        autopilot.setParameters({
-          [ALTITUDE_HOLD]: p5.alt - 50,
-        });
-
-        stage.nextStage();
-      }
-    }
-
-    if (step === DROPPING_ONTO_RUNWAY) {
-      console.log(step);
-
-      // keep cutting the engines, in case peripherals are intervening.
+      console.log(`cut engines`);
+      autopilot.setParameters({ [AUTO_THROTTLE]: false });
       for (let i = 1; i <= engineCount; i++) {
         await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
       }
 
-      if (altAboveGround < 10) {
-        console.log(`landing...`);
-        // do we even bother with a flare?
-        stage.nextStage();
-      }
+      console.log(`drop to runway altitude`);
+      autopilot.setParameters({ [ALTITUDE_HOLD]: false });
+
+      stage.nextStage();
     }
 
     if (step === LANDING_ON_RUNWAY) {
       console.log(step);
 
-      if (!onGround) {
-        // and still keep cutting the engines
-        for (let i = 1; i <= engineCount; i++) {
-          await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
-        }
+      for (let i = 1; i <= engineCount; i++) {
+        await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
       }
 
-      // Until we actually have touchdown
+      if (!onGround) {
+        // Try to keep the plane pitched up.
+        setPitch(api, -2, flightInformation);
+      }
+
+      //
       else {
         autopilot.setParameters({
           [LEVEL_FLIGHT]: false,
@@ -355,17 +339,16 @@ export class AutoLanding {
           [ALTITUDE_HOLD]: false,
         });
 
+        console.log(`restore flaps`);
+        for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 0);
+
         console.log(`full reverse (if available)`);
         for (let i = 1; i <= engineCount; i++) {
           await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
         }
-        console.log(`speedbrakes (if available)`);
+        console.log(`speed brakes (if available)`);
         await api.trigger(`SPOILERS_ON`);
 
-        if (isTailDragger) {
-          for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 0);
-          api.trigger(`ELEVATOR_SET`, -1000);
-        }
         console.log(`start braking`);
         this.brake = 0;
         stage.nextStage();
@@ -375,9 +358,21 @@ export class AutoLanding {
     if (step === ROLLING_AND_BRAKING) {
       console.log(step);
 
-      // Keep that throttle backed up...
       for (let i = 1; i <= engineCount; i++) {
-        await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
+        await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
+      }
+
+      if (!onGround) {
+        // Keep trying to keep the plane pitched up, because
+        // the plane might be bouncing on the runway.
+        setPitch(api, -2, flightInformation);
+      }
+
+      if (isTailDragger) {
+        // pull back on the elevator so we don't nose-over
+        for (let i = 1; i <= engineCount; i++) {
+          await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
+        }
       }
 
       // Stay on the runway...
@@ -417,9 +412,11 @@ export class AutoLanding {
       for (let i = 1; i <= engineCount; i++) {
         api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
       }
+
+      console.log(`reset flaps`);
       for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 0);
 
-      console.log(`disengage speedbrakes`);
+      console.log(`disengage speed brakes`);
       api.trigger(`SPOILERS_OFF`);
 
       console.log(`AP off`);
@@ -735,4 +732,28 @@ function findAndBindBestApproach(airports) {
   );
 
   return flatList.sort((a, b) => b.runway.length - a.runway.length)[0];
+}
+
+/**
+ * Fiddle with the elevator to try to effect a specific pitch
+ */
+function setPitch(api, targetPitch, { model: flightModel, data: flightData }) {
+  let { elevator, pitch, dPitch } = flightData;
+  let { weight } = flightModel;
+  elevator = -(elevator / 100) * 2 ** 14;
+  const diff = targetPitch - pitch;
+  const maxValue = constrainMap(weight, 2000, 6000, 0, 1500);
+  let correction = constrainMap(diff, -5, 5, -maxValue, maxValue);
+  if (sign(dPitch) === sign(diff)) correction /= 3;
+  let next = elevator + correction;
+  console.log(`pitch check:`, {
+    pitch,
+    dPitch,
+    targetPitch,
+    diff,
+    elevator,
+    correction,
+    next,
+  });
+  api.trigger(`ELEVATOR_SET`, next | 0);
 }
