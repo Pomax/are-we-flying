@@ -10603,7 +10603,7 @@ So where do we place the first three points? Not to complicate things more than 
 - P<sub>5</sub> will will be the same elevation as the runway itself.
 - P<sub>4</sub> will be a little bit higher, say 15 feet above the runway, so that when we get that, our plane will (hopefully) clear any trees that MSFS decides to place right at the edge of the runway. It's genuinely baffling how often it does this.
 - We'll put P<sub>3</sub> at 200 feet above the runway, so that we need to drop less than 200 feet in our short final (in a real ILS landing, this would be the "middle marker", or MM),
-- We can basically put P<sub>2</sub> at whatever elevation we want, but that's a little too free for an initial stab at an auto-lander, so instead we're going to put it at 1400 feet above the runway (in a real ILS landing, this would be the outer marker, or OM). Paired with a 3 degree glide slope, that sets the distance between P<sub>3</sub> and P<sub>2</sub> at around  4.5 nautical miles, or about 3 minutes of flight at 100 knots, and a vertical speed of about 400 feet per minute (since we're going to descend from 1400 feet above the runway to 200 feet above the runway)
+- We can basically put P<sub>2</sub> at whatever elevation we want, but that's a little too free for an initial stab at an auto-lander, so instead we're going to put it at 1400 feet above the runway (in a real ILS landing, this would be the outer marker, or OM). Paired with a 3 degree glide slope, that sets the distance between P<sub>3</sub> and P<sub>2</sub> at around  4.5 nautical miles, or about 3 minutes of flight at 100 knots, and a vertical speed of about 400 feet per minute (since we're going to descend from 1400 feet above the runway to 200 feet above the runway for a total of 1200 feet over three minutes),
 - and to make sure we're at the right elevation by the time we get to P<sub>2</sub>, we'll set P<sub>1</sub> to the same elevation as P<sub>2</sub>.
 
 Which means that if we know our speed, we can put some real distances to this image. So let's mandate some speeds:
@@ -10615,19 +10615,14 @@ Which means that if we know our speed, we can put some real distances to this im
 
 And now we can finally point some distances to our graphic:
 
-- Our drop to the runway is less than 200 feet, so I'm going to put P<sub>3</sub> "one minute's worth of flight time" away from P<sub>4</sub>.
+- Our drop to the runway is less than 200 feet, so I'm just going to put P<sub>3</sub> "one minute's worth of flight time" away from P<sub>4</sub> and that should be more than enough.
 - And then because of the previous decisions made about the glide slope, the distance from P<sub>3</sub> to P<sub>2</sub> will span three minutes worth of flight time.
 - Finally, as it takes a bit for a plane to slow down just by throttling, we'll put P<sub>1</sub> at 2 minutes of flight away from P<sub>2</sub>.
 
 And now we can _finally_ write some actual code!
 
-
-
-# ------ CONTINUE HERE ------
-
-
-
 ```javascript
+function calculateRunwayApproaches(lat, long, vs1, climbSpeed, cruiseSpeed, airport, runway) {
   const { start, end } = runway;
 
   runway.approach.forEach((approach, idx) => {
@@ -10642,32 +10637,32 @@ And now we can _finally_ write some actual code!
     // then let's calculate those distances
     const flightMinute = (v) => (v * KM_PER_NM) / 60;
     const d12 = 1 * flightMinute(cruiseSpeed);
-    const dA1 = 0.75 * d12;
     const d23 = GLIDE_SLOPE_DURATION * flightMinute(climbSpeed + 20);
     const d34 = flightMinute(climbSpeed + 20);
 
     // then turn those into "distance to the start of the runway"
     const d1 = d12 + d23 + d34;
-    const dA = d1 + dA1;
     const d2 = d23 + d34;
     const d3 = d34;
     
     // and now we can calculate our points:
-    const { lat: pAt, long: pAg } = getPointAtDistance(t[0], t[1], dA, heading);
     const { lat: p1t, long: p1g } = getPointAtDistance(t[0], t[1], d1, heading);
     const { lat: p2t, long: p2g } = getPointAtDistance(t[0], t[1], d2, heading);
     const { lat: p3t, long: p3g } = getPointAtDistance(t[0], t[1], d3, heading);
 
-    const pA = [pAt, pAg];
     const p1 = [p1t, p1g];
     const p2 = [p2t, p2g];
     const p3 = [p3t, p3g];
-
+    
     const p4 = t;
     const p5 = e;
+    
+    approach.points = [p5, p4, p3, p2, p1;
+  });
+}
 ```
 
-However, this is almost certainly not enough points. For why, let's look at where an airplane can be relative to this path, and what we want to have happen.
+We have code! And it's not even particularly complicated, since we did all the complicated parts first. However, this is almost certainly not enough points. For the why, let's look at where an airplane can be relative to this path, and what we want to have happen.
 
 ```
       Let's also look at the approach from above: if the plane is to the "right" of A (with respect
@@ -10681,11 +10676,15 @@ However, this is almost certainly not enough points. For why, let's look at wher
         ╎                                            (f2?)╸╸╸╸╸╸(f1?)
         ╎                                                         ╏
         ╎                                                         ╏
-        o5────o4─────o3──────────────────────────────o2────o1─────A
+        o5────o4─────o3──────────────────────────────o2────o1╸╸╸╸╸A
         ╎                                                         ╏
         ╎                                                         ╏
         ╎                                            (f2?)╸╸╸╸╸╸(f1?)
 ```
+
+
+
+# ------ CONTINUE HERE ------
 
 
 
