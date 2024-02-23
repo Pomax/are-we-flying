@@ -52,6 +52,17 @@ If that sounds (and looks) good to you, then read on!
 
 {:toc}
 
+# Table of topics
+
+This is a big read, and while the main focus is getting JavaScript to fly planes for us, we're also covering a lot of general programming topics because this is not a little toy problem, we're basically writing a product (just... a free one). So in addition to the regular table of content, you may also want to just find specific parts that teach you how to solve general programming problems:
+
+- websocket servers
+- environment files
+- test early, test often.
+- hot-reloading code
+- 
+
+
 
 # Part 1: The prep work
 
@@ -10501,6 +10512,14 @@ function determineLanding(lat, long, vs1, climbSpeed, cruiseSpeed, waterLanding)
     .sort((a, b) => a.distance - b.distance)
     .filter((a) => a.distance < 25 * KM_PER_NM);
 
+  ...
+```
+
+Of course, just finding the "nearest airports" isn't really all that useful if we can't land at them, so we need some more code to actually determine what landings at each airport look like, and whether or not those will work for us:
+
+```javascript
+  ...
+  
   // Then we do a quick clone so we don't overwrite the airport
   // DB when we do our calculations (which will involve updating
   // elevations at points that might be runway points)
@@ -10527,15 +10546,10 @@ function determineLanding(lat, long, vs1, climbSpeed, cruiseSpeed, waterLanding)
   // Otherwise, this is the approach we'll be flying.
   return approachData;
 }
+```
+Assuming that `calculateRunwayApproaches` and `findAndBindBestApproach` work, that should be all the code we need. Let's look at that second one first, since it's pretty easy:
 
-/**
- * This is an involved bit of code, so we'll have to think this one through
- * before we implement code for it.
- */
-function calculateRunwayApproaches(lat, long, vs1, cruiseSpeed, airport, runway) {
-  // ...
-}
-
+```javascript
 /**
  * Find the airport, runway, and approach with the longest
  * runway, to give ourselves the best possible chance of success.
@@ -10561,7 +10575,9 @@ function findAndBindBestApproach(airports) {
 }
 ```
 
-Mostly "to the point" code, but that `calculateRunwayApproaches` function is going to need a little more work. And by a little, I mean a lot. Conceptually, it's not too complicated:
+Mostly "to the point" code: create a flat list of approaches that'll work, then sort them based on runway length, and pick the one with the longest runway (to give ourselves the best odds of surviving the landing).
+
+However, that `calculateRunwayApproaches` function is going to need a little more work. And by a little, I mean a lot. Conceptually, it's not too complicated:
 
 - for each airport:
   - for each runway at that airport:
@@ -10574,24 +10590,42 @@ Of course the "set up an approach flight path" is doing a lot of heavy lifting h
 - slow down from cruise speed to "safe to land at" speed,
 - drop from "whatever altitude we're flying" all the way down to a runway
 - _actually touch down on a runway without crashing_
-- etc.
+- roll out the runway while braking and _hopefully_ stop before the end.
 
-Which means that we'll need to do a bit of thinking about what an approach looks like.
+Which means that we'll need to do a bit of thinking about what an approach looks like. There's (at least) five points of interest during the landing procedure that we outlined above, which we can draw out as follows:
 
-DRAW A DIAGRAM HERE
+![image-20240222093324423](./image-20240222093324423.png)
 
-```
+in this, we already have our points 5 and 4: they're the runway end and start (relative to how we're approaching the runway). P<sub>1</sub> is the point at which we switch from "flying" to "lining up for our approach", and where we start to slow does the plane to somewhere between climb and cruise speed, P<sub>2</sub> is where we start descending, and P<sub>3</sub> is where we slow down the plane's descent and speed so we can hopefully land onto the runway rather than destroy our landing gear on impact.
 
-                                                      _______________
-                                              __,..-'' ╎     ╎     ╎
-                                      __,..-''         ╎     ╎     ╎
-                              __,..-''                 ╎     ╎     ╎
-        ________________,..-''                         ╎     ╎     ╎
-        ─o5────o4─────o3──────────────────────────────o2────o1─────A─
+So where do we place the first three points? Not to complicate things more than we need to but: it depends. Mostly, it depends on what elevation we want these points to sit at, and that's kind of "up to us", so I'm going to make an executive decision here based on absolutely nothing other than "it seems reasonable":
 
-```
+- P<sub>5</sub> will will be the same elevation as the runway itself.
+- P<sub>4</sub> will be a little bit higher, say 15 feet above the runway, so that when we get that, our plane will (hopefully) clear any trees that MSFS decides to place right at the edge of the runway. It's genuinely baffling how often it does this.
+- We'll put P<sub>3</sub> at 200 feet above the runway, so that we need to drop less than 200 feet in our short final (in a real ILS landing, this would be the "middle marker", or MM),
+- We can basically put P<sub>2</sub> at whatever elevation we want, but that's a little too free for an initial stab at an auto-lander, so instead we're going to put it at 1400 feet above the runway (in a real ILS landing, this would be the outer marker, or OM). Paired with a 3 degree glide slope, that sets the distance between P<sub>3</sub> and P<sub>2</sub> at around  4.5 nautical miles, or about 3 minutes of flight at 100 knots, and a vertical speed of about 400 feet per minute (since we're going to descend from 1400 feet above the runway to 200 feet above the runway)
+- and to make sure we're at the right elevation by the time we get to P<sub>2</sub>, we'll set P<sub>1</sub> to the same elevation as P<sub>2</sub>.
 
-So, how do we capture that in code? First of all, we'll need to determine where all these points are. Two of them, we already know: the runway end points.
+Which means that if we know our speed, we can put some real distances to this image. So let's mandate some speeds:
+
+- At P<sub>1</sub> we're going at cruise speed, but by the time we reach P<sub>2</sub> we'll want to be flying our "climb speed, plus 20 knots" so that we can safely fly our glide slope: we _could_ target a speed that is equal to our climb speed, but if we drop too fast because of some low density air or downdraft, we probably won't be able to recover as easily as when we're flying a little faster than our minimum climb speed.
+- We can also mandate that the moment we cross P<sub>4</sub> we want to cut our engines and just coast down to the runway. As long as we make sure the plane pitches up a tiny bit (say, 2 degrees) this should be "perfectly safe". Provided the runway's long enough.
+- Consequently, our speed at P<sub>5</sub> doesn't really matter: ideally we've already stopped the plane before then, but even if we cross it, the engines are off already so our speed is irrelevant.
+- Leaving P<sub>3</sub>: since we only need to  drop a tiny distance once we get to P<sub>3</sub> we can reduce speed to climb speed. Although some planes have an aggressively high climb speed, and we're only going to be a minute out from the runway by the time we get here, so let's go with "climb speed, or 100 knots, whichever is lower". If a plane can't stay in the air at 100 knots, we're flying something very curious indeed.
+
+And now we can finally point some distances to our graphic:
+
+- Our drop to the runway is less than 200 feet, so I'm going to put P<sub>3</sub> "one minute's worth of flight time" away from P<sub>4</sub>.
+- And then because of the previous decisions made about the glide slope, the distance from P<sub>3</sub> to P<sub>2</sub> will span three minutes worth of flight time.
+- Finally, as it takes a bit for a plane to slow down just by throttling, we'll put P<sub>1</sub> at 2 minutes of flight away from P<sub>2</sub>.
+
+And now we can _finally_ write some actual code!
+
+
+
+# ------ CONTINUE HERE ------
+
+
 
 ```javascript
   const { start, end } = runway;

@@ -588,8 +588,8 @@ function calculateRunwayApproaches(
 
     // then let's calculate those distances
     const minOfFlight = (v) => (v * KM_PER_NM) / 60;
-    const d12 = 1 * minOfFlight(cruiseSpeed); // 1 minute of flight
-    const dA1 = 0.75 * d12;
+    const d12 = 2 * minOfFlight(cruiseSpeed);
+    const dA1 = 0.75* minOfFlight(cruiseSpeed);
     const d23 = GLIDE_SLOPE_DURATION * minOfFlight(climbSpeed + 20);
     const d34 = minOfFlight(climbSpeed + 20);
 
