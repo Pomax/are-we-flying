@@ -60,7 +60,9 @@ This is a big read, and while the main focus is getting JavaScript to fly planes
 - environment files
 - test early, test often.
 - hot-reloading code
--
+- CSS variables and JS
+- SVG and JS
+- ...
 
 
 
@@ -10325,7 +10327,7 @@ const LANDING_STEPS = [
   THROTTLE_TO_CLIMB_SPEED,
   FLYING_THE_GLIDE_SLOPE,
   RIDE_OUT_SHORT_FINAL,
-  GET_TO_RUNWAY_START,
+  CUT_THE_ENGINES,
   LANDING_ON_RUNWAY,
   ROLLING_AND_BRAKING,
   END_OF_LANDING,
@@ -10415,18 +10417,32 @@ export class Autopilot {
     const { api, modes, trim } = this;
     ...
 
+    // This one's a bit lengthy...
     if (key === AUTO_LANDING) {
-      if (value === true) {
-        const { model, data } = this.flightInformation;
-        const { lat, long } = data;
+      // If we're turning on auto-landing, and we don't have
+      // a flight plan loaded, that landing should be planned
+      // relative to the plane. But, if we do *do* have a flight
+      // plan, that landing should be planned relative to the
+      // last (non-landing) point on our flight plan:
+      if (value === true && this.flightInformation?.data) {
+        let { lat, long } = this.flightInformation.data;
+        const { waypoints } = this;
+        if (waypoints.active) {
+          const { lat: t, long: g } = waypoints.getWaypoints().at(-1);
+          lat = t;
+          long = g;
+        }
+        // If we don't have an autolanding set, create one
         if (!this.autoLanding) {
-          this.autoLanding = new AutoLanding(this, lat, long, model);
+          this.autoLanding = new AutoLanding(this, lat, long, this.flightInformation.model);
           this.setTarget(AUTO_LANDING_DATA, this.autoLanding.approachData ?? {});
         }
-        this.autoLanding.reset(this, lat, long, model);
+        // Then reset it for our current "last waypoint" or plane position.
+        this.autoLanding.reset(this, lat, long, this.flightInformation.model);
       }
     }
   }
+
   ...
 
   async run() {
@@ -10695,21 +10711,21 @@ Initially, this might look like it'll work just fine, but if we drag the airplan
 
 So, in order to fix that, let's add some more point based on where the plane is relative to the start of our approach: we're going to add a point P<sub>A</sub> ahead of P<sub>1</sub> so that we're not (or, barely) turning onto the approach by the time we _reach_ P<sub>1</sub>:
 
-<graphics-element title="getting onto the approach" src="./graphics/approach-points.js">
+<graphics-element title="adding an extra point" src="./graphics/approach-points.js">
   <source src="./graphics/airplane.js" />
   <source src="./graphics/approach-point-pa.js" />
 </graphics-element>
 
 This is still not great, though, all we've done is pushed the problem back a bit. What we really want is for the plane to target P<sub>A</sub> if we're to the right of P<sub>A</sub>, but target something that will _get_ us to P<sub>A</sub> if we're to the left of it, which we can achieve by adding an offset point either above or below P<sub>A</sub>:
 
-<graphics-element title="getting onto the approach" src="./graphics/approach-points.js">
+<graphics-element title="adding an offset" src="./graphics/approach-points.js">
   <source src="./graphics/airplane.js" />
   <source src="./graphics/approach-point-f1.js" />
 </graphics-element>
 
 Which almost solves our problem: as long as the plane is beyond our offset (either above or below depending on whether the offset is above or below P<sub>A</sub>) things work pretty well, but if the plane is too close to the approach itself, we can still run into problems, so let's add one more offset, when the plane is to the left of P<sub>A</sub>, as well as between the approach and the first offset:
 
-<graphics-element title="getting onto the approach" src="./graphics/approach-points.js">
+<graphics-element title="adding a second offset" src="./graphics/approach-points.js">
   <source src="./graphics/airplane.js" />
   <source src="./graphics/approach-point-f2.js" />
 </graphics-element>
@@ -10815,364 +10831,628 @@ function calculateRunwayApproaches(lat, long, vs1, climbSpeed, cruiseSpeed, airp
 }
 ```
 
-So little code! ...well, I mean, it would be if we didn't have to implement that `verify` function, of course. Let's modify our `alos-interface.js`:
+And now we're finally done with our approach-finding code!
 
-```javascript
-...
-export class ALOSInterface {
-  ...
+### Tracking our landing
 
-  // If even a single segment of the track is bad,
-  // the entire track is bad, so that's fairly easy
-  // to implement:
-  badTrack(polies) {
-    for (geoPoly of polies) {
-      if (this.badSegment(geoPoly)) return true;
-    }
-  }
-
-  // And in order to determine whether a single segment
-  // is bad we apply the same logic: split the poly
-  // into quadrants, as we did for terrain follow, and
-  // if any quadrant is bad, the entire segment is bad:
-  badSegment(geoPoly) {
-    const quadrants = splitAsQuadrants(poly);
-    for (geoPoly of quadrants) {
-      if (!geoPoly.length) continue;
-      const tile = this.getTileFor(...geoPoly[0]);
-      if (!tile) continue;
-      if (tile.badSegment(geoPoly)) return true;
-    }
-  }
-}
-
-...
-
-// We do need to extend our splitting code so that it
-// also includes the altitude value at the split though!
-function splitEdge(a, b, dim, threshold, le, gt) {
-  const r = (threshold - a[dim]) / (b[dim] - a[dim]);
-  // Thankfully, that's just an interpolation, and then
-  // we add it to all the coordinates we generate:
-  const alt = (1 - r) * a[2] + r * b[2];
-  if (dim === 0) {
-    const long = (1 - r) * a[1] + r * b[1];
-    le.push([threshold, long, alt]);
-    gt.push([threshold + cm, long, alt]);
-  } else {
-    const lat = (1 - r) * a[0] + r * b[0];
-    le.push([lat, threshold, alt]);
-    gt.push([lat, threshold + cm, alt]);
-  }
-}
-```
-
-With some new code in `alos-tile.js` as well:
+Now that we have an approach, let's get those added to our waypoint list, but marked as special "landing" points so we can both visualize them differently from other waypoints in the browser, and perform checks based on whether we reached the landing portion of our flight plan. First up, the `auto-landing.js` change:
 
 ```javascript
 ...
 
-export class ALOSTile {
+export class AutoLanding {
   ...
 
-  // As for maxElevation, we convert the polygon into
-  // a set of scanlines to check, but instead of tracking
-  // the maximum elevation, we need to check whether any
-  // pixel has an elevation that's higher than it's allowed
-  // to be.
-  badSegment(geoPoly) {
-    const coarse = !!this.coarse;
-    const ref = coarse ? this.coarse : this;
-    const pixelPoly = geoPoly.map((pair) => this.geoToPixel(...pair, coarse));
-    const scanLines = formScanLines(pixelPoly);
+  reset(autopilot, lat, long, flightModel) {
+    this.done = false;
+    this.stage = new Sequence(autopilot);
+    this.target = false;
 
-    return scanLines.some(([start, end], y) =>{
-      if (start === end) return false;
-      const line = ref.pixels.slice(ref.width * y + start, ref.width * y + end);
-      return line.some((elevation, i) => {
-        if (elevation >= NO_ALOS_DATA_VALUE) return false;
-        let x = i + start;
-        // if elevation > supposed(x, y, minsafety) return true;
+    // Do we already have a landing mapped and saved in the waypoint manager?
+    const { waypoints } = autopilot;
+    this.approachData = waypoints.getLanding();
+    if (this.approachData) return;
+
+    // If not, find an approach
+    const { climbSpeed, cruiseSpeed, isFloatPlane } = flightModel;
+    const approachData = (this.approachData = determineLanding(
+      lat,
+      long,
+      climbSpeed,
+      cruiseSpeed,
+      isFloatPlane
+    ));
+
+    // Then, if we have an approach, add all points to our flight plan:
+    if (approachData) {
+      const { approach } = approachData;
+      const points = approach.points.slice();
+      const last = points.at(-1);
+      // we store the 
+      points.forEach((p, i) => {
+        points[i] = waypoints.add(
+          ...p,       // lat, long, alt,
+          p === last, // Should we resequence after adding this point?
+          true        // Is this a landing waypoint?
+         );
       });
-    });
+      // before we save our approach, reverse the point array,
+      // so that we can destructure it with guaranteed points
+      // first in the run() function. I.e.:
+      //
+      //   const [p5,p4,p3,p2,p1,pA,f1,f2] = points
+      //
+      approach.points.reverse()
+      waypoints.setLanding(approachData);
+    }
+  }
+```
+
+With the associated updates to the `waypoint-manager.js`:
+
+```javascript
+...
+
+export class WayPointManager {
+  ...
+  
+  // Save a landing to the waypoint manager:
+  setLanding({ airport, runway, approach }) {
+    this.landing = { airport, runway, approach };
+  }
+
+  // Aaaand get the saved landing back out:
+  getLanding() {
+    const { airport, runway, approach } = this.landing ?? {};
+    console.log(`getLanding`, !!airport, !!runway, !!approach);
+    if (!airport) return;
+    return { airport, runway, approach };
+  }
+
+  // Are we flying landing waypoints? And more specially, are we
+  // *actually* landing, as in: are we on the glide slope or runway?
+  isLanding() {
+    // do we even have waypoints?
+    let p = this.currentWaypoint || this.points.at(-1);
+    if (!p) return false;
+    // If we do, are we flying the landing set?
+    const { landing } = p;
+    if (!landing) return false;
+    // If we are, count how many points are left: if it's 4 or fewer
+    // then we're either flying the glide slope, or we're on the runway.
+    let left = 1;
+    while (p = p.next) left++;
+    return left <= 4;
+  }
+
+  // Try this landing again by resetting the flight plan and then
+  // marking all non-landing points as completed.
+  goAround() {
+    this.resetWaypoints();
+    while (!this.currentWaypoint.landing) {
+      this.transition();
+    }
   }
 }
 ```
 
-
-
-
-# ------ CONTINUE HERE ------
-
-
+Which leaves adding the `landing` flag to our `waypoint.js` file:
 
 ```javascript
-    const offsetDistance = dA1;
-    const aHeading = getHeadingFromTo(pAt, pAg, lat, long);
-    const hDiff = getCompassDiff(heading, aHeading);
-    let f1, f2;
+export class Waypoint {
+  ...
 
-    // Do we need to set up f1?
-    if (hDiff < -90 || hDiff > 90) {
-      const sgn = sign(hDiff);
-      const { lat: f1t, long: f1g } = getPointAtDistance(
-        pAt,
-        pAg,
-        offsetDistance,
-        heading + sgn * 90
-      );
-      f1 = [f1t, f1g];
-      // Do we also need to set up f2?
-      const p = project(t[1], t[0], e[1], e[0], long, lat);
-      const rd = getDistanceBetweenPoints(lat, long, p.y, p.x);
-      if (abs(rd) < offsetDistance) {
-        const { lat: f2t, long: f2g } = getPointAtDistance(
-          f1t,
-          f1g,
-          offsetDistance,
-          (heading + 180) % 360
-        );
-        f2 = [f2t, f2g];
+  constructor(lat, long, alt = false, landing = false) {
+    this.id = Waypoint.nextId();
+    this.reset();
+    this.setPosition(lat, long);
+    this.setElevation(alt);
+    this.markForLanding(landing);
+  }
+
+  ...
+  
+  markForLanding(landing) {
+    this.landing = landing;
+  }
+
+  ...
+}
+```
+
+Nothing special going on there. Although we also want to update our `autopilot-router.js` so we can expose that `goAround` function to the browser:
+
+```javascript
+...
+
+export class AutopilotRouter {
+
+  ...
+  
+  goAround(client) {
+    autopilot.waypoints.goAround();
+  }
+}
+```
+
+So let's hook into that on the browser-side with a new button in our `index.html`:
+
+```html
+<!doctype html>
+<html lang="en-GB">
+  ...
+  <body>
+    ...
+    <div id="map-controls">
+      ...
+      <fieldset>
+        <button class="patrol">patrol</button>
+        <button class="go-around">go-around</button>
+        <button class="revalidate">revalidate</button>
+        <button class="reset">reset waypoints</button>
+        <button class="clear">clear waypoints</button>
+      </fieldset>
+    </div>
+   ...
+</html>
+```
+
+And the associated code in our `waypoint-overaly.js`:
+
+```javascript
+import { Trail } from "./trail.js";
+import { showWaypointModal } from "./waypoint-modal.js";
+
+export class WaypointOverlay {
+  ...
+
+  addEventHandling() {
+    ...
+
+    document
+      .querySelector(`#map-controls .patrol`)
+      .addEventListener(`click`, () => {
+        server.autopilot.toggleRepeating();
+      });
+
+    document
+      .querySelector(`#map-controls .go-around`)
+      .addEventListener(`click`, () => {
+        server.autopilot.goAround();
+      });
+
+    ...
+  }
+    
+  ...
+  
+  addWaypoint(waypoint, number) {
+    waypoint = Object.assign({}, waypoint);
+    const { id, lat, long, completed, active, landing } = waypoint;
+
+    const waypointClass = `waypoint-marker${completed ? ` completed` : ``}${
+      active ? ` active` : ``
+    }${landing ? ` landing` : ``}`;
+    
+    ...
+  }
+    
+  updateWaypoint(waypoint, fromServer) {
+    const { id, lat, long, alt, active, landing, completed } = fromServer;
+
+    ...
+
+    const classes = div.classList;
+    waypoint.active = active;
+    classes.toggle(`active`, !!active);
+    waypoint.landing = landing;
+    classes.toggle(`landing`, !!landing);
+    waypoint.completed = completed;
+    classes.toggle(`completed`, !!completed);
+  }
+  ...
+}
+```
+
+And, of course, some CSS to make the landing points stand out, in `waypoint-overlay.css`:
+
+```css
+.waypoint-div {
+  ...
+
+  &.active .waypoint-marker img {
+    filter: hue-rotate(145deg) brightness(2);
+  }
+
+  &.landing .waypoint-marker img {
+    filter: hue-rotate(250deg) brightness(1.5);
+  }
+  
+  ...
+}
+```
+
+And now we get to enjoy our landings in glorious blue, with a new "go-around" button in case it looks like things are going wrong during the approach:
+
+![image-20240223213005061](./image-20240223213005061.png)
+
+### Implementing our landing phases
+
+Which means it's time to actually implement the landing phases that get us safely (hopefully?) down onto a runway. To make that happen, it's time to fill in the `run` function in our `auto-landing.js` file!
+
+```javascript
+...
+export class AutoLanding {
+  ...
+  
+  async run(flightInformation) {
+    // Should we even run?
+    if (!flightInformation) return;
+    const { model: flightModel, data: flightData } = flightInformation;
+    if (!flightModel || !flightData) return;
+
+    // If we do, let's extract a whole bunch of values that we're going to need:
+    const { hasRetractibleGear, isTailDragger, engineCount, climbSpeed, vs0 } = flightModel;
+    const { bank, gearSpeedExceeded, isGearDown, lat, long, onGround, speed } = flightData;
+
+    // As well as our lnding points
+    const { approachData, autopilot, stage } = this;
+    const { points } = approachData.approach;
+    const [p5, p4, p3, p2, p1, pA, f1, f2] = points;
+    
+    // And our flight plan.
+    const { api, waypoints } = autopilot;
+    let { currentWaypoint: target } = waypoints;
+    
+    // Now then: which waypoint are we targeting, and what step of the landing are we flying?
+    this.target = target;
+    const { step } = stage;
+    if (!target) { target = p5; } else if (!points.includes(target)) return;
+    
+    // ... and we pick up the story here in the next section
+  }
+}
+```
+
+And with that, it's actual landing code time:
+
+####   Getting onto the approach
+
+This phase isn't super interesting, other than that we want it to turn off the terrain follow mode once we get close to our offsets (if we have them) or the approach itself (if we don't). As such, there's a bit of duplication, but not the kind we really care to optimize:
+
+```javascript
+    ...
+
+    if (step === GETTING_ONTO_APPROACH) {
+      const onTerrainFollow = !!autopilot.modes[TERRAIN_FOLLOW];
+
+      // Are we flying towards the second offset?
+      if (f2 && target === f2) {
+        const d = getDistanceBetweenPoints(lat, long, f2.lat, f2.long);
+        if (d > 5) return;
+        // If we are, and we're close enough, turn off terrain follow
+        // and set the altitude hold to the approach altitude.
+        autopilot.setParameters({
+          [TERRAIN_FOLLOW]: d > 1 && onTerrainFollow,
+          [ALTITUDE_HOLD]: p2.alt,
+        });
+      }
+
+      // Are we flying towards the first offset? Then basiclaly repeat
+      // the same thing, because we might not have had an f2.
+      if (f1 && target === f1) {
+        const d = getDistanceBetweenPoints(lat, long, f1.lat, f1.long);
+        if (d > 5) return;
+        autopilot.setParameters({
+          [TERRAIN_FOLLOW]: d > 1 && onTerrainFollow,
+          [ALTITUDE_HOLD]: p2.alt,
+        });
+      }
+
+      // Are we flying towards the actual approach?
+      if (target === pA || target === p1) {
+        console.log(`approach reached`);
+        // Ensure terrain is off (in case we didn't have an f1),
+        // set the altitude hold, and set our autothrottle so
+        // that we slow down to glide speed:
+        autopilot.setParameters({
+          [TERRAIN_FOLLOW]: false,
+          [ALTITUDE_HOLD]: p2.alt,
+          [AUTO_THROTTLE]: climbSpeed + 20,
+        });
+        // then we're done with this stage, on to the next!
+        stage.nextStage();
       }
     }
+
+    ...
 ```
 
+So what happens in the next stage?
 
+####  Throttling down to climb speed
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Of course this does rely on that `computeApproachCoordinates` function, for turning runway information into actual approaches:
+Honestly: again, not much: we simply let the autopilot do what it needs to do until we reach P<sub>2</sub>:
 
 ```javascript
-function computeApproachCoordinates(plane, airport, approachDistance) {
-  // Get the current plane lat/long
-  const { lat: planeLat, long: planeLong } = plane.lastUpdate;
+   ...
+   
+   if (step === THROTTLE_TO_CLIMB_SPEED) {
+      if (target === p2) {
+        console.log(`glide slope reached`);
+        // Really the only meaningful thing we do is turning on our landing lights:
+        api.trigger(`LANDING_LIGHTS_ON`);
+        // And then it's on to the next stage.
+        stage.nextStage();
+      }
+    }
+   
+   ...
+```
 
-  // Then for each runway at an airport, figure out what the various coordinates
-  // we need in order to build an approach path.
-  airport.runways.forEach((runway) => {
-    const { latitude: lat, longitude: long, length, width, heading } = runway;
-    runway.airport = airport;
-    let args;
+####  Flying the glide slope
 
-    // Runways in MSFS are encoded as a center point, and a length and width, so
-    // we need to do some math to get the runway center end points and four corners.
-    args = [lat, long, length / 2000, heading];
-    const { lat: latS, long: longS } = getPointAtDistance(...args);
-    args = [lat, long, length / 2000, heading + 180];
-    const { lat: latE, long: longE } = getPointAtDistance(...args);
-    args = [latS, longS, width / 2000, heading + 90];
-    const { lat: lat1, long: long1 } = getPointAtDistance(...args);
-    args = [latS, longS, width / 2000, heading - 90];
-    const { lat: lat2, long: long2 } = getPointAtDistance(...args);
-    args = [latE, longE, width / 2000, heading - 90];
-    const { lat: lat3, long: long3 } = getPointAtDistance(...args);
-    args = [latE, longE, width / 2000, heading + 90];
-    const { lat: lat4, long: long4 } = getPointAtDistance(...args);
+The first really interesting stage is the glide slope stage, where we want to perform a controlled glide down towards the runway, ending at P<sub>3</sub>:
 
-    // To make our lives easier, let's just save those values, just in case.
-    runway.coordinates = [
-      [latE, longE],
-      [latS, longS],
-    ];
+```javascript
+    ...
 
-    runway.bbox = [
-      [lat1, long1],
-      [lat2, long2],
-      [lat3, long3],
-      [lat4, long4],
-    ];
+    if (step === FLYING_THE_GLIDE_SLOPE) {
+      // In order to descend along the glide slope, we calculate how far
+      // along we are as a ratio of the distance we need to cover, and
+      // then use that to determine the altitude we "should" be flying
+      // at that point:
+      const d1 = getDistanceBetweenPoints(lat, long, p2.lat, p2.long);
+      const d2 = getDistanceBetweenPoints(p2.lat, p2.long, p3.lat, p3.long);
+      const ratio = constrain(d1 / d2, 0, 1);
+      const lerpAlt = constrainMap(ratio, 0, 1, p2.alt, p3.alt);
+      autopilot.setParameters({ [ALTITUDE_HOLD]: lerpAlt });
 
-    // Then, for each runway we need to figure out our approach points,
-    // which will consist of, in reverse order:
-    //
-    // - the runway end point,
-    // - the runway start,
-    // - the point several miles out from the start where we start our approach, and
-    // - helper points to get us onto the approach, if needed.
-    //
-    // Runways have two ends, so we need to do this twice for each runway:
-    runway.approach.forEach((approach, pos) => {
-      const start = runway.coordinates[pos];
-      const end = runway.coordinates[1 - pos];
+      // While we're on the glide slope, we need to do some prep work
+      // in the form of lowering our landing gear and adding a touch
+      // of flaps when it's safe to do so.
+      if (ratio > 0.5 && abs(bank) < 3) {
+        if (hasRetractibleGear && !gearSpeedExceeded && !isGearDown) {
+          console.log(`gear down`);
+          api.trigger(`GEAR_DOWN`);
+          console.log(`touch of flaps`);
+          for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 2);
+        }
+      }
 
-      // First up, our approach point is `approachDistance` away from the start of the runway:
-      approach.heading = (heading + (1 - pos) * 180) % 360;
-      args = [...start, approachDistance, approach.heading];
-      const { lat: alat, long: along } = getPointAtDistance(...args);
-      const anchor = [alat, along];
+      // Then, transition to short final when we're at P3:
+      if (ratio >= 1) {
+        console.log(`short final reached`);
+        // force gears and flaps, just in case something was stuck
+        api.trigger(`GEAR_DOWN`);
+        for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 2);
+        // And then move on to the next stage!
+        stage.nextStage();
+      }
+    }
 
-      // To help make getting to the approach easier, add some "easing points",
-      // which does require knowing which side of the runway line we're on.
-      const a1 = getHeadingFromTo(...anchor, ...end);
-      const a2 = getHeadingFromTo(...anchor, planeLat, planeLong);
-      const s = sign(getCompassDiff(a2, a1));
+    ...
+```
 
-      args = [alat, along, MARGIN_DISTANCE, approach.heading + s * 90];
-      const { lat: palat1, long: palong1 } = getPointAtDistance(...args);
-      args = [palat1, palong1, MARGIN_DISTANCE, approach.heading + s * 180];
-      const { lat: palat2, long: palong2 } = getPointAtDistance(...args);
+####  Riding out the short final
 
-      // We'll save all those points
-      approach.coordinates = {
-        easingPoints: [
-          [palat1, palong1],
-          [palat2, palong2],
-        ],
-        anchor,
-        runwayStart: start,
-        runwayEnd: end,
-      };
+The short final is similar to the main glide slope, except  we only need to drop about 180 feet:
 
-      // And record how far we are from this approach
-      approach.distanceToPlane = getDistanceBetweenPoints(
-        planeLat,
-        planeLong,
-        alat,
-        along
-      );
+```javascript
+    ...
 
-      // With some back-references to the runway and airport, for future ease-of-code.
-      approach.airport = airport;
-      approach.runway = runway;
-    });
-  });
+    if (step === RIDE_OUT_SHORT_FINAL) {
+      // instead of interpolating between p2 and p3, it's between p3 and p4:
+      const d1 = getDistanceBetweenPoints(lat, long, p4.lat, p4.long);
+      const d2 = getDistanceBetweenPoints(p3.lat, p3.long, p4.lat, p4.long);
+      const ratio = constrain(d1 / d2, 0, 1);
+      const lerpAlt = constrainMap(ratio, 0, 1, p4.alt, p3.alt);
+      
+      autopilot.setParameters({
+        [ALTITUDE_HOLD]: lerpAlt,
+        // However, we also want to make sure the plane slows down to
+        // either climb speed, or 100 knots, during this final descent.
+        // Whichever is less:
+        [AUTO_THROTTLE]: min(climbSpeed, 100),
+      });
+
+      // And when we get to p4, move on to the next stage!
+      if (ratio >= 1) {
+        console.log(`runway reached`);
+        stage.nextStage();
+      }
+    }
+
+    ...
+```
+
+####  Cutting the engines
+
+This is the stage where we get to discover whether we land, or crash: we're going to cut the engines!
+
+```javascript
+    ...
+
+    if (step === CUT_THE_ENGINES) {
+      console.log(`disable auto-throttle and alt hold...`);
+      autopilot.setParameters({
+        [AUTO_THROTTLE]: false,
+        [ALTITUDE_HOLD]: false
+      });
+
+      console.log(`and cutting the engines`);
+      for (let i = 1; i <= engineCount; i++) {
+        await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
+      }
+      
+      stage.nextStage();
+    }
+
+    ...
+```
+
+####  Touching down
+
+While we're coasting down onto the runway, we do still have some work to do: we need to ensure that the plane is pitched up ever so slightly, so that tricycle gear planes land on the rear wheels first, and tail draggers don't immediately nose-over when the wheels hit the runway:
+
+```javascript
+    ...
+
+    if (step === LANDING_ON_RUNWAY) {
+      // We keep cutting the engines, because sometimes MSFS will look at the
+      // peripherals and go "hey this throttle lever is at 100% let me make sure
+      // the same is true in-game!" and we *really* don't want that here:
+      for (let i = 1; i <= engineCount; i++) {
+        await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
+      }
+
+      // For as long as we're not on the ground, try to keep the plane
+      // pitching up by 2 degrees. We'll land a little bit slower, but
+      // we want to survive the landing without damaging the plane.
+      if (!onGround) {
+        setPitch(api, -2, flightInformation);
+      }
+
+      // Once we do touch down on the runway, a few things need to happen.
+      else {
+        // First off, we need to turn off the wing leveler, because it'd
+        // interfere with the auto-ruddering we're going to have to do.
+        autopilot.setParameters({
+          [LEVEL_FLIGHT]: false,
+          [HEADING_MODE]: false,
+        });
+
+        // Then we'll set flaps to fully retracted, for maximum
+        // downforce. We need all the help we can get.
+        console.log(`restore flaps`);
+        for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 0);
+
+        // Then if the plane has it, reverse thrust!
+        console.log(`full reverse (if available)`);
+        for (let i = 1; i <= engineCount; i++) {
+          await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
+        }
+        
+        // And in that same vein: speed brakes!
+        console.log(`speed brakes (if available)`);
+        await api.trigger(`SPOILERS_ON`);
+
+        // And then the last stage...
+        console.log(`start braking`);
+        this.brake = 0;
+        stage.nextStage();
+      }
+    }
+
+    ...
+```
+
+####  Rolling and braking
+
+Alright! We made it down, the plane is on the runway, we didn't crash... but that's really "we didn't crash _yet_" because we totally still can. It's time to make sure we apply enough brakes to stop the plane, while using auto-rudder to keep us in a straight-ish line, with extra checks if we're in a tail dragger because if we brake too hard, or we don't pull back on the elevator while we're braking, we're going to nose-over followed by it being game-over.
+
+```javascript
+    ...
+
+    if (step === ROLLING_AND_BRAKING) {
+      // Keep cutting those engines, because now would be the worst time
+      // for MSFS to decide to help out by mirroring our throttle lever.
+      for (let i = 1; i <= engineCount; i++) {
+        await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
+        // In fact, keep those throttles in reverse if the plane supports that.
+        await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
+      }
+  
+      // Also keep trying to pitch the plane up 2 degrees when the wheels
+      // aren't on the runway. Because trust me: we're going to bounce.
+      if (!onGround) {
+        setPitch(api, -2, flightInformation);
+      } else {
+        // increase brakes while we're rolling, and use autorudder to
+        // hopefully keep us on the runway while we brake:
+        this.brake = Math.min(this.brake + 5, isTailDragger ? 70 : 100);
+        setBrakes(api, this.brake);
+        autoRudder(api, p5, flightData);        
+
+        // Are we in a tail dragger? If so, we need to pull back on the
+        // elevator once we get to 50% brakes, to prevent the plane from
+        // tipping over the wheels and driving the propellor straight into
+        // the tarmac
+        if (isTailDragger && this.brake > 50) {
+          const elevator = constrainMap(this.brake, 0, 100, 0, -4000) | 0;
+          api.trigger(`ELEVATOR_SET`, elevator);
+        }
+
+        // If we're in a plane with tricycle gears, and we reach our
+        // stall speed, use the flaps as a speed brake.
+        if (speed < vs0 && !isTailDragger) {
+          console.log(`add flaps to brake even more`);
+          for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 10);
+        }
+
+        // And finally, once we slow down to a crawl, end the landing.
+        if (speed < 5) {
+          console.log(`cutoff speed reached`);
+          stage.nextStage();
+        }
+      }
+    }
+
+    ...
+```
+
+####  Ending our landing
+
+We've done it! All that's left is to flips all the toggles to "off", power down, and walk away from our successful landing!
+
+```javascript
+    ...
+
+    if (step === END_OF_LANDING) {
+      console.log(`set parking brakes`);
+      setBrakes(api, 0);
+      api.trigger(`PARKING_BRAKES`);
+
+      console.log(`idle throttle`);
+      for (let i = 1; i <= engineCount; i++) {
+        api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
+      }
+
+      console.log(`retract flaps`);
+      for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 0);
+
+      console.log(`disengage speed brakes`);
+      api.trigger(`SPOILERS_OFF`);
+
+      console.log(`AP off`);
+      autopilot.setParameters({
+        MASTER: false,
+        [LEVEL_FLIGHT]: false,
+        [HEADING_MODE]: false,
+        [ALTITUDE_HOLD]: false,
+      });
+
+      console.log(`shut down engines`);
+      api.trigger(`ENGINE_AUTO_SHUTDOWN`);
+      this.done = true;
+    }
+  }
 }
 ```
 
-Lots of code, but not a lot of "logic". The bulk is "building points" based on knowing distances and angles. The only thing that's worth looking at is those easing points: what do those do? Well...
+And that's it: one auto-lander, done.
 
-### Getting lined up
+### Finishing up
 
-Consider the following setup:
+Before we call it a day, let's 
 
-PUT A GRAPHICS-ELEMENT HERE
-
-base setup: a runway and six approach locations: prior, next to, and past the runway, on either side.
-
-Then show how things go wrong simply by showing the path from the cursor to trying to fly an aproach, approach with offset, and approach with forced offset first.
-
-And now we have workable approaches: if we're further from the runway than the approach, we set up three waypoints (one easing point, the approach point, and the runway end) and if we're closer to the runway than the approach point, we use three (two easing points, the approach point, and the runway end).
-
-Of course, the other part of getting lined up is "being at the right altitude", but that part is relatively easy: we're simply going to declare that we want to be at 1500 feet above the runway at the start of the approach, and 200 feet above the runway about halfway through the approach, and we'll just set the autopilot `ALT` value according to how close to the approach/runway we are.
-
-So let's add some "getting onto the approach" code. First up, a function that'll actually build the waypoints _as_ autopilot waypoints for this approach:
-
-```javascript
-CODE INVALID
-```
-
-And then a `getOntoApproach` function to, you know, get us onto the approach:
-
-```javascript
-CODE INVALID
-```
-
-And then we can plug that into our currently empty `autoland` function:
-
-```javascript
-CODE INVALID
-```
-
-If we were to run this right now, we'll see something like this:
-
-![{89722211-5B6A-4F94-B6BA-CE9F8EA2374A}](./approach-flight-c310r.png)
-
-...if we remembered to implement the approach visualization:
-
-```javascript
-CODE INVALID
-```
-
-So handy. But while flying over the runway is useful in order to understand your landing when you're flying a plane yourself, it's not much use for an auto-lander: we want to get this plane on the ground!
-
-### Landing the plane
-
-So let's implement the next part of our landing procedure:
-
-```javascript
-CODE INVALID
-```
-
-There's two things we need to answer before we can run this code, though: what's a safe throttle position, and what's the right distance from the runway to start the actual landing? Because those depend on the plane we're flying. Unfortunately, as far as I know (although I'd love to be shown otherwise) there is no good way to abstract that information from SimConnect variables and/or current flight information, so.... we hard code them. For example, for the DeHavilland DHC-2 "Beaver", `SAFE_THROTTLE` is 65%, and `DROP_DISTANCE_KM` is 0.5, and for the Cessna 310R, the `SAFE_THROTTLE` is 35%, and the `DROP_DISTANCE` is 0.8... how do we know? I flew those planes, many many times, over a nice flat stretch of Australia where you can just go in a straight line forever while setting the throttle to something and then wait to see what speed that eventually slows you down to. And then cutting the throttle to see how long it takes to hit the ground. Science!
-
-But yeah, it means we're going to need some airplane-specific parameters, which means we might as well make some airplane profiles. We don't _want_ those, but I haven't figured out a way to make auto-landing work without them, so... let's go? We'll make a little `parameters.js` file, and I'm giving you two airplanes but you get to do the rest:
-
-```javascript
-CODE INVALID
-```
-
-and then we update our autoland code to use those:
-
-```javascript
-CODE INVALID
-```
-
-Disappointing, but at least we know this will work. For the planes we figure out all these parameters for at least. Moving on: the `throttleTo` function is really simple: every time it gets called, we make sure to update the current target altitude, while decreasing the throttle by 1%, until we reach the target throttle percentage. Then we stop running it. Following that, `reachRunway` is just as simple. It also runs the "make sure to update the target altitude" code, and just checks "are we close enough to the runway to start landing?". If so, it stops running. Because at that point it's time for...
-
-#### Getting onto the runway
-
-Landing the plane is really more of a controlled crash: we cut the engine (or rather, throttle, we keep the engine itself running), drop our landing gear, and fully extend the flaps so that we basically end up gliding onto the runway.
-
-```javascript
-CODE INVALID
-```
-
-Simple enough, although there's one part missing: we need to flare, as in pull up a little just before we hit the ground, so we don't hit the ground with our wheels, pivot over them, remember we don't have a nose wheel, and plow propeller-first into the runway. So:
-
-```javascript
-CODE INVALID
-```
-
-With that, by the time this function exits we are on the ground, without having kissed the tarmac with our lips, rather than our wheels. Which means it's time for...
-
-#### Braking and steering
-
-Different planes can brake different amounts without things going wrong. If we're in a tail dragger, we can only apply so much brake force before the wheels slow down faster than the plane, and the plane rotates forward and does a nose-over. If we're in a plane with a tricycle gear, though, we have a wheel at the nose that prevents nose-over and we can basically brake as hard as we want, until we've stopped. So:
-
-```javascript
-CODE INVALID
-```
-
-And that's it! We've done everything necessary to achieve fully automated flight!
+--- continue here --- 
 
 ### Testing the code
 
 Now, testing this code is rather straight forward in that we just fire up MSFS, put a plan on a runway, create a bit of a flight plan, hit "take off" in the browser, and when we reach the last marker, we click "land" (we could automate that, but that's for another day. By you). That does not translate well into pictures, though, so as the final test for all our hard work, let's just capture this one using the medium of video capture.
 
-We'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/) on New Zealand's South Island to [Wānaka](https://en.wikipedia.org/wiki/W%C4%81naka), with auto-takeoff, waypoint navigation, and auto-landing. Enjoy a 20 minute trip across some beautiful New Zealand scenery.
+We'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/), on New Zealand's South Island, to [Wānaka](https://en.wikipedia.org/wiki/W%C4%81naka), with auto-takeoff, waypoint navigation, and auto-landing. Enjoy a 20 minute trip across some beautiful New Zealand scenery.
 
 <iframe width="1000" height="400" src="https://www.youtube.com/embed/xIyGfYj66T0" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
 
@@ -11180,15 +11460,17 @@ We'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/) on New
 
 Holy crap, we did a lot! Also: this stuff is cool!
 
-We've just been writing a bunch of JS and it's flying aeroplanes in a flight simulator for us. Sure, you could spend an hour programming the in-game autopilot, but unless you're deep into flight sims and you want full realism "all-where every-when", that's not exactly an appealing prospect. And yes, getting to the point where can just hit "go" and enjoy the ride took a bit of work, but now, if we want, we never have to use an in-game autopilot again.
+We've just been writing JS bit by bit, and suddenly our code's flying aeroplanes in a flight simulator start to finish. Sure, we could have spent all this time learning how to program a flight director, but it's not like every plane has one, and unless you're deep into flight sims and you want full realism, programming flight directors using 1980's interfaces isn't exactly an appealing prospect.
 
-So you might be wondering what else we can do. Here are some thoughts:
+And yes, getting to the point where can just hit "go" and enjoy the ride took a considerable amount of work, but the result is proportional to the time and effort we expended. We made something pretty damn impressive!
 
-1. We could vastly improve auto landing by taking runway length and slope into account, not to mention terrain: not every runway has a nice clear path to it. Good luck landing at [Lukla](https://en.wikipedia.org/wiki/Tenzing-Hillary_Airport), for instance!
-2. We could add in a "fly inverted" button so that acrobatic planes can file on autopilot... upside down. This would require a different way of trimming because acrobatic/fighter planes tend to "go where you point them" nearly immediately, and running an autopilot every half second with fairly coarse trim instructions because we're relying on planes to slowly act on those trim instructions would make those type of planes flip and spin out of control rather quickly.
-3. We could make the waypoint code more like "path tracking" code, where we don't just define waypoints but give them curve control points that let use create fancy paths through canyons or over landscape features rather than just flying mostly straight lines between them.
-4. We could try to replace our blocks of "code guesses" with self-tuning PID controller code so we that we only need to say what what targets we want, and the PID controller figures out what good steps sizes for that are. This is one of those "conceptually, this is simple" because we can replace a whole bunch of code with a PID initialization and then a few lines of update loop, but actually making that work can be the worst time sink you never knew existed. The problem with PID controllers isn't setting them up, it's the full-time job of tweaking them that will make you regret your life decisions.
-5. I mean you've seen what we can do already, the sky's the limit. Or, you know what: no, it isn't. We're already flying, there are no limits. Get your learn on and write something amazing, and then tell the world about it.
+So where do we go from here? Here are some thoughts:
+
+1. We could vastly improve auto landing by taking runway length and slope into account, as well as fitting an approach to the terrain instead of simply doing a yes/no basd on where we fairly naively placed our approach points. Imaging auto-landing at [Tenzing-Hillary Airport](https://en.wikipedia.org/wiki/Tenzing-Hillary_Airport), for instance!
+2. We could make the waypoint code more like "path tracking" code, where we don't just define waypoints with an implicit polygon, but where we define the actual flight path itself, so that at any point on the path there is some "ideal" heading that the plane should be flying, so that we can actually fly through curvy canyons or slalom some hills, rather than just flying mostly straight lines.
+3. We could try to replace our blocks of "control code guesses" with self-tuning PID controlles so we that we only need to say what targets we want, and have the PID controllers figure out what good steps sizes for that are. This is one of those "conceptually, this is simple" because we can replace a whole bunch of code with a PID initialization and then a few lines of update loop, but actually making that work can be the worst time sink you never knew existed. The problem with PID controllers isn't setting them up, it's the full-time job of tweaking them that will make you regret your life decisions.
+4. We could make our ALOS server generate "XYZ tiles", so that we can use it as a map source for our leaflet map rather than using google's topology layer.
+5. ...you've seen what we can do already, the sky's the limit. Or, you know what: no, it isn't. We're already flying, there are no limits. Get your learn on and write something amazing, and then tell the world about it.
 
 I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you see me flying, I might just be testing more code to add to this tutorial! =D
 
@@ -11196,10 +11478,11 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 
 
 
-<!-- there's going to be interactive graphics here -->
+<!-- This document has interactive graphics, which requires JS -->
 <script  type="module" src="./graphics/graphics-element/graphics-element.js" async></script>
 <link rel="stylesheet" href="./graphics/graphics-element/graphics-element.css" async>
 
+<!-- And I have style requirements -->
 <style>
   html, body {
     width: 800px;

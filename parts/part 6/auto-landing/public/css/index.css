@@ -11,6 +11,10 @@ fieldset {
   }
 }
 
+input[type="number"] {
+  width: 8em;
+}
+
 div.modal {
   width: 100%;
   position: fixed;

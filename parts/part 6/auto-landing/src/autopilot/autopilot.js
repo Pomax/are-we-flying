@@ -266,8 +266,6 @@ export class AutoPilot {
           );
         }
         this.autoLanding.reset(this, lat, long, this.flightInformation.model);
-      } else if (value === false) {
-        // don't remove the autolanding object, we'll need it later
       }
     }
   }

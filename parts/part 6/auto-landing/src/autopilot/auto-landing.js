@@ -56,7 +56,7 @@ const GETTING_ONTO_APPROACH = `GETTING_ONTO_APPROACH`;
 const THROTTLE_TO_CLIMB_SPEED = `THROTTLE_TO_CLIMB_SPEED`;
 const FLYING_THE_GLIDE_SLOPE = `FLYING_THE_GLIDE_SLOPE`;
 const RIDE_OUT_SHORT_FINAL = `RIDE_OUT_SHORT_FINAL`;
-const GET_TO_RUNWAY_START = `GET_TO_RUNWAY_START`;
+const CUT_THE_ENGINES = `CUT_THE_ENGINES`;
 const LANDING_ON_RUNWAY = `LANDING_ON_RUNWAY`;
 const ROLLING_AND_BRAKING = `ROLLING_AND_BRAKING`;
 const END_OF_LANDING = `END_OF_LANDING`;
@@ -66,7 +66,7 @@ const LANDING_STEPS = [
   THROTTLE_TO_CLIMB_SPEED,
   FLYING_THE_GLIDE_SLOPE,
   RIDE_OUT_SHORT_FINAL,
-  GET_TO_RUNWAY_START,
+  CUT_THE_ENGINES,
   LANDING_ON_RUNWAY,
   ROLLING_AND_BRAKING,
   END_OF_LANDING,
@@ -124,11 +124,10 @@ export class AutoLanding {
     if (this.approachData) return;
 
     // If not, find a nearby approach:
-    const { vs1, climbSpeed, cruiseSpeed, isFloatPlane } = flightModel;
+    const { climbSpeed, cruiseSpeed, isFloatPlane } = flightModel;
     const approachData = (this.approachData = determineLanding(
       lat,
       long,
-      vs1,
       climbSpeed,
       cruiseSpeed,
       isFloatPlane
@@ -140,14 +139,11 @@ export class AutoLanding {
       const { waypoints } = autopilot;
       const { approach } = approachData;
       const points = approach.points.slice();
-      const [last] = points;
-      points.reverse();
-      const landingWaypoint = true;
+      const last = points.at(-1);
       points.forEach((p, i) => {
-        const [lat, long, alt] = p;
-        points[i] = waypoints.add(lat, long, alt, p === last, landingWaypoint);
+        points[i] = waypoints.add(...p, p === last, true);
       });
-      approach.points = points.reverse();
+      approach.points.reverse();
       waypoints.setLanding(approachData);
     }
   }
@@ -172,26 +168,11 @@ export class AutoLanding {
     const { model: flightModel, data: flightData } = flightInformation;
     if (!flightModel || !flightData) return;
 
-    const {
-      hasRetractibleGear,
-      isTailDragger,
-      engineCount,
-      climbSpeed,
-      vs0,
-      vs1,
-    } = flightModel;
+    const { hasRetractibleGear, isTailDragger, engineCount, climbSpeed, vs0 } =
+      flightModel;
 
-    const {
-      alt,
-      altAboveGround,
-      bank,
-      gearSpeedExceeded,
-      isGearDown,
-      lat,
-      long,
-      onGround,
-      speed,
-    } = flightData;
+    const { bank, gearSpeedExceeded, isGearDown, lat, long, onGround, speed } =
+      flightData;
 
     const { approachData, autopilot, stage } = this;
     const { points } = approachData.approach;
@@ -304,7 +285,7 @@ export class AutoLanding {
       }
     }
 
-    if (step === GET_TO_RUNWAY_START) {
+    if (step === CUT_THE_ENGINES) {
       console.log(step);
 
       console.log(`cut engines`);
@@ -469,14 +450,7 @@ function autoRudder(
 /**
  * ...
  */
-function determineLanding(
-  lat,
-  long,
-  vs1,
-  climbSpeed,
-  cruiseSpeed,
-  waterLanding
-) {
+function determineLanding(lat, long, climbSpeed, cruiseSpeed, waterLanding) {
   // Get the shortlist of 10 airports near us that we can land at.
   let shortList = airports
     .filter((a) => {
@@ -568,14 +542,14 @@ function calculateRunwayApproaches(lat, long, climbSpeed, cruiseSpeed, runway) {
     const p3 = [p3t, p3g, runwayAlt + 200];
 
     // And we're done!
-    const points = [p5, p4, p3, p2, p1];
+    const points = [p1, p2, p3, p4, p5];
 
     // Calculate our pA point:
     const dA1 = 0.75 * d12;
     const dA = d1 + dA1;
     const { lat: pAt, long: pAg } = getPoint(dA);
     const pA = [pAt, pAg, p2[2]];
-    points.push(pA);
+    points.unshift(pA);
 
     // And then check whether we need offset points:
     let f1, f2;
@@ -593,10 +567,10 @@ function calculateRunwayApproaches(lat, long, climbSpeed, cruiseSpeed, runway) {
         heading + sgn * 90
       );
       f1 = [f1Lat, f1Long, p2[2]];
-      points.push(f1);
+      points.unshift(f1);
 
       // Do we also need a second offset?
-      const p = project(start[1], start[0], end[1], end[0], long, lat);
+      const p = project(start[1], start[0], pA[1], pA[0], long, lat);
       const distanceToApproach = getDistanceBetweenPoints(lat, long, p.y, p.x);
       if (abs(distanceToApproach) < offsetDistance) {
         const { lat: f2t, long: f2g } = getPointAtDistance(
@@ -606,7 +580,7 @@ function calculateRunwayApproaches(lat, long, climbSpeed, cruiseSpeed, runway) {
           (heading + 180) % 360
         );
         f2 = [f2t, f2g, p2[2]];
-        points.push(f2);
+        points.unshift(f2);
       }
     }
 
@@ -626,8 +600,8 @@ function calculateRunwayApproaches(lat, long, climbSpeed, cruiseSpeed, runway) {
     // is bad. But we'll ignore the runway and short final. Those
     // basically *have* to work for a runway to even be a runway.
     approach.works = (function verifyApproach() {
-      const points = approach.points.slice(2);
-      for (let i = 0, e = points.length - 1; i < e; i++) {
+      const points = approach.points.slice();
+      for (let i = 0, e = points.length - 3; i < e; i++) {
         const p1 = points[i];
         const p2 = points[i + 1];
         const h = getHeadingFromTo(p1[0], p1[1], p2[0], p2[1]);

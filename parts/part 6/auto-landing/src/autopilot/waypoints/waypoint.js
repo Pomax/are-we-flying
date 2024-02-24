@@ -33,9 +33,6 @@ export class Waypoint {
     this.completed = false;
     this.distance = 0;
     this.next = undefined;
-    // hard points must be flown until the transition distance,
-    // they do not permit projecting on the flight path.
-    this.hard = false;
   }
 
   setPosition(lat, long) {
@@ -50,10 +47,6 @@ export class Waypoint {
 
   markForLanding(landing) {
     this.landing = landing;
-  }
-
-  setHardness(hardness) {
-    this.hard = !!hardness;
   }
 
   activate() {

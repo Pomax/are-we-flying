@@ -121,10 +121,6 @@ export class WayPointManager {
     this.resequence();
   }
 
-  setWaypointHardness(id, hardness) {
-    this.points.find((e) => e.id === id)?.setHardness(hardness);
-  }
-
   /**
    * remove a waypoint and resequence.
    * @param {*} id
@@ -194,8 +190,6 @@ export class WayPointManager {
 
     if (this.repeating) {
       points.at(-1).setNext(points[0]);
-    } else {
-      points[0].setHardness(true);
     }
 
     // push the update to clients
@@ -396,16 +390,6 @@ export class WayPointManager {
     if (!p2) {
       this.checkTransition(lat, long, p1, transitionRadiusInKM);
     }
-
-    // FIXME: TODO: fix the waypoint.hard logic here...
-
-    // Do we have more, but p1 is a hard point?
-    // else if (
-    //   p1.hard &&
-    //   !this.checkTransition(lat, long, p1, transitionRadiusInKM)
-    // ) {
-    //   return p1;
-    // }
 
     // If we have at least two points, let's do some projective planning.
     else if (p2 && !this.checkTransition(lat, long, p2, transitionRadiusInKM)) {
