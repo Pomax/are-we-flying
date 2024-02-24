@@ -18,6 +18,7 @@ export function autoThrottle(autopilot, flightInformation) {
   const threshold = constrainMap(diff, 0, 10, 0.01, 0.2);
   const altFactor = constrainMap(targetAlt - alt, 0, 100, 0, 0.25);
 
+  // FIXME: TODO: figure out how to improve this.
   let step = constrainMap(diff, 0, 50, 1, 5);
   step = constrainMap(weight, 1000, 6000, step / 5, step);
 
@@ -41,7 +42,7 @@ export function autoThrottle(autopilot, flightInformation) {
   // throttle down situation
   if (speed - targetSpeed > 2) {
     // console.log(`throttle down`);
-    if (dV >= -3 * threshold) {
+    if (dV >= -threshold) {
       // console.log(`dV range good, throttling down`);
       changeThrottle(autopilot.api, engineCount, -step, 25, 100);
     }
@@ -51,7 +52,7 @@ export function autoThrottle(autopilot, flightInformation) {
       changeThrottle(autopilot.api, engineCount, -altFactor * step, 25, 100);
     }
     // Are we slowing down more than desired?
-    if (dV < -3 * threshold) {
+    if (dV < -threshold) {
       // console.log(`dV too low, throttling up`);
       changeThrottle(autopilot.api, engineCount, step / 4, 25, 100);
     }

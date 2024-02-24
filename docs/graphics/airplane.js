@@ -13,10 +13,10 @@ class Airplane extends Circle {
   }
 
   // update the plane's position
-  update({ x, y }) {
+  update({ x, y }, delta = frameDelta) {
     this.r = radiusFromSpeed ? speed : radius;
-    if (frameDelta > 50) return;
-    const timeInSeconds = frameDelta / 1000;
+    if (delta > 50) return;
+    const timeInSeconds = delta / 1000;
     const angle = atan2(y - this.y, x - this.x);
     this.setHeading(angle, timeInSeconds);
     const { heading } = this;
@@ -38,7 +38,7 @@ class Airplane extends Circle {
     // passed.
     const maxChange = timeInSeconds * turnRate;
     const update = constrain(diff, -maxChange, maxChange);
-    this.heading += update;
+    this.heading = (this.heading + TAU + update) % TAU;
   }
 
   // draw a little "stick figure" airplane

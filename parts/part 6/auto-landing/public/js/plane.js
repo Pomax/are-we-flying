@@ -202,22 +202,18 @@ export class Plane {
    * values, and tell the charting solution to plot them.
    */
   updateChart(flightData) {
-    const { alt, bank, groundAlt, pitch, speed, heading, rudder } = flightData;
+    const { alt, bank, groundAlt, pitch } = flightData;
+    const { throttle, speed, heading, rudder } = flightData;
     const { VS, pitchTrim, aileronTrim, turnRate, rudderTrim } = flightData;
     const nullDelta = { VS: 0, pitch: 0, bank: 0 };
-    const {
-      VS: dVS,
-      pitch: dPitch,
-      bank: dBank,
-      speed: dV,
-    } = flightData.d ?? nullDelta;
+    const { VS: dVS, pitch: dPitch, bank: dBank } = flightData.d ?? nullDelta;
 
     this.charts.update({
       // basics
       ground: groundAlt,
       altitude: alt,
+      throttle,
       speed,
-      dV,
       // elevator
       VS,
       dVS,

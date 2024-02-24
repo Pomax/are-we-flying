@@ -60,7 +60,7 @@ This is a big read, and while the main focus is getting JavaScript to fly planes
 - environment files
 - test early, test often.
 - hot-reloading code
-- 
+-
 
 
 
@@ -6851,7 +6851,7 @@ export async function flyLevel(autopilot, state) {
   if (useStickInstead) {
     const targetTurnRate = constrainMap(headingDiff, -20, 20, -3, 3);
     const turnDiff = targetTurnRate - turnRate;
-    
+
     // But we do need to boost stick changes the closer to zero
     // we get, because otherwise ramp-up and ramp-down takes too long:
     let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
@@ -6864,7 +6864,7 @@ export async function flyLevel(autopilot, state) {
     // and instead set our max deflection to 1/5th of that.
     const maxStick = -16384 / 5;
     const newAileron = proportion * maxStick;
-    
+
     // Then we "early exit" after setting the new stick value.
     return api.trigger("AILERON_SET", newAileron | 0);
   }
@@ -6935,7 +6935,7 @@ export async function flyLevel(autopilot, state) {
   ...
   const { aileron, turnRate } = flightData;
   const currentAileron = (aileron / 100) * -16384;
-  
+
   ...
 
   const maxStick = -16384 / 5;
@@ -6943,7 +6943,7 @@ export async function flyLevel(autopilot, state) {
 
   // Get the difference in stick position
   const aileronDiff = abs(currentAileron - newAileron);
-  
+
   // turn that into a "how much old vs. new" ratio, raised to a power in order
   // to turn the normally linear constrainMap result into a result that stays
   // near 1 much longer, so that we mix in much less of the new stick position
@@ -7011,7 +7011,7 @@ export async function flyLevel(autopilot, state) {
   // And then we'll use the same code we used before our "mixing".
   let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
   proportion = sign(proportion) * abs(proportion);
-  
+
   // Rather than some fixed amount, we now get our maximum
   // deflection from the roll "trim" vector.
   const maxStick = -trim.roll;
@@ -7071,7 +7071,7 @@ So let's add the code that sets up our initial deflection value:
 ...
 export class Autopilot {
   ...
-  
+
   resetTrim() {
     // 1: Figure out a sensible "start value" for working the
     // aileron, based on the plane's weight to wing area ratio.
@@ -7092,9 +7092,9 @@ export class Autopilot {
       yaw: 0,
     };
   }
-  
+
   ...
-  
+
   async setTarget(key, value) {
     ...
 
@@ -7337,7 +7337,7 @@ export async function flyLevel(autopilot, state) {
   const { data: flightData, model: flightModel } = state;
   const { weight, wingArea } = flightModel;
   const wpa = weight / wingArea;
-  
+
   ...
 
   // We'll add a special affordance for ultralights, where we don't
@@ -7440,12 +7440,12 @@ export async function flyLevel(autopilot, state) {
   // Again: let's get that flag:
   const { weight, wingArea, isAcrobatic } = flightModel;
   const wpa = weight / wingArea;
-  
+
   // And then: does this qualify as a twitchy plane?
   const isTwitchy = isAcrobatic || wpa < 5;
 
   ...
-  
+
   // If this is an acrobatic plane, it gets a tiny step,
   // and we forward the isAcrobatic flag on, so we can
   // set the lower and upper limit for our deflection:
@@ -7517,7 +7517,7 @@ export class FlightInformation {
 
     // Are we upside down?
     data.upsideDown = abs(data.bank) > 90;
-    
+
     // Did we flip orientations between now an the previous iteration?
     data.flipped = this.data.upsideDown !== data.upsideDown;
 
@@ -7542,13 +7542,13 @@ export async function altitudeHold(autopilot, flightInformation) {
   const { VS, alt, pitch, speed, bank, upsideDown } = flightData;
 
   ...
-  
+
   // And then set our trim step, but invert it if we're flying upside
   // down, and double it because we'll need to more aggressively trim
   // while the plane is upside-down.
   let trimStep = trimLimit / 10_000;
   if (upsideDown) trimStep = -2 * trimStep;
-  
+
   ...
 }
 ```
@@ -7560,7 +7560,7 @@ And, of course, our `fly-level.js`:
 
 export async function flyLevel(autopilot, state) {
   ...
-  
+
   // Get our flag:
   const { bank, turnRate, upsideDown } = flightData;
 
@@ -7568,7 +7568,7 @@ export async function flyLevel(autopilot, state) {
   let offset = 0;
 
   ...
-  
+
   // Then, are we flying upside down? If so, we're going to counteract
   // physics by adding an offset to our stick adjustments, so that we
   // can "catch" the plane trying to roll out of inverted orientation.
@@ -7599,7 +7599,7 @@ export async function flyLevel(autopilot, state) {
   }
 
   ...
- 
+
   // And then to make things work, we add this offset to our aileron:
   const newAileron = proportion * maxStick + offset;
   api.trigger("AILERON_SET", newAileron | 0);
@@ -7610,7 +7610,7 @@ And with that...
 
 ![image-20240204093136389](./image-20240204093136389.png)
 
-We can fly our autopilot... upside down! Which, incidentally, is absolutely terrifying viewed from the cockpit. 
+We can fly our autopilot... upside down! Which, incidentally, is absolutely terrifying viewed from the cockpit.
 
 ![image-20240204093540784](./image-20240204093540784.png)
 
@@ -7647,7 +7647,7 @@ However, since the whole selling point of MSFS is that you can fly anywhere on E
 
 Back in the day, Google offered that as a free web API, but they decided that it would be more profitable if they charged (quite a bit of) money for elevation API access back in 2018, so that's out. There is also https://www.open-elevation.com, which is technically free, but because they're don't have Google money, they're more for incidental work rather than constant polling. If the website is up at all. Which realistically only leaves "writing our own elevation API service".
 
-I know, I know, this sounds ludicrous, but roll with it: what do we even need? 
+I know, I know, this sounds ludicrous, but roll with it: what do we even need?
 
 1. a server that we can send elevation requests to,
 2. code that can turn GPS coordinates into elevation values, and
@@ -7671,7 +7671,7 @@ Or, it would, if [I hadn't already done that work for us](https://stackoverflow.
 
 Let's create a `src/elevation/` directory, and then define a new little server in `src/elevation/alos-server.js` that we can use to test the rest of the code we're about to write. Something that'll accept a URL like  http://localhost:9000/?points=48.8,-123.8,48.9,-123.9,49,-124 and then spits out the elevation at each of those three coordinates.
 
-We won't be using this server in our actual autopilot code, but it'll make developing and testing the elevation code on its own (before we try to integrate it into the autopilot) a lot easier. And that's always important. 
+We won't be using this server in our actual autopilot code, but it'll make developing and testing the elevation code on its own (before we try to integrate it into the autopilot) a lot easier. And that's always important.
 
 However, let's not go overboard: no need for a full [Express.js](https://expressjs.com/) server, we just need something small that we can query with the browser, so a plain `node:http` server will do just fine:
 
@@ -7876,7 +7876,7 @@ export class ALOSInterface {
       if (entry.isDirectory()) this.findFiles(fullPath);
     });
   }
-  
+
   /**
    * Then, the function we care about the most:
    */
@@ -7886,7 +7886,7 @@ export class ALOSInterface {
     if (!tile) console.warn(`no tile for ${lat},${long}...`);
     const elevation = tile?.lookup(lat, long) ?? ALOS_VOID_VALUE;
     return elevation;
-  }  
+  }
 
   /**
    * Which requires a way to get a tile (which is a 1 degree
@@ -7928,11 +7928,11 @@ export class ALOSInterface {
     // given the rules above, an integer latitude
     // can be found in the tile south of it:
     if ((lat | 0) === lat) lat -= 1;
-    
+
     // and an integer longitude can be found in
     // the tile east of it:
     if ((long | 0) === long) long += 1;
-    
+
     // Form the latitude portions of our path:
     const latDir = lat >= 0 ? "N" : "S";
     let latStr = `` + (latDir == "N" ? floor(lat) : ceil(-lat));
@@ -8138,7 +8138,7 @@ On the first call,  we spend approximately "literally no time" running the actua
     const fullPath = this.files.find((f) => f.endsWith(tileName));
     if (!fullPath) return false;
     return join(this.tilesFolder, fullPath);
-  }   
+  }
 
   ...
 ```
@@ -8179,7 +8179,7 @@ const globalTileCache = [];
 
 export class ALOSInterface {
   ...
-  
+
   /**
    * We update our "get tile" function to build the name
    * and then hand off the actual "getting a tile" work
@@ -8196,7 +8196,7 @@ export class ALOSInterface {
    * If there is no cached entry, build it. Otherwise
    * just immediately return that cached value:
    */
-	getTileFromCache(tileName) {    
+	getTileFromCache(tileName) {
     if (globalTileCache[tileName] === undefined) {
       globalTileCache[tileName] = false;
       const tilePath = this.getTilePath(tileName);
@@ -8266,7 +8266,7 @@ As mentioned earlier, single point lookups are nice and all, but in order for th
 
 #### Adding polygon-awareness
 
-Let's make life easy (well, "easier") on ourselves and restrict the kind of shapes we work with to polygons, with GPS coordinates as vertices, so we can ask our server for something like  http://localhost:9000/?poly=47.8,-123.1,47.8,-123.99,48.99,-123.99,48.99,-123.1 and have it know we mean the "rectangle" (not really, but at small scale, close enough) spanned by N47.8W123.1 and N48.99W123.99. 
+Let's make life easy (well, "easier") on ourselves and restrict the kind of shapes we work with to polygons, with GPS coordinates as vertices, so we can ask our server for something like  http://localhost:9000/?poly=47.8,-123.1,47.8,-123.99,48.99,-123.99,48.99,-123.1 and have it know we mean the "rectangle" (not really, but at small scale, close enough) spanned by N47.8W123.1 and N48.99W123.99.
 
 This requires updating our server a tiny bit:
 
@@ -8323,7 +8323,7 @@ export class ALOSInterface {
     // We can find the tile we need by looking
     // at the first coordinate in our poygon:
     const tile = this.getTileFor(...poly[0]);
-    
+
     // Then we can delegate the task to that tile,
     // bearing in that mind that we might be requesting
     // a tile that doesn't exist, like an ocean location:
@@ -8629,16 +8629,16 @@ export class ALOSTile {
       50
     );
   }
-  
+
   /**
    * Resize the original data by a factor of 2^scale, preserving
    * maximum elevation. If we had four pixels that encoded:
-   * 
+   *
    *    [.. .. .. ..]
    *    [.. 24 38 ..]
    *    [.. 34 57 ..]
    *    [.. .. .. ..]
-   * 
+   *
    * That would become a new, single pixel with value 57.
    */
   formCoarseTile(width, height) {
@@ -8671,7 +8671,7 @@ export class ALOSTile {
 
     this.coarse = { coarseLevel, width: w, height: h, pixels: coarsePixels };
   }
-  
+
   // In order to map pixels to GPS coordaintes, we now need to take
   // our scaling factor into account, if we're performing a coarse lookup:
   pixelToGeo(x, y, coarse = false, F = this.forward) {
@@ -8696,7 +8696,7 @@ export class ALOSTile {
     }
     return [x, y];
   }
-  
+
   // We give our lookup function the option to perform a coarse lookup:
   lookup(lat, long, coarse = false) {
     // Since we wrote `this.coarse` to have the same lookup-relevant
@@ -8815,30 +8815,30 @@ export class ALOSInterface {
   getMaxElevation(geoPoly) {
     // We'll get to this function...
     const quadrants = splitAsQuadrants(geoPoly);
-    
+
     // But assuming that works, we start with a dummy result:
     let result = {
       lat: 0,
       long: 0,
       elevation: { feet: ALOS_VOID_VALUE, meter: ALOS_VOID_VALUE },
     };
-    
+
     // Then check each partial polygon in its own tile to see
     // if that yields a higher max elevation
     quadrants.forEach((poly, i) => {
       if (!poly.length) return;
-      
+
       // Get the tile for this partial polygon...
       const tile = this.getTileFor(...poly[0]);
-      
+
       // ...but remember that not every GPS "rectangle" has a
       // tile. For instance, if one of our tiles would be
       // all-ocean, that's not captured by ALOS.
       if (!tile) return;
-      
+
       // Get the max elevation for this tile...
       const qResult = tile.getMaxElevation(poly);
-      
+
       // ...and then check if it's better than what we have
       if qResult.elevation.meter > result.elevation.meter) {
         result = qResult;
@@ -8873,7 +8873,7 @@ function splitAsQuadrants(poly) {
   const hThreshold = ceil((
     min(...longs) + max(...longs)) / 2
   );
-  
+
   const vThreshold = ceil(
     (min(...lats) + max(...lats)) / 2
   );
@@ -8902,7 +8902,7 @@ function splitAsQuadrants(poly) {
 
 And that's the easy part covered. Now for the part where we actually split a polygon along some line... For this, we need to consider the two points on either side of an edge: either they're both on the same side of our dividing line, and we don't need to do anything special, or they're on opposite sides of the divide, and the edge between them will need to be split.
 
-So let's start with two empty shapes, one for "all points less or equal to" our dividing line, and one for "all points greater than" our dividing line, and then start running through our shape one edge at a time: 
+So let's start with two empty shapes, one for "all points less or equal to" our dividing line, and one for "all points greater than" our dividing line, and then start running through our shape one edge at a time:
 
 ```javascript
 function splitAlong(coords, dim, threshold) {
@@ -8952,7 +8952,7 @@ function splitEdge(a, b, dim, threshold, le, gt) {
   // How far along the edge can we find our divider,
   // relative to the first point?
   const r = (threshold - a[dim]) / (b[dim] - a[dim]);
-  
+
   // Then, if we're splitting top/bottom we need two
   // points above and below our dividing line:
   if (dim === 0) {
@@ -8975,7 +8975,7 @@ function splitEdge(a, b, dim, threshold, le, gt) {
 
 And now we can query across degree lines just fine: if we load http://localhost:9000/?poly=47.1,-123.1,47.1,-124.8,48.8,-124.8,48.8,-123.1 we get:
 
-``` 
+```
 {
   "poly": [
     [47.1, -123.1],
@@ -9198,7 +9198,7 @@ export class Autopilot {
   }
 
   ...
-  
+
   update(flightData, params) {
     ...
 
@@ -9220,7 +9220,7 @@ export class Autopilot {
           fill: true,
         })
       );
-      
+
       this.terrainProbe.forEach((p) => p.addTo(this.map));
 
       // And then draw the GPS coordinate where we found that value.
@@ -9235,7 +9235,7 @@ export class Autopilot {
         direction: "top",
         offset: L.point({x: 0, y: -20})
       });
-      
+
       this.maxElevation.addTo(this.map);
     }
   }
@@ -9284,7 +9284,7 @@ Of course we still need to implement the elevation code for when we're flying wi
 We've already seen 2 through 4 in code we literally just wrote, leaving us with only the first point to solve, which we can break down into three separate problems:
 
 1. finding the distance from the plane to the waypoint it's currently flying towards,
-2. if that distance is less than the probe length: finding how many complete legs after that waypoint are fully covered by our probe length minus the distance found in 1 (which might be zero), 
+2. if that distance is less than the probe length: finding how many complete legs after that waypoint are fully covered by our probe length minus the distance found in 1 (which might be zero),
 3. if there is a next leg, finding out how much of that legs the remaining probe length covers, or
 4. if there is no next leg, just "finishing the shape" by drawing a shorter-than-full-length triangle in the direction that we'll be flying in at that point.
 
@@ -9306,10 +9306,10 @@ export class WayPointManager {
 
     // Let's figure out which waypoint the plane is flying towards.
     let target = current.next;
-    
+
    	// Get the distance from the plane to the next waypoint,
     const d1 = getDistanceBetweenPoints(lat, long, target.lat, target.long);
-    
+
     // As well as the distance from the current waypoint to the next waypoint.
     const d2 = target.distance * KM_PER_NM;
 
@@ -9338,10 +9338,10 @@ When this happens, we want to make sure to capture a strip of flight path that's
       if (maxElevation.elevation.meter < partialMax.elevation.meter) {
         maxElevation = partialMax;
       }
-      
+
       // Then save the shape we just used so we can send it to the browser:
       geoPolies.push(geoPoly);
-      
+
       // And then as last step, reduce our probe length by the length of our strip:
       const d = getDistanceBetweenPoints(lat, long, current.lat, current.long);
       probeLength -= d;
@@ -9385,8 +9385,8 @@ So let's move on to the "if we _are_ on the flight path" equivalent. If we're on
     if (d1 > d2) {
       ...
     }
-  
- 
+
+
     // Iterate through our flight plan legs for as long as there is a next
     // point to fly, and we haven't run out of probe length yet.
     while (target && probeLength > 0) {
@@ -9413,7 +9413,7 @@ So let's move on to the "if we _are_ on the flight path" equivalent. If we're on
             maxElevation = partialMax;
           }
         }
-        
+
         // If it's not, then we find the max elevation along
         // the entire length of this leg's "strip":
         else {
@@ -9480,7 +9480,7 @@ export class Waypoint {
 }
 ```
 
-Pretty simple, and that save us a _lot_ of computation. Back to our waypoint manager though: `current.geoPoly.slice()` gets us a copy of the full leg's polygon, but it has the wrong start points for our need, so we replace those by figuring out how far along the leg we are, expressed as a ratio, which we then use to create new start points for our polygon. For instance, if we're midway between the start and end points, then the ratio is 0.5, and we create two new points that are 0.5 interpolations of the original start and end points. 
+Pretty simple, and that save us a _lot_ of computation. Back to our waypoint manager though: `current.geoPoly.slice()` gets us a copy of the full leg's polygon, but it has the wrong start points for our need, so we replace those by figuring out how far along the leg we are, expressed as a ratio, which we then use to create new start points for our polygon. For instance, if we're midway between the start and end points, then the ratio is 0.5, and we create two new points that are 0.5 interpolations of the original start and end points.
 
 And that covers our second possible "start of the probe":
 
@@ -9500,7 +9500,7 @@ Next up, how many legs are fully covered by the remaining probe length? We alrea
         if (target === c.next) {
           ...
         }
-        
+
         // If it's not, then we find the max elevation along the entire
         // length of this leg's "strip", which really just means asking
         // the current waypoint for its already cached polygon and elevation:
@@ -9570,7 +9570,7 @@ We again start with the full-length poly, but this time we need to bring the end
 
 #### Building a triangle if there is no next leg
 
-Except for when there is no next leg, of course: 
+Except for when there is no next leg, of course:
 
 ```javascript
     while (target && probeLength > 0) {
@@ -9662,7 +9662,7 @@ import { ..., AUTO_TAKEOFF } from "../utils/constants.js";
     ...,
     [AUTO_TAKEOFF]: false,
   ]
-...   
+...
 ```
 
 and our `public/js/autopilot.js` as well:
@@ -9720,9 +9720,9 @@ export class AutoTakeoff {
     // Is it time to hand off flight to the regular auto pilot?
     this.checkHandoff(flightModel, flightData);
   }
-  
+
   // We'll look at the implementations for all of these in a bit
-  
+
   async prepForRoll() {
     console.log(`prep for roll`);
   }
@@ -9734,11 +9734,11 @@ export class AutoTakeoff {
   async autoRudder() {
     console.log(`run autorudder`);
   }
-  
+
   async checkRotation() {
     console.log(`check rotation`);
   }
-  
+
   async checkHandoff() {
     console.log(`check for handoff`);
   }
@@ -9788,7 +9788,7 @@ export class AutoPilot {
   }
 
   async run() {
-    ...   
+    ...
     try {
       ...
       if (modes[AUTO_TAKEOFF]) autoTakeoff?.run(flightInformation);
@@ -9811,7 +9811,7 @@ import { FEET_PER_METER } from "../utils/constants.js";
 
 export class AutoTakeoff {
   ...
-  
+
   // what are our preroll settings?
   async prepForRoll(
     { isTailDragger },
@@ -9856,14 +9856,14 @@ export class AutoTakeoff {
       `run autorudder: off by ${d.toFixed(3)}' (heading off by ${hDiff.toFixed(3)} degrees)`
     );
   }
-  
+
   // Check if we're at a speed where we should rotate
   async checkRotation({ minRotation, takeoffSpeed, }, { speed }) {
     let minRotate = minRotation;
     if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
     console.log(`check rotation: ${speed >= minRotate ? `rotate` : `not yet`}.`);
   }
-  
+
   // Check if the plane's in a state where we can
   // hand things off to the regular autopilot
   async checkHandoff({}, { onGround, VS, altAboveGround }) {
@@ -9938,7 +9938,7 @@ import {
 
 export class AutoTakeoff {
   ...
-  
+
   async prepForRoll(
     { isTailDragger, engineCount },
     { alt, lat, long, flaps, parkingBrake, trueHeading, tailWheelLock }
@@ -10021,7 +10021,7 @@ So our attempt at an auto-rudder will consist of a few phases:
   - the more out-of-heading we get, the more we rudder in to get back onto the center line.
   - if this is not a tail dragger, this phase effectively lasts for the entire roll, but if this _is_ a tail dragger:
     - there will be loss of control when the tail wheel comes off the ground,
-  
+
 
 If we're lucky (or we accept "good enough") we can come up with code that can handle all of these phases without knowing "which phase we're in", so we'll make some more observations:
 
@@ -10101,7 +10101,7 @@ And MSFS adds a third value to that, called the "design takeoff speed", represen
    * Check if we're at a speed where we should rotate
    */
   async checkRotation({ minRotation, takeoffSpeed, isAcrobatic }, { elevator, speed, VS, bank }) {
-    // Do we have a sensible Vr? 
+    // Do we have a sensible Vr?
     let minRotate = minRotation;
     if (minRotate < 0) minRotate = 1.5 * takeoffSpeed;
     const rotate = speed >= minRotate * 1.25;
@@ -10254,7 +10254,7 @@ What if we get a little more aggressive in our takeoff?
 
 ```javascript
   ...
-  
+
   async checkRotation({ minRotation, takeoffSpeed, isAcrobatic }, { elevator, speed, VS, bank }) {
     let minRotate = minRotation;
     if (minRotate < 0) minRotate = takeoffSpeed; // Goodbye, 1.5x safety margin...
@@ -10331,7 +10331,7 @@ const LANDING_STEPS = [
   END_OF_LANDING,
 ];
 
-// We'll define a simple sequencer that we can use 
+// We'll define a simple sequencer that we can use
 // to step through the various stgages of our landing.
 class Sequence {
   constructor(api) {
@@ -10371,7 +10371,7 @@ export class Autolanding {
     // We'll be looking at "determineLanding" in a bit.
     this.approachData = determineLanding(lat, long, vs1, climbSpeed, cruiseSpeed, isFloatPlane));
   }
-  
+
   async run(flightInformation) {
     // And we're going to look at what's supposed to go here *in depth* later!
   }
@@ -10400,7 +10400,7 @@ export class Autopilot {
       [AUTO_LANDING_DATA]: false,
     };
     ...
-    
+
 		watch(dirname, `auto-landing.js`, (lib) => {
       AutoLanding = lib.AutoLanding;
       if (this.autoLanding) {
@@ -10408,9 +10408,9 @@ export class Autopilot {
       }
     });
   }
-    
+
   ...
-  
+
   async setTarget(key, value) {
     const { api, modes, trim } = this;
     ...
@@ -10428,7 +10428,7 @@ export class Autopilot {
     }
   }
   ...
-  
+
   async run() {
     ...
     try {
@@ -10493,8 +10493,8 @@ const airports = loadAirportDB();
 export class Autolanding {
   ...
 }
-  
-  
+
+
 /**
  * The function name really explains itself...
  */
@@ -10519,7 +10519,7 @@ Of course, just finding the "nearest airports" isn't really all that useful if w
 
 ```javascript
   ...
-  
+
   // Then we do a quick clone so we don't overwrite the airport
   // DB when we do our calculations (which will involve updating
   // elevations at points that might be runway points)
@@ -10586,7 +10586,7 @@ However, that `calculateRunwayApproaches` function is going to need a little mor
 
 Of course the "set up an approach flight path" is doing a lot of heavy lifting here, because we'll want a path that lets us perform a bunch of different actions:
 
-- figure out a flight plan that gets us straight (enough) onto our approach 
+- figure out a flight plan that gets us straight (enough) onto our approach
 - slow down from cruise speed to "safe to land at" speed,
 - drop from "whatever altitude we're flying" all the way down to a runway
 - _actually touch down on a runway without crashing_
@@ -10622,65 +10622,283 @@ And now we can finally point some distances to our graphic:
 And now we can _finally_ write some actual code!
 
 ```javascript
+...
+
+const { floor } = Math;
+
+// Let's formally declare our distances (in flight minutes)
+const APPROACH_LINE_DURATION = 2;
+const GLIDE_SLOPE_DURATION = 3;
+const SHORT_FINAL_DURATION = 1;
+
+...
+
 function calculateRunwayApproaches(lat, long, vs1, climbSpeed, cruiseSpeed, airport, runway) {
-  const { start, end } = runway;
+  const glideSpeed = climbSpeed + 20;
+  const { start: a, end: b } = runway;
 
   runway.approach.forEach((approach, idx) => {
-    const t = [...(idx === 0 ? start : end)]; // where do we touch down?
-    const runwayAlt = t[2];
-    const e = [...(idx === 0 ? end : start)]; // and where does our runway end?
-    const heading = getHeadingFromTo(e[0], e[1], t[0], t[1]);
-    
-    // first, let's assume this approach will work.
+    // Where do we touch down?
+    const start = idx === 0 ? a : b;
+
+    // We now know our runway target altitude:
+    const runwayAlt = floor(start[2]);
+
+    // And so we know everything we need for p4:
+    const p4 = [start[0], start[1], runwayAlt + 20];
+
+    // And of course, the runway end, and thus p5:
+    const end = start === a ? b : a;
+    const p5 = [...end];
+
+    // Next: what's our heading *away from the runway*? Because we're going
+    // to be placing points in the opposite direction of the approach heading.
+    const heading = getHeadingFromTo(end[0], end[1], start[0], start[1]);
+
+    // With all that done, let's first assume this approach will work.
     approach.works = true;
 
-    // then let's calculate those distances
+    // And then let's calculate the distances we talked about:
     const flightMinute = (v) => (v * KM_PER_NM) / 60;
-    const d12 = 1 * flightMinute(cruiseSpeed);
-    const d23 = GLIDE_SLOPE_DURATION * flightMinute(climbSpeed + 20);
-    const d34 = flightMinute(climbSpeed + 20);
+    const d12 = APPROACH_LINE_DURATION * flightMinute(cruiseSpeed);
+    const d23 = GLIDE_SLOPE_DURATION * flightMinute(glideSpeed);
+    const d34 = SHORT_FINAL_DURATION * flightMinute(climbSpeed);
 
-    // then turn those into "distance to the start of the runway"
+    // And now we can calculate p1, p2, and p3:
+    const getPoint = distance => getPointAtDistance(t[0], t[1], distance, heading);
     const d1 = d12 + d23 + d34;
-    const d2 = d23 + d34;
-    const d3 = d34;
-    
-    // and now we can calculate our points:
-    const { lat: p1t, long: p1g } = getPointAtDistance(t[0], t[1], d1, heading);
-    const { lat: p2t, long: p2g } = getPointAtDistance(t[0], t[1], d2, heading);
-    const { lat: p3t, long: p3g } = getPointAtDistance(t[0], t[1], d3, heading);
+    const { lat: p1t, long: p1g } = getPoint(d1);
+    const p1 = [p1t, p1g, runwayAlt + 1400];
 
-    const p1 = [p1t, p1g];
-    const p2 = [p2t, p2g];
-    const p3 = [p3t, p3g];
-    
-    const p4 = t;
-    const p5 = e;
-    
-    approach.points = [p5, p4, p3, p2, p1;
+    const d2 = d23 + d34;
+    const { lat: p2t, long: p2g } = getPoint(d2);
+    const p2 = [p2t, p2g, runwayAlt + 1400];
+
+    const d3 = d34;
+    const { lat: p3t, long: p3g } = getPoint(d3);
+    const p3 = [p3t, p3g, runwayAlt + 200];
+
+    // And we're done!
+    approach.points = [p5, p4, p3, p2, p1];
   });
 }
 ```
 
-We have code! And it's not even particularly complicated, since we did all the complicated parts first. However, this is almost certainly not enough points. For the why, let's look at where an airplane can be relative to this path, and what we want to have happen.
+We have code! And it's not even particularly complicated, since we worked out all the complicated parts on paper first. However, this is almost certainly not enough points for a proper approach yet... For the why, let's look at where an airplane can be relative to a straight line path, and what flight path that results in when we apply our waypoint logic.
 
-```
-      Let's also look at the approach from above: if the plane is to the "right" of A (with respect
-      to the approach heading) then we don't need offset points, and the plane can simply target
-      A as a waypoint. If the plane is to the "left" of A, we'll need at least one offset point,
-      either above or below A depending on the position of the plane. If the plane is above the top
-      f1, or below the bottom f1, we don't need additional points, but if the plane is somewhere
-      between f1 and the approach, we need a second offset f2 tho make sure the plane can turn onto
-      the approach correctly.
 
-        ╎                                            (f2?)╸╸╸╸╸╸(f1?)
-        ╎                                                         ╏
-        ╎                                                         ╏
-        o5────o4─────o3──────────────────────────────o2────o1╸╸╸╸╸A
-        ╎                                                         ╏
-        ╎                                                         ╏
-        ╎                                            (f2?)╸╸╸╸╸╸(f1?)
+<graphics-element title="getting onto the approach" src="./graphics/approach-points.js">
+  <source src="./graphics/airplane.js" />
+</graphics-element>
+
+Initially, this might look like it'll work just fine, but if we drag the airplane around, we see that our waypoint logic may dictate flight paths that are _super bad_ if the intention is to land, rather than just "fly part of a flight plan". For a landing we need to be lined up properly by the time we hit P<sub>2</sub>, and the current set of points don't guarantee this in the slightest.
+
+So, in order to fix that, let's add some more point based on where the plane is relative to the start of our approach: we're going to add a point P<sub>A</sub> ahead of P<sub>1</sub> so that we're not (or, barely) turning onto the approach by the time we _reach_ P<sub>1</sub>:
+
+<graphics-element title="getting onto the approach" src="./graphics/approach-points.js">
+  <source src="./graphics/airplane.js" />
+  <source src="./graphics/approach-point-pa.js" />
+</graphics-element>
+
+This is still not great, though, all we've done is pushed the problem back a bit. What we really want is for the plane to target P<sub>A</sub> if we're to the right of P<sub>A</sub>, but target something that will _get_ us to P<sub>A</sub> if we're to the left of it, which we can achieve by adding an offset point either above or below P<sub>A</sub>:
+
+<graphics-element title="getting onto the approach" src="./graphics/approach-points.js">
+  <source src="./graphics/airplane.js" />
+  <source src="./graphics/approach-point-f1.js" />
+</graphics-element>
+
+Which almost solves our problem: as long as the plane is beyond our offset (either above or below depending on whether the offset is above or below P<sub>A</sub>) things work pretty well, but if the plane is too close to the approach itself, we can still run into problems, so let's add one more offset, when the plane is to the left of P<sub>A</sub>, as well as between the approach and the first offset:
+
+<graphics-element title="getting onto the approach" src="./graphics/approach-points.js">
+  <source src="./graphics/airplane.js" />
+  <source src="./graphics/approach-point-f2.js" />
+</graphics-element>
+
+And now we have a setup where no matter where the plane is by the time we set up our approach, we'll be properly lined up by the time we start gliding. Of course, this _does_ complicate our code a bit:
+
+```javascript
+...
+
+const { abs, floor, sign } = Math;
+
+...
+
+function calculateRunwayApproaches(lat, long, vs1, climbSpeed, cruiseSpeed, airport, runway) {
+  ...
+  runway.approach.forEach((approach, idx) => {
+    ...
+    approach.points = [p5, p4, p3, p2, p1;
+    
+    // Calculate our pA point:
+    const dA1 = 0.75 * d12;
+    const dA = d1 + dA1;
+    const { lat: pAt, long: pAg } = getPoint(dA);
+    const pA = [pAt, pAg, p2[2]];
+    points.push(pA);
+
+    // And then check whether we need offset points:
+    let f1, f2;
+    const offsetDistance = dA1;
+    const aHeading = getHeadingFromTo(pAt, pAg, lat, long);
+    const hDiff = getCompassDiff(heading, aHeading);
+
+    if (hDiff < -90 || hDiff > 90) {
+      // set up our first offset
+      const sgn = sign(hDiff);
+      const { lat: f1Lat, long: f1Long } = getPointAtDistance(pAt, pAg, offsetDistance, heading + sgn * 90);
+      f1 = [f1Lat, f1Long, p2[2]];
+      points.push(f1);
+
+      // Do we also need a second offset?
+      const p = project(start[1], start[0], end[1], end[0], long, lat);
+      const distanceToApproach = getDistanceBetweenPoints(lat, long, p.y, p.x);
+      if (abs(distanceToApproach) < offsetDistance) {
+        const { lat: f2t, long: f2g } = getPointAtDistance(f1Lat, f1Long, offsetDistance, (heading + 180) % 360);
+        f2 = [f2t, f2g, p2[2]];
+        points.push(f2);
+      }
+    }
+  });
+}
 ```
+
+And now we have all our points! ...but we're still not done. Remember that we assumed this approach would work? We still have to check whether that's true, but looking at whether there's terrain interference anywhere, so we can mark the approach as no good if it requires us to fly through some ground for a bit.
+
+```javascript
+...
+
+// We'll need our ALOS service, but we've seen that code a few times before now:
+import dotenv from "dotenv";
+dotenv.config({ path: ENV_PATH });
+const { DATA_FOLDER } = process.env;
+const __dirname = import.meta.dirname;
+let alos;
+let { ALOSInterface } = await watch(
+  __dirname,
+  `../elevation/alos-interface.js`,
+  (lib) => {
+    ALOSInterface = lib.ALOSInterface;
+    if (alos) {
+      Object.setPrototypeOf(alos, ALOSInterface.prototype);
+    }
+  }
+);
+alos = new ALOSInterface(DATA_FOLDER);
+
+// And then we need to add a terrain check to our approach function:
+function calculateRunwayApproaches(lat, long, vs1, climbSpeed, cruiseSpeed, airport, runway) {
+  ...
+  runway.approach.forEach((approach, idx) => {
+    ...
+
+    // We're going to do this the simple way: we're simply going to
+    // sample along our path at 100m intervals, and if ALOS says 
+    // there's an unsafe elevation at any sample point, the approach
+    // is bad.
+    const { points } = approach;
+		for(let i=0, e = points.length - 1; i<e; i++) {
+      const p1 = points[i];
+      const p2 = points[i+1];
+      const h = getHEadingFromTo(p1[0], p1[1], p2[0], p2[1]);
+      const total = getDistanceBetweenPoints(p1[0], p1[1], p2[0], p2[1]);
+      for (let d = 0; d <= total; d+=0.1) {
+        const p = getPointAtDistance(p1[0], p1[1], d, h);
+        const r = d/total;
+        const alt = (1-r) * p1[2] + r * p2[2];
+        const found = alos.lookup(p.lat, p.long) * FEET_PER_METER;
+        if (found > alt - 100) {
+          return (approach.works = false);
+        }
+      }
+    }
+  });
+}
+```
+
+So little code! ...well, I mean, it would be if we didn't have to implement that `verify` function, of course. Let's modify our `alos-interface.js`:
+
+```javascript
+...
+export class ALOSInterface {
+  ...
+
+  // If even a single segment of the track is bad,
+  // the entire track is bad, so that's fairly easy
+  // to implement:
+  badTrack(polies) {
+    for (geoPoly of polies) {
+      if (this.badSegment(geoPoly)) return true;
+    }
+  }
+
+  // And in order to determine whether a single segment
+  // is bad we apply the same logic: split the poly
+  // into quadrants, as we did for terrain follow, and
+  // if any quadrant is bad, the entire segment is bad:
+  badSegment(geoPoly) {
+    const quadrants = splitAsQuadrants(poly);
+    for (geoPoly of quadrants) {
+      if (!geoPoly.length) continue;
+      const tile = this.getTileFor(...geoPoly[0]);
+      if (!tile) continue;
+      if (tile.badSegment(geoPoly)) return true;
+    }
+  }
+}
+
+...
+
+// We do need to extend our splitting code so that it
+// also includes the altitude value at the split though!
+function splitEdge(a, b, dim, threshold, le, gt) {
+  const r = (threshold - a[dim]) / (b[dim] - a[dim]);
+  // Thankfully, that's just an interpolation, and then
+  // we add it to all the coordinates we generate:
+  const alt = (1 - r) * a[2] + r * b[2];
+  if (dim === 0) {
+    const long = (1 - r) * a[1] + r * b[1];
+    le.push([threshold, long, alt]);
+    gt.push([threshold + cm, long, alt]);
+  } else {
+    const lat = (1 - r) * a[0] + r * b[0];
+    le.push([lat, threshold, alt]);
+    gt.push([lat, threshold + cm, alt]);
+  }
+}
+```
+
+With some new code in `alos-tile.js` as well:
+
+```javascript
+...
+
+export class ALOSTile {
+  ...
+
+  // As for maxElevation, we convert the polygon into
+  // a set of scanlines to check, but instead of tracking
+  // the maximum elevation, we need to check whether any
+  // pixel has an elevation that's higher than it's allowed
+  // to be.
+  badSegment(geoPoly) {
+    const coarse = !!this.coarse;
+    const ref = coarse ? this.coarse : this;
+    const pixelPoly = geoPoly.map((pair) => this.geoToPixel(...pair, coarse));
+    const scanLines = formScanLines(pixelPoly);
+
+    return scanLines.some(([start, end], y) =>{
+      if (start === end) return false;
+      const line = ref.pixels.slice(ref.width * y + start, ref.width * y + end);
+      return line.some((elevation, i) => {
+        if (elevation >= NO_ALOS_DATA_VALUE) return false;
+        let x = i + start;
+        // if elevation > supposed(x, y, minsafety) return true;
+      });
+    });
+  }
+}
+```
+
 
 
 

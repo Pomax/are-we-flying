@@ -21,8 +21,10 @@ import {
   //GLIDE_SLOPE_MAX_VS // feet per minute
 } from "../utils/constants.js";
 
-const GLIDE_SLOPE_DURATION = 3; // minutes
-const GLIDE_SLOPE_MAX_VS = 400; // feet per minute
+// Let's formally declare our distances (in flight minutes)
+const APPROACH_LINE_DURATION = 2;
+const GLIDE_SLOPE_DURATION = 3;
+const SHORT_FINAL_DURATION = 1;
 
 import { watch } from "../utils/reload-watcher.js";
 
@@ -497,15 +499,7 @@ function determineLanding(
   // Then for each of these airports, determine their approach(es) or rule them out.
   shortList.forEach((airport) => {
     airport.runways.forEach((runway) => {
-      calculateRunwayApproaches(
-        lat,
-        long,
-        vs1,
-        climbSpeed,
-        cruiseSpeed,
-        airport,
-        runway
-      );
+      calculateRunwayApproaches(lat, long, climbSpeed, cruiseSpeed, runway);
     });
   });
 
@@ -527,178 +521,97 @@ function determineLanding(
 /**
  * ...
  */
-function calculateRunwayApproaches(
-  lat,
-  long,
-  vs1,
-  climbSpeed,
-  cruiseSpeed,
-  airport,
-  runway
-) {
-  const { start, end } = runway;
+function calculateRunwayApproaches(lat, long, climbSpeed, cruiseSpeed, runway) {
+  const { start: a, end: b } = runway;
+  const glideSpeed = climbSpeed + 20;
 
   runway.approach.forEach((approach, idx) => {
-    const t = [...(idx === 0 ? start : end)]; // where do we touch down?
-    const runwayAlt = t[2];
-    const e = [...(idx === 0 ? end : start)]; // and where does it end?
-    const heading = getHeadingFromTo(e[0], e[1], t[0], t[1]);
+    // Where do we touch down?
+    const start = idx === 0 ? a : b;
 
-    /*
-      We're modelling the approach in stages:
+    // We now know our runway target altitude:
+    const runwayAlt = floor(start[2]);
 
-                                                      _______________
-                                              __,..-'' ╎     ╎     ╎
-                                      __,..-''         ╎     ╎     ╎
-                              __,..-''                 ╎     ╎     ╎
-        ________________,..-''                         ╎     ╎     ╎
-        ─o5────o4─────o3──────────────────────────────o2────o1─────A─
+    // And so we know everything we need for p4:
+    const p4 = [start[0], start[1], runwayAlt + 20];
 
-      In this:
+    // And of course, the runway end, and thus p5:
+    const end = start === a ? b : a;
+    const p5 = [end[0], end[1], runwayAlt];
 
-        A = a waypoint in-line with the approach so that by the time we get to o1, we're flying straight.
-        A--o2 = slow down from cruise to climb speed + 20.
-        o2--o3 = glide to runway + 100.
-        o3--o4 = glide to runway + 20.
-        o4--o5 = touch down on runway.
+    // Next: what's our heading *away from the runway*? Because we're going
+    // to be placing points in the opposite direction of the approach heading.
+    const heading = getHeadingFromTo(end[0], end[1], start[0], start[1]);
 
-      We assign the following properties to each track:
-
-        o1--o2 = ground + 1200, 2 minutes of flight at cruiseSpeed.
-        o2--o3 = ground + 1200 -> runway + 100, 5 minutes of flight at climb speed + 20.
-        o3--o4 = ground alt + 100 -> ground alt + 20, lerp(vs1, 50, 100, 0, 1) km from runway.
-        o4--o5 = alt: ground. dist: however long we need to brake.
-
-      And the following behaviour:
-
-        A  = disable terrain follow.
-        o1 = set ATT to vs1 + 20.
-        o2 = initiate rolling ALT.
-
-          during o2--o3, if we're at "safe to gear" speed, drop gear.
-          during o2--o3, if we're at "safe to work flaps" speed, 1 notch of flaps.
-
-        o3 = initiate slow rolling ALT.
-        o4 = cut the engines (or set in reverse) and start braking.
-        o5 = engines off and abandon the plane on the runway. that's someone else's problem now.
-    */
-
-    // first, let's assume this approach will work.
+    // With all that done, let's first assume this approach will work.
     approach.works = true;
+    // And then let's calculate the distances we talked about:
+    const flightMinute = (v) => (v * KM_PER_NM) / 60;
+    const d12 = APPROACH_LINE_DURATION * flightMinute(cruiseSpeed);
+    const d23 = GLIDE_SLOPE_DURATION * flightMinute(glideSpeed);
+    const d34 = SHORT_FINAL_DURATION * flightMinute(climbSpeed);
 
-    // then let's calculate those distances
-    const minOfFlight = (v) => (v * KM_PER_NM) / 60;
-    const d12 = 2 * minOfFlight(cruiseSpeed);
-    const dA1 = 0.75* minOfFlight(cruiseSpeed);
-    const d23 = GLIDE_SLOPE_DURATION * minOfFlight(climbSpeed + 20);
-    const d34 = minOfFlight(climbSpeed + 20);
+    // And now we can calculate p1, p2, and p3:
+    const getPoint = (distance) =>
+      getPointAtDistance(start[0], start[1], distance, heading);
 
     const d1 = d12 + d23 + d34;
+    const { lat: p1t, long: p1g } = getPoint(d1);
+    const p1 = [p1t, p1g, runwayAlt + 1400];
+
     const d2 = d23 + d34;
+    const { lat: p2t, long: p2g } = getPoint(d2);
+    const p2 = [p2t, p2g, runwayAlt + 1400];
+
     const d3 = d34;
+    const { lat: p3t, long: p3g } = getPoint(d3);
+    const p3 = [p3t, p3g, runwayAlt + 200];
 
-    // console.log({ d1, d2, d3 });
+    // And we're done!
+    const points = [p5, p4, p3, p2, p1];
 
-    // Calculate our A coordinate
+    // Calculate our pA point:
+    const dA1 = 0.75 * d12;
     const dA = d1 + dA1;
-    const { lat: pAt, long: pAg } = getPointAtDistance(t[0], t[1], dA, heading);
-    const pA = [pAt, pAg];
+    const { lat: pAt, long: pAg } = getPoint(dA);
+    const pA = [pAt, pAg, p2[2]];
+    points.push(pA);
 
-    // Is this approach even possible given a standard 3 deg (5.25%) glide slope?
-    // FIXME: TODO: we should validate the entire path, really.
-    const alt23 = runwayAlt + GLIDE_SLOPE_DURATION * GLIDE_SLOPE_MAX_VS;
-    const terrainAlt = alos.lookup(pAt, pAg) * FEET_PER_METER;
-    if (terrainAlt > alt23) {
-      console.log(
-        `glide elevation = ${alt23}, terrain = ${terrainAlt}, so this won't work`
-      );
-      return (approach.works = false);
-    }
-
-    // It might be: let's keep going.
-    const { lat: p1t, long: p1g } = getPointAtDistance(t[0], t[1], d1, heading);
-    const p1 = [p1t, p1g];
-
-    const { lat: p2t, long: p2g } = getPointAtDistance(t[0], t[1], d2, heading);
-    const p2 = [p2t, p2g];
-
-    const { lat: p3t, long: p3g } = getPointAtDistance(t[0], t[1], d3, heading);
-    const p3 = [p3t, p3g];
-
-    const p4 = t;
-    const p5 = e;
-
-    /*
-      Let's also look at the approach from above: if the plane is to the "right" of A (with respect
-      to the approach heading) then we don't need offset points, and the plane can simply target
-      A as a waypoint. If the plane is to the "left" of A, we'll need at least one offset point,
-      either above or below A depending on the position of the plane. If the plane is above the top
-      f1, or below the bottom f1, we don't need additional points, but if the plane is somewhere
-      between f1 and the approach, we need a second offset f2 tho make sure the plane can turn onto
-      the approach correctly.
-
-        ╎                                            (f2?)╸╸╸╸╸╸(f1?)
-        ╎                                                         ╏
-        ╎                                                         ╏
-        o5────o4─────o3──────────────────────────────o2────o1─────A
-        ╎                                                         ╏
-        ╎                                                         ╏
-        ╎                                            (f2?)╸╸╸╸╸╸(f1?)
-    */
-
+    // And then check whether we need offset points:
+    let f1, f2;
     const offsetDistance = dA1;
     const aHeading = getHeadingFromTo(pAt, pAg, lat, long);
     const hDiff = getCompassDiff(heading, aHeading);
-    let f1, f2;
 
-    // Do we need to set up f1?
     if (hDiff < -90 || hDiff > 90) {
+      // set up our first offset
       const sgn = sign(hDiff);
-      const { lat: f1t, long: f1g } = getPointAtDistance(
+      const { lat: f1Lat, long: f1Long } = getPointAtDistance(
         pAt,
         pAg,
         offsetDistance,
         heading + sgn * 90
       );
-      f1 = [f1t, f1g];
-      // Do we also need to set up f2?
-      const p = project(t[1], t[0], e[1], e[0], long, lat);
-      const rd = getDistanceBetweenPoints(lat, long, p.y, p.x);
-      if (abs(rd) < offsetDistance) {
+      f1 = [f1Lat, f1Long, p2[2]];
+      points.push(f1);
+
+      // Do we also need a second offset?
+      const p = project(start[1], start[0], end[1], end[0], long, lat);
+      const distanceToApproach = getDistanceBetweenPoints(lat, long, p.y, p.x);
+      if (abs(distanceToApproach) < offsetDistance) {
         const { lat: f2t, long: f2g } = getPointAtDistance(
-          f1t,
-          f1g,
+          f1Lat,
+          f1Long,
           offsetDistance,
           (heading + 180) % 360
         );
-        f2 = [f2t, f2g];
+        f2 = [f2t, f2g, p2[2]];
+        points.push(f2);
       }
     }
 
-    // Then, set up the altitudes we'd *like* to fly:
-    const approachAlt = ceil(alt23) | 0;
-    if (f2) f2[2] = approachAlt;
-    if (f1) f1[2] = approachAlt;
-    pA[2] = approachAlt;
-    p1[2] = approachAlt;
-    p2[2] = approachAlt;
-    p3[2] = (runwayAlt + 150) | 0;
-    p4[2] = (runwayAlt + 20) | 0;
-    p5[2] = runwayAlt | 0;
-
-    // Then verify that f2--f1, f1--A, and A--p2 have no terrain
-    // in between the points:
-    if (f2 && alos.isObstructed(f1, f2)) return (approach.works = false);
-    if (f1 && alos.isObstructed(f1, pA)) return (approach.works = false);
-    if (alos.isObstructed(pA, p2)) return (approach.works = false);
-    if (alos.isObstructed(p2, p3)) return (approach.works = false);
-
-    // At this point we know the approach is good, and we record
-    // the distance to the reference coordinate so we can find the
-    // closest approach.
-    approach.points = [p5, p4, p3, p2, p1, pA];
-    if (f1) approach.points.push(f1);
-    if (f2) approach.points.push(f2);
+    // What is going to be the distance to this approach?
+    approach.points = points;
     approach.target = f2 ? f2 : f1 ? f1 : pA;
     approach.distance = getDistanceBetweenPoints(
       lat,
@@ -706,6 +619,29 @@ function calculateRunwayApproaches(
       approach.target[0],
       approach.target[1]
     );
+
+    // We're going to do this the simple way: we're simply going to
+    // sample along our path at 100m intervals, and if ALOS says
+    // there's an unsafe elevation at any sample point, the approach
+    // is bad. But we'll ignore the runway and short final. Those
+    // basically *have* to work for a runway to even be a runway.
+    approach.works = (function verifyApproach() {
+      const points = approach.points.slice(2);
+      for (let i = 0, e = points.length - 1; i < e; i++) {
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const h = getHeadingFromTo(p1[0], p1[1], p2[0], p2[1]);
+        const total = getDistanceBetweenPoints(p1[0], p1[1], p2[0], p2[1]);
+        for (let d = 0; d <= total; d += 0.1) {
+          const p = getPointAtDistance(p1[0], p1[1], d, h);
+          const r = d / total;
+          const alt = (1 - r) * p1[2] + r * p2[2];
+          const found = alos.lookup(p.lat, p.long) * FEET_PER_METER;
+          if (found > alt) return false;
+        }
+      }
+      return true;
+    })();
   });
 }
 

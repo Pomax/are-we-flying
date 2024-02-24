@@ -1,11 +1,5 @@
-import {
-  ALTITUDE_HOLD,
-  // GLIDE_SLOPE_MAX_VS
-} from "../utils/constants.js";
-
-const GLIDE_SLOPE_MAX_VS = 400; // feet per minute
-
-import { constrain, constrainMap, exceeds, lerp } from "../utils/utils.js";
+import { ALTITUDE_HOLD } from "../utils/constants.js";
+import { constrain, constrainMap, exceeds } from "../utils/utils.js";
 const { abs, sign } = Math;
 
 // Our default vertical speed target, if we want to hold our current
@@ -41,7 +35,7 @@ const FEATURES = {
 export async function altitudeHold(autopilot, flightInformation) {
   // Each plane has different min/max pitch trim values, so
   // let's find out what our current plane's values are:
-  const { api, trim, waypoints } = autopilot;
+  const { api, trim } = autopilot;
   const { data: flightData, model: flightModel } = flightInformation;
 
   // What are our vertical speed values?
@@ -61,7 +55,7 @@ export async function altitudeHold(autopilot, flightInformation) {
 
   // And what should those parameters be instead, if we want to
   // maintain our specific altitude?
-  const maxVS = waypoints.isLanding() ? 400 : DEFAULT_MAX_VS;
+  const maxVS = DEFAULT_MAX_VS;
   const { targetVS, targetAlt, altDiff } = getTargetVS(
     autopilot,
     maxVS,
@@ -126,7 +120,7 @@ export async function altitudeHold(autopilot, flightInformation) {
     }
   }
 
-  trim.pitch = lerp(0.5, trim.pitch, trim.pitch + update);
+  trim.pitch += update;
   api.set(`ELEVATOR_TRIM_POSITION`, trim.pitch);
 }
 
@@ -137,9 +131,6 @@ export async function altitudeHold(autopilot, flightInformation) {
 // discover that you can't really "hold an altitude" if you don't
 // actually write down what altitude you should be holding =)
 function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed) {
-  const { waypoints, modes } = autopilot;
-  const landing = waypoints.isLanding();
-
   let targetVS = DEFAULT_TARGET_VS;
   let targetAlt = undefined;
   let altDiff = undefined;
@@ -154,18 +145,6 @@ function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed) {
       // And then if we're above that altitude, set a target VS that's negative,
       // and if we're below that altitude, set a target VS that's positive:
       altDiff = targetAlt - alt;
-
-      // Special code for auto-landing:
-      if (landing) {
-        const g = GLIDE_SLOPE_MAX_VS;
-        const a = g / 2;
-        return {
-          targetVS: constrainMap(altDiff, -a, a, -g, g),
-          targetAlt: modes[ALTITUDE_HOLD],
-          altDiff,
-        };
-      }
-
       targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
     }
   }

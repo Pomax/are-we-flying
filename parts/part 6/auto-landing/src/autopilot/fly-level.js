@@ -95,12 +95,15 @@ export async function flyLevel(autopilot, state) {
 function getTargetHeading(parameters) {
   const { autopilot, heading, flightHeading, speed, vs1, cruiseSpeed } =
     parameters;
+  const { waypoints } = autopilot;
+
   // console.log({ heading, flightHeading });
-  let targetHeading = flightHeading;
+
+  let targetHeading = waypoints.isLanding ? flightHeading : heading;
   let uncappedHeadingDiff = 0;
   if (FEATURES.FLY_SPECIFIC_HEADING) {
-    targetHeading = autopilot.waypoints.getHeading(parameters);
-    uncappedHeadingDiff = getCompassDiff(flightHeading, targetHeading);
+    targetHeading = waypoints.getHeading(parameters);
+    uncappedHeadingDiff = getCompassDiff(heading, targetHeading);
     const half = uncappedHeadingDiff / 2;
     uncappedHeadingDiff = constrainMap(
       speed,

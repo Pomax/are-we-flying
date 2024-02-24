@@ -70,6 +70,7 @@ export class WayPointManager {
     // We're only "landing" if we've started on the glide slope.
     let left = 0;
     let p = this.currentWaypoint || this.points.at(-1);
+    if (!p) return false;
     const { landing } = p;
     while (p) {
       left++;
