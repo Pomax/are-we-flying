@@ -191,7 +191,10 @@ export class AutoLanding {
       const d2 = getDistanceBetweenPoints(p2.lat, p2.long, p3.lat, p3.long);
       const ratio = constrain(d1 / d2, 0, 1);
       const lerpAlt = constrainMap(ratio, 0, 1, p2.alt, p3.alt);
-      autopilot.setParameters({ [ALTITUDE_HOLD]: lerpAlt });
+      autopilot.setParameters({
+        [ALTITUDE_HOLD]: lerpAlt,
+        [AUTO_THROTTLE]: glideSpeed,
+      });
 
       // While we're on the glide slope, we need to do some prep work
       // in the form of lowering our landing gear and adding a touch
@@ -220,7 +223,10 @@ export class AutoLanding {
       const ratio = constrain(d1 / d2, 0, 1);
       const lerpAlt = constrainMap(ratio, 0, 1, p4.alt, p3.alt);
 
-      autopilot.setParameters({ [ALTITUDE_HOLD]: lerpAlt });
+      autopilot.setParameters({
+        [ALTITUDE_HOLD]: lerpAlt,
+        [AUTO_THROTTLE]: glideSpeed,
+      });
 
       const d5 = getDistanceBetweenPoints(lat, long, p5.lat, p5.long);
       const d45 = getDistanceBetweenPoints(p4.lat, p4.long, p5.lat, p5.long);
@@ -281,6 +287,8 @@ export class AutoLanding {
 
     if (step === ROLL_AND_BRAKE) {
       console.log(step);
+
+      autopilot.setParameters({ [LEVEL_FLIGHT]: !onGround });
 
       // Still try to keep the plane pitched up.
       setPitch(api, -2.5, flightInformation);
@@ -574,15 +582,15 @@ function setPitch(api, targetPitch, { model: flightModel, data: flightData }) {
   let correction = constrainMap(diff, -5, 5, -maxValue, maxValue);
   let next = elevator + correction;
 
-  console.log(`pitch check:`, {
-    pitch,
-    dPitch,
-    targetPitch,
-    diff,
-    elevator,
-    correction,
-    next,
-  });
+  // console.log(`pitch check:`, {
+  //   pitch,
+  //   dPitch,
+  //   targetPitch,
+  //   diff,
+  //   elevator,
+  //   correction,
+  //   next,
+  // });
 
   api.trigger(`ELEVATOR_SET`, next | 0);
 }

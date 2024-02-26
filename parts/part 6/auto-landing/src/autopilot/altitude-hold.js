@@ -36,12 +36,14 @@ export async function altitudeHold(autopilot, flightInformation) {
   // Each plane has different min/max pitch trim values, so
   // let's find out what our current plane's values are:
   const { api, trim, AP_INTERVAL, waypoints } = autopilot;
+  const landing = waypoints.isLanding();
+
   const { data: flightData, model: flightModel } = flightInformation;
 
   // What are our vertical speed values?
-  const { VS, alt, pitch, speed, bank, upsideDown } = flightData;
-  const { VS: dVS, pitch: dPitch } = flightData.d ?? { VS: 0, pitch: 0 };
-  const { pitchTrimLimit, climbSpeed, cruiseSpeed, isStubborn } = flightModel;
+  const { VS, alt, speed, upsideDown } = flightData;
+  const { VS: dVS } = flightData.d ?? { VS: 0 };
+  const { pitchTrimLimit, climbSpeed, isStubborn } = flightModel;
 
   // How big should our trim steps be?
   let trimLimit = pitchTrimLimit[0];
@@ -101,13 +103,13 @@ export async function altitudeHold(autopilot, flightInformation) {
   // means we're pitching down (the same goes for dPitch).
   if (FEATURES.EMERGENCY_PROTECTION) {
     // Do we need to intervene?
-    const landing = waypoints.isLanding();
-    const thresholdVS = landing ? DEFAULT_MAX_VS / 2 : DEFAULT_MAX_VS;
+    const thresholdVS1 = landing ? 0.75 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
+    const thresholdVS2 = landing ? 0.5 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
     // If we're landing, and our altitude is higher than our target,
     // absolutely do not allow a positive VS. We want to go down, not up.
     const landingViolation = landing && alt > targetAlt && VS > 0;
     const VS_EMERGENCY =
-      VS < -thresholdVS || VS > thresholdVS || landingViolation;
+      VS < -thresholdVS1 || VS > thresholdVS2 || landingViolation;
     const thresholdDvs = landing ? DEFAULT_MAX_dVS / 2 : DEFAULT_MAX_dVS;
     const DVS_EMERGENCY = dVS < -thresholdDvs || dVS > thresholdDvs;
 
@@ -122,11 +124,10 @@ export async function altitudeHold(autopilot, flightInformation) {
 
     // Are we exceeding our "permissible" vertical speed?
     if (VS_EMERGENCY) {
-      console.log(`VS emergency! (${VS}/${thresholdVS})`);
+      console.log(`VS emergency! (${VS}/${thresholdVS1}/${thresholdVS2})`);
       if (landingViolation) {
-        // immediately trip down if we're ascending during landing
-        console.log(`get the fuck down you piece of shit`);
-        update +=  -fStep/2;
+        // immediately trim down if we're ascending during landing
+        update += -fStep / 2;
       } else {
         update += constrainMap(VS, -fMaxVS, fMaxVS, fStep, -fStep);
       }
@@ -166,7 +167,7 @@ function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, VS, dVS) {
       // And then if we're above that altitude, set a target VS that's negative,
       // and if we're below that altitude, set a target VS that's positive:
       altDiff = targetAlt - alt;
-      if (landing) maxVS /= 2;
+      if (landing) maxVS *= 0.75;
       targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
     }
   }

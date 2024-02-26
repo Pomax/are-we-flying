@@ -12,6 +12,7 @@ const FEATURES = {
 
 export async function flyLevel(autopilot, state) {
   const { trim, api, waypoints } = autopilot;
+  const landing = waypoints.isLanding();
   const { data: flightData, model: flightModel } = state;
 
   const { weight, wingArea, isAcrobatic } = flightModel;
@@ -78,6 +79,9 @@ export async function flyLevel(autopilot, state) {
     }
   }
 
+  // If we're landing, try to force ourselves onto our center line.
+  if (landing) offset -= headingDiff * 150;
+
   // Use linear feedback, except when we're flying almost straight,
   // in which case we want to boost the handling so that we get
   // back on our "intended line" faster than if we were to just
@@ -113,22 +117,28 @@ function getTargetHeading(parameters) {
   const { autopilot, heading, flightHeading, speed, vs1, cruiseSpeed } =
     parameters;
   const { waypoints } = autopilot;
+  const landing = waypoints.isLanding();
 
   // console.log({ heading, flightHeading });
 
-  let targetHeading = waypoints.isLanding ? flightHeading : heading;
+  let targetHeading = heading;
   let uncappedHeadingDiff = 0;
   if (FEATURES.FLY_SPECIFIC_HEADING) {
     targetHeading = waypoints.getHeading(parameters);
-    uncappedHeadingDiff = getCompassDiff(heading, targetHeading);
-    const half = uncappedHeadingDiff / 2;
-    uncappedHeadingDiff = constrainMap(
-      speed,
-      vs1,
-      cruiseSpeed,
-      half,
-      uncappedHeadingDiff
+    uncappedHeadingDiff = getCompassDiff(
+      landing ? flightHeading : heading,
+      targetHeading
     );
+    if (!landing) {
+      const half = uncappedHeadingDiff / 2;
+      uncappedHeadingDiff = constrainMap(
+        speed,
+        vs1,
+        cruiseSpeed,
+        half,
+        uncappedHeadingDiff
+      );
+    }
   }
   // Make sure that our heading difference is never reported as more than
   // 30 degrees, even if it *is* more, so we don't yank the yoke.

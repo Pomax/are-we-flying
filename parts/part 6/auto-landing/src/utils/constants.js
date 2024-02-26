@@ -19,7 +19,6 @@ export const KNOTS_IN_KM_PER_MINUTE = 0.0308667;
 export const AUTOPILOT_INTERVAL = 500;
 export const FAST_AUTOPILOT_INTERVAL = 100;
 
-
 // flight modes
 export const LEVEL_FLIGHT = `LVL`;
 export const ALTITUDE_HOLD = `ALT`;
