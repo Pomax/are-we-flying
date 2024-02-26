@@ -5,15 +5,17 @@ import { constrainMap, runLater } from "../utils/utils.js";
 // Import our new constants
 import {
   ALTITUDE_HOLD,
-  AUTO_THROTTLE,
-  HEADING_MODE,
-  LEVEL_FLIGHT,
-  HEADING_TARGETS,
-  TERRAIN_FOLLOW,
-  TERRAIN_FOLLOW_DATA,
-  AUTO_TAKEOFF,
-  AUTO_LANDING,
   AUTO_LANDING_DATA,
+  AUTO_LANDING,
+  AUTO_TAKEOFF,
+  AUTO_THROTTLE,
+  AUTOPILOT_INTERVAL,
+  FAST_AUTOPILOT_INTERVAL,
+  HEADING_MODE,
+  HEADING_TARGETS,
+  LEVEL_FLIGHT,
+  TERRAIN_FOLLOW_DATA,
+  TERRAIN_FOLLOW,
 } from "../utils/constants.js";
 
 let { flyLevel } = await watch(
@@ -55,9 +57,6 @@ let { AutoTakeoff } = await watch(dirname, `auto-takeoff.js`, (lib) => {
 });
 
 let { AutoLanding } = await watch(dirname, `auto-landing.js`);
-
-const AUTOPILOT_INTERVAL = 500;
-const FAST_AUTOPILOT_INTERVAL = 100;
 
 export class AutoPilot {
   constructor(api, onChange = () => {}) {
@@ -304,11 +303,7 @@ export class AutoPilot {
 
     this.flightInfoUpdateHandler(await flightInformation.update());
 
-    // console.log({
-    //   landing: waypoint?.landing,
-    //   autolanding: !this.autoLanding.done,
-    //   run: waypoint?.landing || (this.autoLanding && !this.autoLanding.done),
-    // });
+    if (flightInformation.data.slewMode) return;
 
     try {
       if (modes[LEVEL_FLIGHT]) await flyLevel(this, flightInformation);
@@ -321,7 +316,12 @@ export class AutoPilot {
         waypoint?.landing ||
         (this.autoLanding && !this.autoLanding.done)
       ) {
-        await this.autoLanding.run(flightInformation);
+        // While the landing can be done at the regular interval, once we're
+        // in the short final,
+        const shortFinal = await this.autoLanding.run(flightInformation);
+        this.AP_INTERVAL = shortFinal
+          ? FAST_AUTOPILOT_INTERVAL
+          : AUTOPILOT_INTERVAL;
       }
     } catch (e) {
       console.warn(e);

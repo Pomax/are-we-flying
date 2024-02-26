@@ -42,6 +42,7 @@ export class WayPointManager {
     this.points = [];
     this.currentWaypoint = undefined;
     this.landing = false;
+    this.glideReached = false;
     this.repeating = false;
     this.autopilot.onChange();
   }
@@ -57,6 +58,10 @@ export class WayPointManager {
 
   setLanding({ airport, runway, approach }) {
     this.landing = { airport, runway, approach };
+    this.landingPoints = this.points
+      .slice()
+      .filter((p) => p.landing)
+      .reverse();
   }
 
   getLanding() {
@@ -66,17 +71,12 @@ export class WayPointManager {
     return { airport, runway, approach };
   }
 
+  getLandingPoints() {
+    return this.landingPoints;
+  }
+
   isLanding() {
-    // We're only "landing" if we've started on the glide slope.
-    let left = 0;
-    let p = this.currentWaypoint || this.points.at(-1);
-    if (!p) return false;
-    const { landing } = p;
-    while (p) {
-      left++;
-      p = p.next;
-    }
-    return left > 0 && left <= 5 && landing;
+    return this.glideReached;
   }
 
   goAround() {
@@ -235,6 +235,7 @@ export class WayPointManager {
    * and mark the first point as our active point.
    */
   resetWaypoints() {
+    this.glideReached = false;
     this.points.forEach((waypoint) => waypoint.reset());
     this.currentWaypoint = this.points[0];
     this.currentWaypoint?.activate();
@@ -448,11 +449,19 @@ export class WayPointManager {
    * do the thing.
    */
   transition() {
-    const { points } = this;
-    this.currentWaypoint.deactivate();
-    this.currentWaypoint = this.currentWaypoint.complete();
-    if (this.currentWaypoint === points[0]) this.resetWaypoints();
-    this.currentWaypoint?.activate();
+    const { points, currentWaypoint } = this;
+    currentWaypoint.deactivate();
+    const p = (this.currentWaypoint = currentWaypoint.complete());
+    if (p) {
+      if (p === points[0]) this.resetWaypoints();
+      p.activate();
+      // If we're in the final landing portion of our flight
+      // plan, have we reached the glide slope yet?
+      if (p.landing) {
+        const pos = points.indexOf(p);
+        this.glideReached = points.length - pos <= 4;
+      }
+    }
     return true;
   }
 

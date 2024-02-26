@@ -30,6 +30,6 @@ Alternatively, do we want to compute strips along a waypoint so we're working wi
 backport and document: ENV_PATH in constants.js
 
 - add ALOS tile explorer to the ALOS server so we can check elevations graphically?
-- fly level requires "actual flight heading", not "airplane heading". We need to know our actual GPS track heading.
-- MUCH TIGHTER VS CONTROL DURING LANDING OMGWTF
 - Tighten up the altitude hold, not super happy with how slow it is in setting trim.
+- waypoints: add points by clicking on a path
+- set the plane's "radius" in the flight data object, so that it's just a flight property

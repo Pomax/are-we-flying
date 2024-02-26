@@ -1,4 +1,4 @@
-import { ALTITUDE_HOLD } from "../utils/constants.js";
+import { AUTOPILOT_INTERVAL } from "../utils/constants.js";
 import { constrain, constrainMap, exceeds } from "../utils/utils.js";
 const { abs, sign } = Math;
 
@@ -35,7 +35,7 @@ const FEATURES = {
 export async function altitudeHold(autopilot, flightInformation) {
   // Each plane has different min/max pitch trim values, so
   // let's find out what our current plane's values are:
-  const { api, trim } = autopilot;
+  const { api, trim, AP_INTERVAL, waypoints } = autopilot;
   const { data: flightData, model: flightModel } = flightInformation;
 
   // What are our vertical speed values?
@@ -61,7 +61,9 @@ export async function altitudeHold(autopilot, flightInformation) {
     maxVS,
     alt,
     speed,
-    climbSpeed
+    climbSpeed,
+    VS,
+    dVS
   );
   const diff = targetVS - VS;
 
@@ -90,17 +92,28 @@ export async function altitudeHold(autopilot, flightInformation) {
     if (aDiff < 20) update /= 2;
   }
 
+  // Correct for our update so that we're applying
+  // a "partial" update if we're running faster than baseline.
+  update *= AP_INTERVAL / AUTOPILOT_INTERVAL;
+
   // Emergency override for when we're violently pitching.
   // Negative pitch means we're pitching up, positive pitch
   // means we're pitching down (the same goes for dPitch).
   if (FEATURES.EMERGENCY_PROTECTION) {
-    // Do we need to intervene? If so, throw away the update we just computed.
-    const VS_EMERGENCY = VS < -DEFAULT_MAX_VS || VS > DEFAULT_MAX_VS;
-    const DVS_EMERGENCY = dVS < -DEFAULT_MAX_dVS || dVS > DEFAULT_MAX_dVS;
+    // Do we need to intervene?
+    const landing = waypoints.isLanding();
+    const thresholdVS = landing ? DEFAULT_MAX_VS / 2 : DEFAULT_MAX_VS;
+    // If we're landing, and our altitude is higher than our target,
+    // absolutely do not allow a positive VS. We want to go down, not up.
+    const landingViolation = landing && alt > targetAlt && VS > 0;
+    const VS_EMERGENCY =
+      VS < -thresholdVS || VS > thresholdVS || landingViolation;
+    const thresholdDvs = landing ? DEFAULT_MAX_dVS / 2 : DEFAULT_MAX_dVS;
+    const DVS_EMERGENCY = dVS < -thresholdDvs || dVS > thresholdDvs;
 
-    if (VS_EMERGENCY || DVS_EMERGENCY) {
-      update = 0;
-    }
+    // If so, throw away the update we just computed, so
+    // we can put in a recovery update instead.
+    if (VS_EMERGENCY || DVS_EMERGENCY) update = 0;
 
     const f = 4;
     const fMaxVS = f * maxVS;
@@ -109,13 +122,19 @@ export async function altitudeHold(autopilot, flightInformation) {
 
     // Are we exceeding our "permissible" vertical speed?
     if (VS_EMERGENCY) {
-      console.log(`VS emergency! (${VS}/${maxVS})`);
-      update += constrainMap(VS, -fMaxVS, fMaxVS, fStep, -fStep);
+      console.log(`VS emergency! (${VS}/${thresholdVS})`);
+      if (landingViolation) {
+        // immediately trip down if we're ascending during landing
+        console.log(`get the fuck down you piece of shit`);
+        update +=  -fStep/2;
+      } else {
+        update += constrainMap(VS, -fMaxVS, fMaxVS, fStep, -fStep);
+      }
     }
 
     // What about the rate of change of our vertical speed?
     if (DVS_EMERGENCY) {
-      console.log(`VS delta emergency! (${dVS}/${maxdVS})`);
+      console.log(`VS delta emergency! (${dVS}/${thresholdDvs})`);
       update += constrainMap(dVS, -fMaxdVS, fMaxdVS, fStep, -fStep);
     }
   }
@@ -130,7 +149,9 @@ export async function altitudeHold(autopilot, flightInformation) {
 // change almost immediate after we test this code, because we'll
 // discover that you can't really "hold an altitude" if you don't
 // actually write down what altitude you should be holding =)
-function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed) {
+function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, VS, dVS) {
+  const { waypoints } = autopilot;
+  const landing = waypoints.isLanding();
   let targetVS = DEFAULT_TARGET_VS;
   let targetAlt = undefined;
   let altDiff = undefined;
@@ -138,13 +159,14 @@ function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed) {
   // Next feature!
   if (FEATURES.TARGET_TO_HOLD) {
     // Get our hold-altitude from our autopilot mode:
-    targetAlt = autopilot.waypoints.getAltitude(autopilot);
+    targetAlt = waypoints.getAltitude(autopilot);
     const plateau = 200;
 
     if (targetAlt) {
       // And then if we're above that altitude, set a target VS that's negative,
       // and if we're below that altitude, set a target VS that's positive:
       altDiff = targetAlt - alt;
+      if (landing) maxVS /= 2;
       targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
     }
   }

@@ -1,4 +1,9 @@
-import { constrain, constrainMap, getCompassDiff } from "../utils/utils.js";
+import {
+  constrain,
+  constrainMap,
+  getCompassDiff,
+  lerp,
+} from "../utils/utils.js";
 
 const { abs, sign } = Math;
 const FEATURES = {
@@ -33,19 +38,22 @@ export async function flyLevel(autopilot, state) {
 
   // Bump up the max stick value if we're not turning fast enough.
   if (aHeadingDiff > 1) {
-    const threshold = constrainMap(aTurnDiff, 0, 3, 0, 1);
+    const threshold = constrainMap(aTurnDiff, 0, 6, 0, 2);
     const regularTurn = aTurnRate < threshold;
     const hardTurn = aHeadingDiff > 30 && aTurnRate < 2.5;
     const wrongWay = sign(turnRate) !== sign(headingDiff);
     if (regularTurn || hardTurn || wrongWay) {
-      const howMuch = isAcrobatic ? 10 : 50;
-      updateMaxDeflection(autopilot, trim, howMuch, params);
+      updateMaxDeflection(
+        autopilot,
+        trim,
+        isAcrobatic ? 10 : regularTurn ? 20 : 50,
+        params
+      );
     }
   }
-  // Otherwise just ease it back down, with a special affordance for the Top Rudder:
-  else {
-    updateMaxDeflection(autopilot, trim, -50, params);
-  }
+  // while at the same time always decreasing the max deflection
+  // by a tiny amount every tick.
+  updateMaxDeflection(autopilot, trim, -10, params);
 
   // Are we flying upside down?
   let offset = 0;
@@ -70,9 +78,17 @@ export async function flyLevel(autopilot, state) {
     }
   }
 
+  // Use linear feedback, except when we're flying almost straight,
+  // in which case we want to boost the handling so that we get
+  // back on our "intended line" faster than if we were to just
+  // slowly creep back towards it. We do this by raising our proportion
+  // value, which will be in [-1, 1], by some power lower than 1
+  // (which boosts the curve centered on zero) based on the difference
+  // in intended heading and current plane heading
   let maxStick = -trim.roll;
   let proportion = constrainMap(turnDiff, -3, 3, -1, 1);
-  proportion = sign(proportion) * abs(proportion) ** 0.5;
+  const power = constrain(aHeadingDiff, 0.3, 1);
+  proportion = sign(proportion) * abs(proportion) ** power;
 
   // Are we turning out of control?
   const emergency = abs(dHeading) > 10 && sign(dHeading) === sign(headingDiff);
@@ -87,8 +103,9 @@ export async function flyLevel(autopilot, state) {
   const diff = constrain(newAileron - oldAileron, -1000, 1000);
 
   // FIXME: TODO: this feels super weird in-game, it's a constant left-and-right
-  let setValue = oldAileron + diff;
-  api.trigger("AILERON_SET", setValue | 0);
+  const setValue = oldAileron + diff;
+  const newValue = lerp(0.25, oldAileron, setValue);
+  api.trigger("AILERON_SET", newValue | 0);
 }
 
 // And our updated heading function
@@ -115,7 +132,7 @@ function getTargetHeading(parameters) {
   }
   // Make sure that our heading difference is never reported as more than
   // 30 degrees, even if it *is* more, so we don't yank the yoke.
-  const headingDiff = constrain(uncappedHeadingDiff, -30, 30);
+  const headingDiff = constrain(uncappedHeadingDiff, -60, 60);
   return { targetHeading, headingDiff, uncappedHeadingDiff };
 }
 
@@ -127,13 +144,9 @@ function updateMaxDeflection(
   byHowMuch,
   { isTwitchy, weight, aHeadingDiff, lat, long }
 ) {
-  const { waypoints, autoLanding } = autopilot;
   let { roll: value } = trim;
   const order = constrainMap(aHeadingDiff, 0, 10, 12, 13);
-  const landing = waypoints.isLanding();
-  let maxValue = landing
-    ? autoLanding.getMaxDeflection(aHeadingDiff, lat, long)
-    : 2 ** (isTwitchy ? order - 1 : order);
+  let maxValue = 2 ** (isTwitchy ? order - 1 : order);
   // literally ultra light?
   if (weight < 1000) maxValue = 1000;
   value = constrain(value + byHowMuch, 300, maxValue) | 0;

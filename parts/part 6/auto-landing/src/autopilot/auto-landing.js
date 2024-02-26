@@ -1,103 +1,43 @@
 import {
-  getHeadingFromTo,
-  getDistanceBetweenPoints,
-  getPointAtDistance,
-  getCompassDiff,
-  constrainMap,
-  project,
-  map,
   constrain,
+  constrainMap,
+  getCompassDiff,
+  getDistanceBetweenPoints,
+  getHeadingFromTo,
+  getPointAtDistance,
+  map,
+  project,
 } from "../utils/utils.js";
+
 import {
-  FEET_PER_METER,
-  KM_PER_NM,
-  ENV_PATH,
-  AUTO_THROTTLE,
   ALTITUDE_HOLD,
-  TERRAIN_FOLLOW,
-  LEVEL_FLIGHT,
+  APPROACH_LINE_DURATION,
+  AUTO_LANDING,
+  AUTO_THROTTLE,
+  CUT_THE_ENGINES,
+  END_OF_LANDING,
+  FEET_PER_METER,
+  FLY_THE_GLIDE_SLOPE,
+  GET_ONTO_THE_APPROACH,
+  GLIDE_SLOPE_DURATION,
   HEADING_MODE,
-  //GLIDE_SLOPE_DURATION, // minutes
-  //GLIDE_SLOPE_MAX_VS // feet per minute
+  KM_PER_NM,
+  LAND_ON_THE_RUNWAY,
+  LANDING_STEPS,
+  LEVEL_FLIGHT,
+  RIDE_OUT_SHORT_FINAL,
+  ROLL_AND_BRAKE,
+  SHORT_FINAL_DURATION,
+  TERRAIN_FOLLOW,
+  THROTTLE_TO_GLIDE_SPEED,
 } from "../utils/constants.js";
 
-// Let's formally declare our distances (in flight minutes)
-const APPROACH_LINE_DURATION = 2;
-const GLIDE_SLOPE_DURATION = 3;
-const SHORT_FINAL_DURATION = 1;
-
-import { watch } from "../utils/reload-watcher.js";
-
-import dotenv from "dotenv";
-dotenv.config({ path: ENV_PATH });
-const { DATA_FOLDER } = process.env;
-
-const __dirname = import.meta.dirname;
-let alos;
-let { ALOSInterface } = await watch(
-  __dirname,
-  `../elevation/alos-interface.js`,
-  (lib) => {
-    ALOSInterface = lib.ALOSInterface;
-    if (alos) {
-      Object.setPrototypeOf(alos, ALOSInterface.prototype);
-    }
-  }
-);
-alos = new ALOSInterface(DATA_FOLDER);
-
+import { alos } from "../elevation/alos-instance.js";
 import { loadAirportDB } from "msfs-simconnect-api-wrapper";
 const airports = loadAirportDB();
 
-const { abs, sign, tan, min, max, floor, ceil } = Math;
-let prev_hDiff = 0;
-
-const GETTING_ONTO_APPROACH = `GETTING_ONTO_APPROACH`;
-const THROTTLE_TO_CLIMB_SPEED = `THROTTLE_TO_CLIMB_SPEED`;
-const FLYING_THE_GLIDE_SLOPE = `FLYING_THE_GLIDE_SLOPE`;
-const RIDE_OUT_SHORT_FINAL = `RIDE_OUT_SHORT_FINAL`;
-const CUT_THE_ENGINES = `CUT_THE_ENGINES`;
-const LANDING_ON_RUNWAY = `LANDING_ON_RUNWAY`;
-const ROLLING_AND_BRAKING = `ROLLING_AND_BRAKING`;
-const END_OF_LANDING = `END_OF_LANDING`;
-
-const LANDING_STEPS = [
-  GETTING_ONTO_APPROACH,
-  THROTTLE_TO_CLIMB_SPEED,
-  FLYING_THE_GLIDE_SLOPE,
-  RIDE_OUT_SHORT_FINAL,
-  CUT_THE_ENGINES,
-  LANDING_ON_RUNWAY,
-  ROLLING_AND_BRAKING,
-  END_OF_LANDING,
-];
-
-/**
- * We'll define a simple sequencer that we can use
- * to step through the various stages of our landing.
- */
-class Sequence {
-  constructor(api) {
-    this.api = api;
-    this.reset();
-  }
-  reset(steps = LANDING_STEPS) {
-    this.steps = steps.slice();
-    this.nextStage();
-  }
-  nextStage() {
-    this.step = this.steps.shift();
-    return this.step;
-  }
-  setStage(step) {
-    const { steps } = this;
-    if (steps.includes(step)) {
-      this.step = step;
-      while (steps[0] !== step) steps.shift();
-      return true;
-    }
-  }
-}
+const { abs, sign, min, floor } = Math;
+import { Sequence } from "../utils/sequence.js";
 
 /**
  * And our autolanding class.
@@ -114,9 +54,9 @@ export class AutoLanding {
    */
   reset(autopilot, lat, long, flightModel) {
     console.log(`resetting autolanding`);
-    prev_hDiff = 0;
+    this.autoRudderPrevHDiff = 0;
     this.done = false;
-    this.stage = new Sequence(autopilot);
+    this.stage = new Sequence(autopilot, LANDING_STEPS);
     this.target = false;
 
     // Do we already have a landing mapped?
@@ -155,7 +95,7 @@ export class AutoLanding {
    * meters away, allow for a generous amount of aileron to get us back.
    */
   getMaxDeflection(aHeadingDiff, lat, long) {
-    return constrainMap(aHeadingDiff, 0, 1, 2000, 6000);
+    return;
   }
 
   /**
@@ -171,33 +111,40 @@ export class AutoLanding {
     const { hasRetractibleGear, isTailDragger, engineCount, climbSpeed, vs0 } =
       flightModel;
 
+    const glideSpeed = climbSpeed + 20;
+
     const { bank, gearSpeedExceeded, isGearDown, lat, long, onGround, speed } =
       flightData;
 
-    const { approachData, autopilot, stage } = this;
-    const { points } = approachData.approach;
-    const [p5, p4, p3, p2, p1, pA, f1, f2] = points;
+    const { autopilot, stage } = this;
     const { api, waypoints } = autopilot;
+    const points = waypoints.getLandingPoints();
+    const [p5, p4, p3, p2, p1, pA, f1, f2] = points;
     let { currentWaypoint: target } = waypoints;
     this.target = target;
     const { step } = stage;
 
     if (!target) {
       target = p5;
-    } else if (!points.includes(target)) return;
+    } else if (!target.landing) return;
 
-    // console.log(`target = ${target.id}`);
+    // console.log(
+    //   target.id,
+    //   target === p1,
+    //   target === p2,
+    //   target === p3,
+    //   target === p4,
+    //   target === p5
+    // );
 
-    if (step === GETTING_ONTO_APPROACH) {
+    if (step === GET_ONTO_THE_APPROACH) {
       console.log(step, target.id, pA.id, p1.id);
-
-      const onTerrainFollow = !!autopilot.modes[TERRAIN_FOLLOW];
 
       if (f2 && target === f2) {
         const d = getDistanceBetweenPoints(lat, long, f2.lat, f2.long);
         if (d > 5) return;
         autopilot.setParameters({
-          [TERRAIN_FOLLOW]: d > 1 && onTerrainFollow,
+          [TERRAIN_FOLLOW]: false,
           [ALTITUDE_HOLD]: p2.alt,
         });
       }
@@ -206,45 +153,50 @@ export class AutoLanding {
         const d = getDistanceBetweenPoints(lat, long, f1.lat, f1.long);
         if (d > 5) return;
         autopilot.setParameters({
-          [TERRAIN_FOLLOW]: d > 1 && onTerrainFollow,
+          [TERRAIN_FOLLOW]: false,
           [ALTITUDE_HOLD]: p2.alt,
         });
       }
 
-      if (target === pA || target === p1) {
+      if (target === p1) {
         console.log(`approach reached`);
         autopilot.setParameters({
-          [ALTITUDE_HOLD]: p2.alt,
-          [AUTO_THROTTLE]: climbSpeed + 20,
           [TERRAIN_FOLLOW]: false,
+          [ALTITUDE_HOLD]: p2.alt,
+          [AUTO_THROTTLE]: glideSpeed,
         });
         stage.nextStage();
       }
     }
 
-    if (step === THROTTLE_TO_CLIMB_SPEED) {
-      console.log(step, target.id, p2.id);
+    if (step === THROTTLE_TO_GLIDE_SPEED) {
+      console.log(step, target.id, p2.id, glideSpeed);
 
       if (target === p2) {
         console.log(`glide slope reached`);
-        autopilot.setParameters({ [ALTITUDE_HOLD]: p3.alt });
+        // Really the only meaningful thing we do is turning on our landing lights:
         api.trigger(`LANDING_LIGHTS_ON`);
+        // And then it's on to the next stage.
         stage.nextStage();
       }
     }
 
-    if (step === FLYING_THE_GLIDE_SLOPE) {
-      console.log(step, target.id, p4.id);
-      // Ease the plane down the glide slope
-      const d1 = getDistanceBetweenPoints(lat, long, p3.lat, p3.long);
+    if (step === FLY_THE_GLIDE_SLOPE) {
+      console.log(step, target.id, p4.id, glideSpeed);
+      // In order to descend along the glide slope, we calculate how far
+      // along we are as a ratio of the distance we need to cover, and
+      // then use that to determine the altitude we "should" be flying
+      // at that point:
+      const d1 = getDistanceBetweenPoints(lat, long, p2.lat, p2.long);
       const d2 = getDistanceBetweenPoints(p2.lat, p2.long, p3.lat, p3.long);
-      const lerpAlt = constrainMap(d1 / d2, 0, 1, p3.alt, p2.alt);
-      autopilot.setParameters({
-        [ALTITUDE_HOLD]: lerpAlt,
-      });
+      const ratio = constrain(d1 / d2, 0, 1);
+      const lerpAlt = constrainMap(ratio, 0, 1, p2.alt, p3.alt);
+      autopilot.setParameters({ [ALTITUDE_HOLD]: lerpAlt });
 
-      // Drop gears when it's safe to do so
-      if (d1 / d2 < 0.5 && abs(bank) < 3) {
+      // While we're on the glide slope, we need to do some prep work
+      // in the form of lowering our landing gear and adding a touch
+      // of flaps when it's safe to do so.
+      if (ratio > 0.5 && abs(bank) < 3) {
         if (hasRetractibleGear && !gearSpeedExceeded && !isGearDown) {
           console.log(`gear down`);
           api.trigger(`GEAR_DOWN`);
@@ -253,12 +205,9 @@ export class AutoLanding {
         }
       }
 
-      // And transition to short final when we're close enough
-      if (target === p3) {
+      // Then, transition to short final when we're at P3:
+      if (ratio >= 1) {
         console.log(`short final reached`);
-        // force gears and flaps, in case something was stuck
-        api.trigger(`GEAR_DOWN`);
-        for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 2);
         stage.nextStage();
       }
     }
@@ -271,10 +220,7 @@ export class AutoLanding {
       const ratio = constrain(d1 / d2, 0, 1);
       const lerpAlt = constrainMap(ratio, 0, 1, p4.alt, p3.alt);
 
-      autopilot.setParameters({
-        [AUTO_THROTTLE]: min(climbSpeed, 100),
-        [ALTITUDE_HOLD]: lerpAlt,
-      });
+      autopilot.setParameters({ [ALTITUDE_HOLD]: lerpAlt });
 
       const d5 = getDistanceBetweenPoints(lat, long, p5.lat, p5.long);
       const d45 = getDistanceBetweenPoints(p4.lat, p4.long, p5.lat, p5.long);
@@ -300,20 +246,17 @@ export class AutoLanding {
       stage.nextStage();
     }
 
-    if (step === LANDING_ON_RUNWAY) {
+    if (step === LAND_ON_THE_RUNWAY) {
       console.log(step);
 
       for (let i = 1; i <= engineCount; i++) {
         await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
       }
 
-      if (!onGround) {
-        // Try to keep the plane pitched up.
-        setPitch(api, -2, flightInformation);
-      }
+      // Try to keep the plane pitched up.
+      setPitch(api, -2.5, flightInformation);
 
-      //
-      else {
+      if (onGround) {
         autopilot.setParameters({
           [LEVEL_FLIGHT]: false,
           [HEADING_MODE]: false,
@@ -336,37 +279,29 @@ export class AutoLanding {
       }
     }
 
-    if (step === ROLLING_AND_BRAKING) {
+    if (step === ROLL_AND_BRAKE) {
       console.log(step);
 
+      // Still try to keep the plane pitched up.
+      setPitch(api, -2.5, flightInformation);
+
+      // And keep the throttle as far back as possible
       for (let i = 1; i <= engineCount; i++) {
-        await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
-      }
-
-      if (!onGround) {
-        // Keep trying to keep the plane pitched up, because
-        // the plane might be bouncing on the runway.
-        setPitch(api, -2, flightInformation);
-      }
-
-      if (isTailDragger) {
-        // pull back on the elevator so we don't nose-over
-        for (let i = 1; i <= engineCount; i++) {
-          await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
-        }
+        await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
       }
 
       // Stay on the runway...
-      autoRudder(api, p5, flightData);
+      const prevDiff = this.autoRudderPrevHDiff;
+      this.autoRudderPrevHDiff = autoRudder(api, p5, flightData, prevDiff);
 
       // increase brakes while we're rolling
       this.brake = Math.min(this.brake + 5, isTailDragger ? 70 : 100);
       setBrakes(api, this.brake);
 
-      if (isTailDragger && this.brake > 50) {
+      if (isTailDragger) {
         // and pull back on the elevator if we're in a for tail
         // draggers so that we don't end up in a nose-over.
-        const elevator = constrainMap(this.brake, 0, 100, 0, -4000) | 0;
+        const elevator = constrainMap(this.brake, 0, 100, -1000, -6000) | 0;
         api.trigger(`ELEVATOR_SET`, elevator);
       }
 
@@ -403,48 +338,23 @@ export class AutoLanding {
       console.log(`AP off`);
       autopilot.setParameters({
         MASTER: false,
-        [LEVEL_FLIGHT]: false,
-        [HEADING_MODE]: false,
         [ALTITUDE_HOLD]: false,
+        [AUTO_LANDING]: false,
+        [HEADING_MODE]: false,
+        [LEVEL_FLIGHT]: false,
       });
 
       console.log(`shut down engines`);
       api.trigger(`ENGINE_AUTO_SHUTDOWN`);
       this.done = true;
     }
+
+    // Based on whether we return true or not, the autopilot will be running
+    // at the higher polling interval
+    const shortFinal = step === RIDE_OUT_SHORT_FINAL;
+    const aboveRunway = step === ROLL_AND_BRAKE && speed > vs0;
+    return shortFinal || aboveRunway;
   }
-}
-
-/**
- * ...
- */
-function setBrakes(api, percentage) {
-  const value = map(percentage, 0, 100, -16383, 16383) | 0;
-  api.trigger(`AXIS_LEFT_BRAKE_SET`, value);
-  api.trigger(`AXIS_RIGHT_BRAKE_SET`, value);
-}
-
-/**
- * ...
- */
-function autoRudder(
-  api,
-  target,
-  { onGround, lat, long, trueHeading, rudder },
-  cMax = 0.05
-) {
-  if (!onGround) return;
-  const targetHeading = getHeadingFromTo(lat, long, target.lat, target.long);
-  let hDiff = getCompassDiff(trueHeading, targetHeading);
-  const dHeading = hDiff - prev_hDiff;
-  prev_hDiff = hDiff;
-
-  let update = 0;
-  update += constrainMap(hDiff, -30, 30, -cMax / 2, cMax / 2);
-  update += constrainMap(dHeading, -1, 1, -cMax, cMax);
-
-  const newRudder = rudder / 100 + update;
-  api.set(`RUDDER_POSITION`, newRudder);
 }
 
 /**
@@ -644,6 +554,15 @@ function findAndBindBestApproach(airports) {
 }
 
 /**
+ * ...
+ */
+function setBrakes(api, percentage) {
+  const value = map(percentage, 0, 100, -16383, 16383) | 0;
+  api.trigger(`AXIS_LEFT_BRAKE_SET`, value);
+  api.trigger(`AXIS_RIGHT_BRAKE_SET`, value);
+}
+
+/**
  * Fiddle with the elevator to try to effect a specific pitch
  */
 function setPitch(api, targetPitch, { model: flightModel, data: flightData }) {
@@ -653,8 +572,8 @@ function setPitch(api, targetPitch, { model: flightModel, data: flightData }) {
   const diff = targetPitch - pitch;
   const maxValue = constrainMap(weight, 2000, 6000, 0, 1500);
   let correction = constrainMap(diff, -5, 5, -maxValue, maxValue);
-  if (sign(dPitch) === sign(diff)) correction /= 3;
   let next = elevator + correction;
+
   console.log(`pitch check:`, {
     pitch,
     dPitch,
@@ -664,5 +583,30 @@ function setPitch(api, targetPitch, { model: flightModel, data: flightData }) {
     correction,
     next,
   });
+
   api.trigger(`ELEVATOR_SET`, next | 0);
+}
+
+/**
+ * ...
+ */
+function autoRudder(
+  api,
+  target,
+  { onGround, lat, long, trueHeading, rudder },
+  prevDiff,
+  cMax = 0.05
+) {
+  if (!onGround) return;
+  const targetHeading = getHeadingFromTo(lat, long, target.lat, target.long);
+  let hDiff = getCompassDiff(trueHeading, targetHeading);
+  const dHeading = hDiff - prevDiff;
+
+  let update = 0;
+  update += constrainMap(hDiff, -30, 30, -cMax / 2, cMax / 2);
+  update += constrainMap(dHeading, -1, 1, -cMax, cMax);
+
+  const newRudder = rudder / 100 + update;
+  api.set(`RUDDER_POSITION`, newRudder);
+  return hDiff;
 }

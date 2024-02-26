@@ -20,4 +20,9 @@ class BrowserClient {
   }
 }
 
+const preamble = document.querySelector(`.preamble`);
+preamble.querySelector(`h1 span`).addEventListener(`click`, () => {
+  preamble.classList.add(`hidden`);
+});
+
 window.browserClient = createBrowserClient(BrowserClient);

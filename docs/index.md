@@ -1046,8 +1046,8 @@ export async function watch(basePath, modulePath, onChange) {
     }
   });
 
-  // then as part of the call, run an immediate load.
-  return import(moduleURL);
+  // Then, as part of the call, run an immediate load with a timestamp, so we're cache-busting.
+  return import(`${moduleURL}?ts=${Date.now()}`);
 }
 ```
 
@@ -1074,7 +1074,7 @@ export function rootRelative(filepath) {
 }
 ```
 
-The thing that makes this work is usually considered a memory leak: modules are cached based on their URL, and URL query arguments count towards URL "uniqueness", so by loading the module using a URL ending in `...?ts=${Date.now()}` we effectively load a separate, new module (this is known as "cache busting").
+The thing that makes this work is usually considered a memory leak: modules are cached based on their URL, and URL query arguments count towards URL "uniqueness", so by loading the module using a URL ending in `...?ts=${Date.now()}` we effectively load a separate, new module, thus bypassing the module caching mechanism.
 
 That sounds great, but because there is no mechanism for "unloading" modules is modern JS, every save-and-reload will effectively cause a new file to be loaded in, without the old file getting unloaded, so we're going to slowly fill up our memory... which would be a problem if our files weren't tiny compared to how much memory modern computers (or even cell phones for that matter), have. So this is going to be a non-issue, but it's still good to know about, and an _excellent_ idea to make sure it doesn't kick in for production code.
 
@@ -3212,6 +3212,54 @@ export class ClientClass {
 ```
 
 And `socketless` will do the rest to make sure that the browser get that state update, too.
+
+#### Ignoring slew mode
+
+Even MSFS knows that "flying somewhere just to get there" because you want to fly over some scenery that doesn't have an airstrip nearby, or lining up a plane for some manoeuvre can be incredibly tedious, and so pressing `y` in game will hard-pause the flight and allow you to reposition the plane using wasd and the numpad, as well as using F1 through F4 to set the plane's elevation. That's super useful, but we don't want the autopilot to keep running when we're using that, so let's bake in some "slew mode awareness", starting with our `flight-values.js`:
+
+```javascript
+...
+
+export const FLIGHT_DATA = [
+  ...
+  `IS_SLEW_ACTIVE`,
+  ...
+];
+
+...
+
+export const BOOLEAN_VALUES = [
+  ...
+  `IS_SLEW_ACTIVE`,
+  ...
+];
+
+...
+
+export const NAME_MAPPING = {
+  ...
+  IS_SLEW_ACTIVE: `slewMode`,
+  ...
+];
+  
+...
+```
+
+With that in place, we can skip the autopilot run at each iteration for as long as `slewMode` is true:
+
+```javascript
+...
+export class AutoPilot {
+  ...
+
+  async run() {
+    this.flightInfoUpdateHandler(await this.flightInformation.update());
+    
+    // Should we skip this round?
+    if (flightInformation.data.slewMode) return;
+  }
+}
+```
 
 ### The client-side of our autopilot
 
@@ -10322,14 +10370,24 @@ So, let's write some code
 Let's start with (what else) a new file in `src/autopilot` called `auto-landing.js` that can run through a sequence of stages:
 
 ```javascript
+// We'll move these to our `constants.js` file once we're done.
+const CUT_THE_ENGINES = `CUT_THE_ENGINES`;
+const END_OF_LANDING = `END_OF_LANDING`;
+const FLY_THE_GLIDE_SLOPE = `FLY_THE_GLIDE_SLOPE`;
+const GET_ONTO_THE_APPROACH = `GET_ONTO_THE_APPROACH`;
+const LAND_ON_THE_RUNWAY = `LAND_ON_THE_RUNWAY`;
+const RIDE_OUT_SHORT_FINAL = `RIDE_OUT_SHORT_FINAL`;
+const ROLL_AND_BRAKE = `ROLL_AND_BRAKE`;
+const THROTTLE_TO_GLIDE_SPEED = `THROTTLE_TO_GLIDE_SPEED`;
+
 const LANDING_STEPS = [
-  GETTING_ONTO_APPROACH,
-  THROTTLE_TO_CLIMB_SPEED,
-  FLYING_THE_GLIDE_SLOPE,
+  GET_ONTO_THE_APPROACH,
+  THROTTLE_TO_GLIDE_SPEED,
+  FLY_THE_GLIDE_SLOPE,
   RIDE_OUT_SHORT_FINAL,
   CUT_THE_ENGINES,
-  LANDING_ON_RUNWAY,
-  ROLLING_AND_BRAKING,
+  LAND_ON_THE_RUNWAY,
+  ROLL_AND_BRAKE,
   END_OF_LANDING,
 ];
 
@@ -10835,7 +10893,7 @@ And now we're finally done with our approach-finding code!
 
 ### Tracking our landing
 
-Now that we have an approach, let's get those added to our waypoint list, but marked as special "landing" points so we can both visualize them differently from other waypoints in the browser, and perform checks based on whether we reached the landing portion of our flight plan. First up, the `auto-landing.js` change:
+Now that we have an approach points, let's get those added to our waypoint list, but marked as special "landing" points so we can both visualize them differently from other waypoints in the browser, as well as perform checks based on whether we reached the landing portion of our flight plan. First up, the `auto-landing.js` change:
 
 ```javascript
 ...
@@ -10855,13 +10913,7 @@ export class AutoLanding {
 
     // If not, find an approach
     const { climbSpeed, cruiseSpeed, isFloatPlane } = flightModel;
-    const approachData = (this.approachData = determineLanding(
-      lat,
-      long,
-      climbSpeed,
-      cruiseSpeed,
-      isFloatPlane
-    ));
+    const approachData = (this.approachData = determineLanding(lat, long, climbSpeed, cruiseSpeed, isFloatPlane));
 
     // Then, if we have an approach, add all points to our flight plan:
     if (approachData) {
@@ -10895,10 +10947,40 @@ With the associated updates to the `waypoint-manager.js`:
 
 export class WayPointManager {
   ...
+
+  // We're going to add a boolean flag that we (potentially) update 
+  // each time we transition from one waypoint to the next:
+  reset() {
+    this.points = [];
+    this.currentWaypoint = undefined;
+    this.glideReached = false; // namely, this one.
+    this.landing = false;
+    this.repeating = false;
+    this.autopilot.onChange();
+  }
   
+  ...
+   
+  resetWaypoints() {
+    this.glideReached = false;
+    this.points.forEach((waypoint) => waypoint.reset());
+    this.currentWaypoint = this.points[0];
+    this.currentWaypoint?.activate();
+    this.resequence();
+  }
+
+  ...
+ 
   // Save a landing to the waypoint manager:
   setLanding({ airport, runway, approach }) {
     this.landing = { airport, runway, approach };
+    // And store our landing points separately, in reverse order,
+    // so that other code won't constantly have to filter the
+    // getWaypoints() response.
+    this.landingPoints = this.points
+      .slice()
+      .filter((p) => p.landing)
+      .reverse();    
   }
 
   // Aaaand get the saved landing back out:
@@ -10909,20 +10991,15 @@ export class WayPointManager {
     return { airport, runway, approach };
   }
 
+  // As well as our landing points.
+  getLandingPoints() {
+    return this.landingPoints;
+  }
+
   // Are we flying landing waypoints? And more specially, are we
   // *actually* landing, as in: are we on the glide slope or runway?
   isLanding() {
-    // do we even have waypoints?
-    let p = this.currentWaypoint || this.points.at(-1);
-    if (!p) return false;
-    // If we do, are we flying the landing set?
-    const { landing } = p;
-    if (!landing) return false;
-    // If we are, count how many points are left: if it's 4 or fewer
-    // then we're either flying the glide slope, or we're on the runway.
-    let left = 1;
-    while (p = p.next) left++;
-    return left <= 4;
+    return this.glideReached;
   }
 
   // Try this landing again by resetting the flight plan and then
@@ -10933,6 +11010,28 @@ export class WayPointManager {
       this.transition();
     }
   }
+
+  ...
+
+  transition() {
+    const { points, currentWaypoint } = this;
+    currentWaypoint.deactivate();
+    const p = (this.currentWaypoint = currentWaypoint.complete());
+    if (p) {
+      if (p === points[0]) this.resetWaypoints();
+      p.activate();
+      // Do we need to check if glideReached is true or not?
+      if (p.landing) {
+        const pos = points.indexOf(p);
+        // A flight plan that ends in a landing will have our
+        // p2, p3, p4, and p5 as last four waypoints.
+        this.glideReached = points.length - pos <= 4;
+      }
+    }
+    return true;
+  }
+
+  ...
 }
 ```
 
@@ -11096,8 +11195,9 @@ export class AutoLanding {
     const { bank, gearSpeedExceeded, isGearDown, lat, long, onGround, speed } = flightData;
 
     // As well as our lnding points
-    const { approachData, autopilot, stage } = this;
-    const { points } = approachData.approach;
+    const { autopilot } = this;
+    const { api, waypoints } = autopilot;
+    const points = waypoints.getLandingPoints();
     const [p5, p4, p3, p2, p1, pA, f1, f2] = points;
     
     // And our flight plan.
@@ -11106,7 +11206,7 @@ export class AutoLanding {
     
     // Now then: which waypoint are we targeting, and what step of the landing are we flying?
     this.target = target;
-    const { step } = stage;
+    const { step } = this.stage;
     if (!target) { target = p5; } else if (!points.includes(target)) return;
     
     // ... and we pick up the story here in the next section
@@ -11123,7 +11223,7 @@ This phase isn't super interesting, other than that we want it to turn off the t
 ```javascript
     ...
 
-    if (step === GETTING_ONTO_APPROACH) {
+    if (step === GET_ONTO_THE_APPROACH) {
       const onTerrainFollow = !!autopilot.modes[TERRAIN_FOLLOW];
 
       // Are we flying towards the second offset?
@@ -11149,10 +11249,13 @@ This phase isn't super interesting, other than that we want it to turn off the t
         });
       }
 
-      // Are we flying towards the actual approach?
-      if (target === pA || target === p1) {
+      // Have we reached the approach itself?
+      const d1 = getDistanceBetweenPoints(lat, long, p1.lat, p1.long);
+      const d2 = getDistanceBetweenPoints(p1.lat, p1.long, pA.lat, pA.long);
+      const ratio = d1/d2;
+      if (ratio <= 1) {
         console.log(`approach reached`);
-        // Ensure terrain is off (in case we didn't have an f1),
+        // Ensure terrain mode is off (in case we didn't have an f1),
         // set the altitude hold, and set our autothrottle so
         // that we slow down to glide speed:
         autopilot.setParameters({
@@ -11197,7 +11300,7 @@ The first really interesting stage is the glide slope stage, where we want to pe
 ```javascript
     ...
 
-    if (step === FLYING_THE_GLIDE_SLOPE) {
+    if (step === FLY_THE_GLIDE_SLOPE) {
       // In order to descend along the glide slope, we calculate how far
       // along we are as a ratio of the distance we need to cover, and
       // then use that to determine the altitude we "should" be flying
@@ -11223,15 +11326,51 @@ The first really interesting stage is the glide slope stage, where we want to pe
       // Then, transition to short final when we're at P3:
       if (ratio >= 1) {
         console.log(`short final reached`);
-        // force gears and flaps, just in case something was stuck
-        api.trigger(`GEAR_DOWN`);
-        for (let i = 0; i < 10; i++) api.set(`FLAPS_HANDLE_INDEX:1`, 2);
-        // And then move on to the next stage!
         stage.nextStage();
       }
     }
 
     ...
+```
+
+Now, while we're gliding, we want to place some restrictions on the the altitude hold behaviour: we're supposed to glide down, and we don't want large VS swings, so let's add a little bit of extra code to our `altitude-hold.js`:
+
+```javascript
+...
+export async function altitudeHold(autopilot, flightInformation) {
+  const { api, trim, AP_INTERVAL, waypoints } = autopilot;
+
+  ...
+  
+  if (FEATURES.EMERGENCY_PROTECTION) {
+    // Do we need to intervene?
+    const landing = waypoints.isLanding();
+   
+    // If we're landing, and our altitude is higher than our target,
+    // absolutely do not allow a positive VS. We want to go down, not up.
+    const thresholdVS = landing ? DEFAULT_MAX_VS / 2 : DEFAULT_MAX_VS;
+    const landingViolation = landing && alt > targetAlt && VS > 0;
+    const VS_EMERGENCY = VS < -thresholdVS || VS > thresholdVS || landingViolation;
+    
+    // Similarly, if we're landing, we don't want wild changes to 
+    // our vertical speed. We want a glide, not a rollercoaster.
+    const thresholdDvs = landing ? DEFAULT_MAX_dVS / 2 : DEFAULT_MAX_dVS;
+    const DVS_EMERGENCY = dVS < -thresholdDvs || dVS > thresholdDvs;
+
+    ...
+
+    if (VS_EMERGENCY) {
+      if (landingViolation) {
+        // Immediately trim down if we're ascending during landing:
+        update +=  -fStep/2;
+      } else {
+        update += constrainMap(VS, -fMaxVS, fMaxVS, fStep, -fStep);
+      }
+    }
+    ...
+  }
+  ...
+}
 ```
 
 ####  Riding out the short final
@@ -11266,6 +11405,103 @@ The short final is similar to the main glide slope, except  we only need to drop
     ...
 ```
 
+However, because this is the critical transition from "high up" to "low enough to land from", we're going to run this loop at the faster autopilot interval, so that the odds of us not being able to correct for a bad altitude (e.g. dropping below the short final glide slope) or crosswind are as low as we can make them. So we update the `run` function in our `autopilot.js`:
+
+```javascript
+...
+
+export class AutoPilot {
+  ...
+  
+  async run() {
+    ...
+
+    try {
+      ...
+
+      if (modes[AUTO_TAKEOFF] && autoTakeoff) {
+        await autoTakeoff.run(flightInformation);
+      }
+
+      else if (waypoint?.landing || (this.autoLanding && !this.autoLanding.done)) {
+        // While the landing can be done at the regular interval, once we're in the short final,
+        const shortFinal = await this.autoLanding.run(flightInformation);
+        this.AP_INTERVAL = shortFinal ? FAST_AUTOPILOT_INTERVAL : AUTOPILOT_INTERVAL;
+      }
+    }
+  }
+}
+```
+
+And then we make sure that the auto-landing `run` function returns a Boolean value that indicates whether we want regular or fast AP updates:
+
+```javascript
+...
+export class AutoLanding {
+  ...
+  
+  async run(flightInformation) {
+    ...
+    
+    // Make the autopilot run at the higher polling interval based
+    // on whether we return true or not at the end of this function:
+    const shortFinal = step === RIDE_OUT_SHORT_FINAL;
+    const aboveRunway = step === ROLL_AND_BRAKE && (speed > vs0);
+    return shortFinal || aboveRunway;
+  }
+}
+```
+
+And that should at least give us better odds of safely landing.
+
+However, this also means that we'll be putting in _much_ bigger corrections "per tick" in our `altitude-hold.js`, so let's make sure we scale our corrections down accordingly. This wasn't a problem during auto-takeoff, where altitude hold wasn't active while the autopilot was updating faster than usual, but now that we'll be running it faster _in flight_, we need to address that problem. First, let's move the AP intervals into `constants.js`:
+
+```javascript
+// AP values
+export const AUTOPILOT_INTERVAL = 500;
+export const FAST_AUTOPILOT_INTERVAL = 100;
+```
+
+And then we make the autopilot import those:
+
+```javascript
+import {
+  ...
+  AUTOPILOT_INTERVAL,
+  FAST_AUTOPILOT_INTERVAL,
+  ...
+} from "../utils/constants.js";
+```
+
+So far so good: then, we need to update `altitude-hold.js` to scale its updates each tick according to what speed the autopilot's running at:
+
+```javascript
+// Get the baseline autopilot interval value...
+import { AUTOPILOT_INTERVAL } from "../utils/constants.js";
+
+...
+
+export async function altitudeHold(autopilot, flightInformation) {
+  // ...then get the current autopilot call interval...
+  const { api, trim, AP_INTERVAL } = autopilot;
+
+  ...
+
+  // ...and then scale our update so that we're only applying a 
+  // "partial" update if we're running faster than baseline.
+  update *= AP_INTERVAL / AUTOPILOT_INTERVAL;
+
+  // We're keeping our VS/dVS protection though. We don't
+  // want to scale these down, that might kill us again =(
+  if (FEATURES.EMERGENCY_PROTECTION) {
+    ...
+  }
+  ...
+}
+```
+
+And now we're no longer applying updates that have been calculated based on the assumption that we're updating plane parameters only twice a second, more than twice a second. Instead,  we're now applying more, but smaller, updates when the autopilot's running at the fast interval.
+
 ####  Cutting the engines
 
 This is the stage where we get to discover whether we land, or crash: we're going to cut the engines!
@@ -11298,7 +11534,7 @@ While we're coasting down onto the runway, we do still have some work to do: we 
 ```javascript
     ...
 
-    if (step === LANDING_ON_RUNWAY) {
+    if (step === LAND_ON_THE_RUNWAY) {
       // We keep cutting the engines, because sometimes MSFS will look at the
       // peripherals and go "hey this throttle lever is at 100% let me make sure
       // the same is true in-game!" and we *really* don't want that here:
@@ -11354,12 +11590,9 @@ Alright! We made it down, the plane is on the runway, we didn't crash... but tha
 ```javascript
     ...
 
-    if (step === ROLLING_AND_BRAKING) {
-      // Keep cutting those engines, because now would be the worst time
-      // for MSFS to decide to help out by mirroring our throttle lever.
+    if (step === ROLL_AND_BRAKE) {
+      // Keep the throttle as far back as possible
       for (let i = 1; i <= engineCount; i++) {
-        await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
-        // In fact, keep those throttles in reverse if the plane supports that.
         await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
       }
   
@@ -11372,7 +11605,10 @@ Alright! We made it down, the plane is on the runway, we didn't crash... but tha
         // hopefully keep us on the runway while we brake:
         this.brake = Math.min(this.brake + 5, isTailDragger ? 70 : 100);
         setBrakes(api, this.brake);
-        autoRudder(api, p5, flightData);        
+
+        // Stay on the runway...
+        const prevDiff = this.autoRudderPrevHDiff;
+        this.autoRudderPrevHDiff = autoRudder(api, p5, flightData, prevDiff);
 
         // Are we in a tail dragger? If so, we need to pull back on the
         // elevator once we get to 50% brakes, to prevent the plane from
@@ -11401,9 +11637,26 @@ Alright! We made it down, the plane is on the runway, we didn't crash... but tha
     ...
 ```
 
+Although in order to successfully auto-rudder, we'll need to add that `autoRudderPrevHDiff` boolean as an instance value:
+
+```javascript
+...
+export class AutoLanding {
+  ...
+  
+  reset(autopilot, lat, long, flightModel) {
+    this.autoRudderPrevHDiff = 0;
+    this.done = false;
+    ...
+  }
+
+  ...
+}
+```
+
 ####  Ending our landing
 
-We've done it! All that's left is to flips all the toggles to "off", power down, and walk away from our successful landing!
+We've done it! All that's left is to flip all the toggles to "off", power down, and walk away from our successful landing!
 
 ```javascript
     ...
@@ -11427,9 +11680,10 @@ We've done it! All that's left is to flips all the toggles to "off", power down,
       console.log(`AP off`);
       autopilot.setParameters({
         MASTER: false,
-        [LEVEL_FLIGHT]: false,
-        [HEADING_MODE]: false,
         [ALTITUDE_HOLD]: false,
+        [AUTO_LANDING]: false,
+        [HEADING_MODE]: false,
+        [LEVEL_FLIGHT]: false,
       });
 
       console.log(`shut down engines`);
@@ -11440,19 +11694,81 @@ We've done it! All that's left is to flips all the toggles to "off", power down,
 }
 ```
 
-And that's it: one auto-lander, done.
+And that's it: one auto-lander, done. Well, almost:
 
-### Finishing up
+### Adding the supplemental code
 
-Before we call it a day, let's 
+We do still need the extra functions that we're calling for autorudder and maintaining upward pitch over the runway:
 
---- continue here --- 
+```javascript
+/**
+ * First up, the brakes: this is simply a matter of setting the left and
+ * right brake axes to whatever value we're tracking as `this.brakes`:
+ */
+function setBrakes(api, percentage) {
+  const value = map(percentage, 0, 100, -16383, 16383) | 0;
+  api.trigger(`AXIS_LEFT_BRAKE_SET`, value);
+  api.trigger(`AXIS_RIGHT_BRAKE_SET`, value);
+}
 
-### Testing the code
+/**
+ * Then the pitch function, which uses the elevator to (hopefully)
+ * ensure a plane pitch that'll let us drop safely in the runway:
+ */
+function setPitch(api, targetPitch, { model: flightModel, data: flightData }) {
+  let { elevator, pitch, dPitch } = flightData;
+  let { weight } = flightModel;
+  elevator = -(elevator / 100) * 2 ** 14;
+  const diff = targetPitch - pitch;
+  // The heavier the plane is, the more stick we give it.
+  // Also note that if we're in a particularly light plane,
+  // we're not going to do anything: those already glide just
+  // fine on their own.
+  const maxValue = constrainMap(weight, 2000, 6000, 0, 1500);
+  let correction = constrainMap(diff, -5, 5, -maxValue, maxValue);
+  let next = elevator + correction;
+  api.trigger(`ELEVATOR_SET`, next | 0);
+}
 
-Now, testing this code is rather straight forward in that we just fire up MSFS, put a plan on a runway, create a bit of a flight plan, hit "take off" in the browser, and when we reach the last marker, we click "land" (we could automate that, but that's for another day. By you). That does not translate well into pictures, though, so as the final test for all our hard work, let's just capture this one using the medium of video capture.
+/**
+ * And finally, our auto-rudder code, which is similar to, but subtly
+ * different from, the code we used in our auto-takeoff.js:
+ */
+function autoRudder(api, target, { onGround, lat, long, trueHeading, rudder }, prevDiff, cMax = 0.05) {
+  if (!onGround) return;
 
-We'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/), on New Zealand's South Island, to [Wānaka](https://en.wikipedia.org/wiki/W%C4%81naka), with auto-takeoff, waypoint navigation, and auto-landing. Enjoy a 20 minute trip across some beautiful New Zealand scenery.
+  // How much are we off by?
+  const targetHeading = getHeadingFromTo(lat, long, target.lat, target.long);
+  let hDiff = getCompassDiff(trueHeading, targetHeading);
+  const dHeading = hDiff - prevDiff;
+
+  // And so how much do we need to adjust the rudder by?
+  let update = 0;
+  update += constrainMap(hDiff, -30, 30, -cMax / 2, cMax / 2);
+  update += constrainMap(dHeading, -1, 1, -cMax, cMax);
+
+  const newRudder = rudder / 100 + update;
+  api.set(`RUDDER_POSITION`, newRudder);
+  
+  // And return the current heading difference so the
+  // code can cache that for use in the next call:
+  return hDiff;
+}
+```
+
+My god, we're done! _We're done!!_
+
+### Testing \*Everything\*
+
+Now, testing this code is rather straight forward in that we just fire up MSFS, put a plan on a runway, create a bit of a flight plan, hit "take off" in the browser, and when we reach the last marker, we click "land" (we could automate that, but that's for another day. By you). However, since that does not translate well into pictures, let's just capture these tests using the medium of video. 
+
+First, let's do a quick "take-off and landing" at Victoria Airport in the Cessna 310R. We'll spawn the plane, click "land" to generate a set of landing waypoints, and then we'll click "take off" to make the plane take off, switch to autopilot, start flying the flight plan, and land itself on the same runway it took off from:
+
+
+
+
+
+And since that went pretty well, let's put this to real use: we'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/), on New Zealand's South Island, to [Wānaka](https://en.wikipedia.org/wiki/W%C4%81naka), with auto-takeoff, waypoint navigation, and auto-landing. Enjoy a 20 minute trip across some beautiful New Zealand scenery.
 
 <iframe width="1000" height="400" src="https://www.youtube.com/embed/xIyGfYj66T0" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
 
@@ -11466,11 +11782,14 @@ And yes, getting to the point where can just hit "go" and enjoy the ride took a 
 
 So where do we go from here? Here are some thoughts:
 
-1. We could vastly improve auto landing by taking runway length and slope into account, as well as fitting an approach to the terrain instead of simply doing a yes/no basd on where we fairly naively placed our approach points. Imaging auto-landing at [Tenzing-Hillary Airport](https://en.wikipedia.org/wiki/Tenzing-Hillary_Airport), for instance!
-2. We could make the waypoint code more like "path tracking" code, where we don't just define waypoints with an implicit polygon, but where we define the actual flight path itself, so that at any point on the path there is some "ideal" heading that the plane should be flying, so that we can actually fly through curvy canyons or slalom some hills, rather than just flying mostly straight lines.
-3. We could try to replace our blocks of "control code guesses" with self-tuning PID controlles so we that we only need to say what targets we want, and have the PID controllers figure out what good steps sizes for that are. This is one of those "conceptually, this is simple" because we can replace a whole bunch of code with a PID initialization and then a few lines of update loop, but actually making that work can be the worst time sink you never knew existed. The problem with PID controllers isn't setting them up, it's the full-time job of tweaking them that will make you regret your life decisions.
-4. We could make our ALOS server generate "XYZ tiles", so that we can use it as a map source for our leaflet map rather than using google's topology layer.
-5. ...you've seen what we can do already, the sky's the limit. Or, you know what: no, it isn't. We're already flying, there are no limits. Get your learn on and write something amazing, and then tell the world about it.
+
+
+1. Our alt hold is still a bit wibbly, which is especially noticeable in planes like the Kodiak 100, or when playing game footage at 4x speed. This is a consequence of only firing off corrections every half second, but we could probably still find something that works a little better by using forward prediction and making the alt hold function not be stateless. And then the obvious follow-up would be to make the fly level/heading mode code not stateless, either.
+2. We could vastly improve auto landing by taking runway length and slope into account, as well as fitting an approach to the terrain instead of simply doing a yes/no basd on where we fairly naively placed our approach points. Imaging auto-landing at [Tenzing-Hillary Airport](https://en.wikipedia.org/wiki/Tenzing-Hillary_Airport), for instance!
+3. We could make the waypoint code more like "path tracking" code, where we don't just define waypoints with an implicit polygon, but where we define the actual flight path itself, so that at any point on the path there is some "ideal" heading that the plane should be flying, so that we can actually fly through curvy canyons or slalom some hills, rather than just flying mostly straight lines.
+4. We could try to replace our blocks of "control code guesses" with self-tuning PID controlles so we that we only need to say what targets we want, and have the PID controllers figure out what good steps sizes for that are. This is one of those "conceptually, this is simple" because we can replace a whole bunch of code with a PID initialization and then a few lines of update loop, but actually making that work can be the worst time sink you never knew existed. The problem with PID controllers isn't setting them up, it's the full-time job of tweaking them that will make you regret your life decisions.
+5. We could make our ALOS server generate "XYZ tiles", so that we can use it as a map source for our leaflet map rather than using google's topology layer.
+6. ...you've seen what we can do already, the sky's the limit. Or, you know what: no, it isn't. We're already flying, there are no limits. Get your learn on and write something amazing, and then tell the world about it.
 
 I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you see me flying, I might just be testing more code to add to this tutorial! =D
 

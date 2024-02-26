@@ -67,6 +67,7 @@ export const FLIGHT_DATA = [
   `GENERAL_ENG_THROTTLE_LEVER_POSITION:1`,
   `GROUND_ALTITUDE`,
   `INDICATED_ALTITUDE`,
+  `IS_SLEW_ACTIVE`,
   `MAGVAR`,
   `OVERSPEED_WARNING`,
   `PLANE_ALT_ABOVE_GROUND_MINUS_CG`,
@@ -113,6 +114,7 @@ export const BOOLEAN_VALUES = [
   `ENG_COMBUSTION:4`,
   `IS_GEAR_FLOATS`,
   `IS_GEAR_RETRACTABLE`,
+  `IS_SLEW_ACTIVE`,
   `IS_TAIL_DRAGGER`,
   `GEAR_POSITION:1`,
   `GEAR_SPEED_EXCEEDED`,
@@ -206,6 +208,7 @@ export const NAME_MAPPING = {
   INDICATED_ALTITUDE: `alt`,
   IS_GEAR_FLOATS: `isFloatPlane`,
   IS_GEAR_RETRACTABLE: `hasRetractibleGear`,
+  IS_SLEW_ACTIVE: `slewMode`,
   IS_TAIL_DRAGGER: `isTailDragger`,
   MAGVAR: `declination`,
   NUMBER_OF_ENGINES: `engineCount`,
@@ -264,6 +267,7 @@ export function renameData(data, previousValues) {
   // doesn't lead to insanely high values here:
   let dt = (now - before) / 1000;
   if (dt > 2) dt = 2;
+  d.dt = dt;
 
   // Then perform the name mapping, but with extra code for getting
   // our "delta" values, which we'll add into a `.d` property.

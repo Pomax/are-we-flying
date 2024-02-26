@@ -71,6 +71,13 @@ body {
   }
 
   &:has(#science.hidden) {
-    margin-bottom: 5em;
+    margin-bottom: 8em;
+  }
+
+  &:has(.preamble.hidden) {
+    padding-top: 12em;
+  }
+  .preamble.hidden {
+    display: none;
   }
 }

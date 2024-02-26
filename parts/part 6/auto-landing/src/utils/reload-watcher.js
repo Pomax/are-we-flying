@@ -4,7 +4,7 @@ import { rootRelative } from "./utils.js";
 
 export async function watch(basePath, modulePath, onChange) {
   const filePath = basePath + `/` + modulePath;
-  const moduleURL = `file:///${filePath}`;
+  let moduleURL = `file:///${filePath}`;
 
   // Step 1: don't run file-watching in production. Obviously.
   if (process.env.NODE_ENV === `production`) {
@@ -55,6 +55,7 @@ export async function watch(basePath, modulePath, onChange) {
     }
   });
 
-  // then as part of the call, run an immediate load.
-  return import(moduleURL);
+  // Then, as part of the call, run an immediate load
+  // with a timestamp, so we're always cache-busting.
+  return import(`${moduleURL}?ts=${Date.now()}`);
 }
