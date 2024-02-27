@@ -11929,3 +11929,5 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
     }
   }
 </style>
+
+<script src="create-side-nav.js" async defer></script>
