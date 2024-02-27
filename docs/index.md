@@ -11888,14 +11888,14 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 <!-- And I have style requirements -->
 <style>
   html body, html body div.container-lg {
-    width: 75em!important;
-    margin: 0 auto;
-    padding-left: 20em;
+    width: auto!important;
+    margin: auto!important;
+    padding-left: 12%!important;
 
     #nav-menu {
       position: fixed;
       left: 0;
-      width: 20em;
+      width: 25%;
       height: 100%;
       overflow: scroll;
 
