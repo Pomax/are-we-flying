@@ -8141,7 +8141,7 @@ And suddenly we have a way to query elevations for GPS coordinates, without havi
 
 If we look at the previous result's `ms` value, we see that it takes about 100 milliseconds to get a result... that's pretty long! It might not seem very long, but we don't want to get "a handful of elevation values", we're going to want to get a _whole bunch_ of them and find the highest elevation amongst them, so we Let's see which part(s) of the code are taking up how much time, [tracing the function calls](https://github.com/Pomax/js-call-tracer/tree/main):
 
-```javascript
+```
 ╭┈┈
 │ —> call: ALOSInterface.lookup([48.8,-123.8])
 │ —>   call: ALOSInterface.getTileFor(...)
@@ -8251,7 +8251,7 @@ export class ALOSInterface {
 
 Just a few lines of code, but look at the improvement that bought us:
 
-```javascript
+```
 ╭┈┈
 │ —> call: ALOSInterface.lookup([48.8,-123.8])
 │ —>   call: ALOSInterface.getTileFor(...)
