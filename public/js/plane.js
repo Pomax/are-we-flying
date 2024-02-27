@@ -1,423 +1,237 @@
-import { deg, dist, Sequence, waitFor } from "./utils.js";
-import { getAPI, addEventListenerAPI, clearEventListenersAPI } from "./api.js";
-import { Duncan } from "./locations.js";
-import { Autopilot } from "./autopilot.js";
-import { Attitude } from "./attitude.js";
-import { Trail } from "./trail.js";
 import { Questions } from "./questions.js";
-import { getAirplaneSrc } from "./airplane-src.js";
-import { centerBtn } from "./maps.js";
+import { map as defaultMap, DUNCAN_AIRPORT } from "./map.js";
 import { MapMarker } from "./map-marker.js";
+import { getAirplaneSrc } from "./airplane-src.js";
+import { Trail } from "./trail.js";
+import { Attitude } from "./attitude.js";
 import { initCharts } from "./dashboard/charts.js";
-import { FlightModel } from "./flight-model.js";
-import { WaypointOverlay } from "./waypoint-manager.js";
+import { Autopilot } from "./autopilot.js";
+import { WaypointOverlay } from "./waypoint-overlay.js";
+import { getDistanceBetweenPoints } from "./utils.js";
 
-const L = await waitFor(async () => window.L);
-const { abs, max, PI: π, sqrt } = Math;
-
-let paused = false;
-
-// our "startup DFA" states that we have to run through in-sequence.
-
-const WAIT_FOR_GAME = Symbol(`wait for game`);
-const WAIT_FOR_MODEL = Symbol(`wait for model`);
-const WAIT_FOR_ENGINES = Symbol(`wait for engines`);
-const POLLING_GAME = Symbol(`polling game`);
-
-const POLLING_PROPS = [
-  "AILERON_TRIM_PCT",
-  "AIRSPEED_TRUE",
-  "AUTOPILOT_MASTER",
-  "AUTOPILOT_HEADING_LOCK_DIR",
-  "CRASH_FLAG",
-  "CRASH_SEQUENCE",
-  "ELEVATOR_TRIM_POSITION",
-  "GPS_GROUND_TRUE_TRACK",
-  "GROUND_ALTITUDE",
-  "INDICATED_ALTITUDE",
-  "PLANE_ALT_ABOVE_GROUND",
-  "PLANE_BANK_DEGREES",
-  "PLANE_HEADING_DEGREES_MAGNETIC",
-  "PLANE_HEADING_DEGREES_TRUE",
-  "PLANE_LATITUDE",
-  "PLANE_LONGITUDE",
-  "PLANE_PITCH_DEGREES",
-  "SIM_ON_GROUND",
-  "STATIC_CG_TO_GROUND",
-  "TITLE",
-  "TURN_INDICATOR_RATE",
-  "VERTICAL_SPEED",
-];
+const { abs, sqrt, min } = Math;
 
 export class Plane {
-  constructor(map, location, heading) {
-    console.log(`building plane`);
-    this.autopilot = new Autopilot(this);
-    this.waypoints = new WaypointOverlay(this, map);
-
-    // initial bootstrap
-    const [lat, long] = (this.lastPos = Duncan);
-    this.lastUpdate = { lat, long, crashe: false };
-    this.state = {};
+  constructor(
+    server,
+    map = defaultMap,
+    location = DUNCAN_AIRPORT,
+    heading = 135
+  ) {
+    this.server = server;
+    this.map = map;
+    this.lastUpdate = {
+      lat: 0,
+      long: 0,
+      flying: false,
+      crashed: false,
+    };
     this.addPlaneIconToMap(map, location, heading);
-
-    // and then get ready for flying
-    this.sequencer = new Sequence(
-      WAIT_FOR_GAME,
-      WAIT_FOR_MODEL,
-      WAIT_FOR_ENGINES,
-      POLLING_GAME
-    );
-    this.eventsRegistered = false;
+    // Set up our chart solution, which will inject some elements
+    // into the page that will do the relevant drawing for us:
     this.charts = initCharts();
-    this.waitForInGame();
+    this.autopilot = new Autopilot(this);
+    this.waypointOverlay = new WaypointOverlay(this);
+    this.setupControls(map);
   }
 
-  reset() {
-    this.sequencer.reset();
-    this.eventsRegistered = false;
-    clearEventListenersAPI();
+  setupControls(map) {
+    this.centerMapOnPlane = true;
+    const btn = (this.centerButton =
+      document.getElementById(`center-on-plane`));
+    btn.addEventListener(`change`, ({ target }) => {
+      this.centerMapOnPlane = !!target.checked;
+    });
+    map.on(`drag`, () => {
+      if (btn.checked) btn.click();
+    });
+    if (!btn.checked) btn.click();
   }
 
-  async addPlaneIconToMap(map, location = Duncan, heading = 0) {
+  /**
+   * We'll use Leaflet's "icon" functionality to add our plane:
+   */
+  async addPlaneIconToMap(map, location, heading) {
     const props = {
       icon: L.divIcon({
-        iconSize: [73 / 2, 50 / 2],
-        iconAnchor: [73 / 4, 50 / 4],
-        popupAnchor: [10, 10],
+        iconSize: [36, 25],
+        iconAnchor: [36 / 2, 25 / 2],
         className: `map-pin`,
+        // We our little plane icon's HTML, with the initial heading baked in:
         html: MapMarker.getHTML(heading),
       }),
     };
-    this.map = map;
+    // Then we turn that into a Leaflet map marker:
     this.marker = L.marker(location, props).addTo(map);
+    // And then we cache the resulting page element so we can use it later, too:
     this.planeIcon = document.querySelector(`#plane-icon`);
-    this.planeIcon.offsetParent.offsetParent.style.zIndex = 99999;
   }
 
-  async setElevationProbe(value) {
-    // remove the old probe line
-    if (this.elevationProbe) this.elevationProbe.remove();
-
-    // then draw a new one, but only if there is one.
-    if (!value) return;
-    this.elevationProbe = new Trail(
-      this.map,
-      [this.state.lat, this.state.long],
-      `#4F87`, // lime
-      undefined,
-      { weight: 30, lineCap: `butt` }
-    );
-    this.elevationProbe.add(value.lat2, value.long2);
-  }
-
-  async manageWaypoints(data) {
-    this.waypoints.manage(data);
-  }
-
+  /**
+   * A little helper function for tracking "the current trail", because we
+   * can restart flights as much as we want (voluntarily, or because we
+   * crashed) and those new flights should all get their own trail:
+   */
   startNewTrail(location) {
     this.trail = new Trail(this.map, location);
   }
 
-  async waitForInGame() {
-    this.sequencer.start();
-    console.log(`wait for in-game`);
-
-    // If we already registered for events, we don't need to re-register.
-    if (this.eventsRegistered) return;
-    this.eventsRegistered = true;
-
-    addEventListenerAPI(`SIM`, async ([state]) => {
-      if (state === 1) {
-        Questions.resetPlayer();
-        Questions.inGame(true);
-        this.waitForModel();
-      }
-    });
-
-    this.pause = async () => {
-      this.paused = true;
-      this.planeIcon?.classList.add(`paused`);
-    };
-
-    addEventListenerAPI(`PAUSED`, this.pause);
-
-    this.unpause = async () => {
-      this.paused = false;
-      this.planeIcon?.classList.remove(`paused`);
-      if (!this.sequencer.state) {
-        this.sequencer.start();
-        this.waitForModel();
-      }
-    };
-
-    addEventListenerAPI(`UNPAUSED`, this.unpause);
-
-    addEventListenerAPI(`VIEW`, async () => {
-      // the view event data is useless, but we use it as signal for checking what the camera state is:
-      const { CAMERA_STATE: camera } = await getAPI(`CAMERA_STATE`);
-
-      // If the camera enum is 10 or higher, we are not actually in-game, even if the SIM variable is 1.
-      if (camera > 10) {
-        console.log(`out-of-game camera, resetting sequence`);
-        this.sequencer.reset();
-      }
-
-      // So of course, if the camera is an in-game value and we hadn't started, start our sequence.
-      else if (!this.sequencer.state) {
-        console.log(`in-game camera while out of sequence: starting sequence`);
-        this.unpause();
-        this.sequencer.start();
-        this.waitForModel();
-      }
-    });
-  }
-
-  async waitForModel() {
-    const { sequencer } = this;
-    if (sequencer.state !== WAIT_FOR_GAME) return;
-    sequencer.next();
-
-    console.log(`loading model`);
-    const model = (this.flightModel = new FlightModel());
-    const { title, lat, long, engineCount } = await model.bootstrap();
-    this.lastUpdate.lat = lat;
-    this.lastUpdate.long = long;
-    console.log(model.values);
-
-    Questions.modelLoaded(title);
-    this.startNewTrail([lat, long]);
-    const once = true;
-    this.update(once);
-    this.waitForEngines(engineCount);
-  }
-
-  async waitForEngines(engineCount) {
-    const { sequencer } = this;
-    if (sequencer.state !== WAIT_FOR_MODEL) return;
-    sequencer.next();
-    console.log(`waiting for engines`);
-
-    const engines = [
-      `ENG_COMBUSTION:1`,
-      `ENG_COMBUSTION:2`,
-      `ENG_COMBUSTION:3`,
-      `ENG_COMBUSTION:4`,
-    ];
-
-    const checkEngines = async () => {
-      console.log(`check...`);
-      const results = await getAPI(...engines);
-      for (let i = 1; i <= engineCount; i++) {
-        if (results[`ENG_COMBUSTION:${i}`]) {
-          console.log(`engines are running`);
-          Questions.enginesRunning(true);
-          return this.startPolling();
-        }
-      }
-      setTimeout(checkEngines, 1000);
-    };
-
-    checkEngines();
-  }
-
-  async startPolling() {
-    const { sequencer } = this;
-    if (sequencer.state !== WAIT_FOR_ENGINES) return;
-    sequencer.next();
-    console.log(`starting the update poll`);
-    this.update();
-
-    // this.setupAirportHandling(this.map);
-  }
-
-  async update(once = false) {
-    if (!once && this.sequencer.state !== POLLING_GAME) return;
-    if (!once && this.locked_for_updates) return;
-    const data = await getAPI(...POLLING_PROPS);
-    if (data === null) return;
-    this.setState(data);
-    this.updatePage(data);
-    if (!once) {
-      this.locked_for_updates = true;
-      setTimeout(() => {
-        this.locked_for_updates = false;
-        this.update();
-      }, 1000);
-    }
-  }
-
-  // our "set state" function basically transforms all the game data into values and units we can use.
-  async setState(data) {
-    if (data.TITLE === undefined) return;
-
-    if (this.state.title !== data.TITLE) {
-      // Update our plane, because thanks to dev tools and add-ons, people can just switch planes mid-flight:
-      Questions.modelLoaded(data.TITLE);
-      // update our map icon
-      const pic = getAirplaneSrc(data.TITLE);
-      [...this.planeIcon.querySelectorAll(`img`)].forEach(
-        (img) => (img.src = `planes/${pic}`)
-      );
-    }
-
-    // start our current state object:
-    this.state = {
-      title: data.TITLE,
-      cg: data.STATIC_CG_TO_GROUND,
-    };
-
-    Object.assign(this.state, {
-      lat: deg(data.PLANE_LATITUDE),
-      long: deg(data.PLANE_LONGITUDE),
-      airBorn:
-        data.SIM_ON_GROUND === 0 || this.state.alt > this.state.galt + 30,
-      alt: data.INDICATED_ALTITUDE,
-      aTrim: data.AILERON_TRIM_PCT,
-      crashed: !(data.CRASH_FLAG === 0 && data.CRASH_SEQUENCE === 0),
-      bank: deg(data.PLANE_BANK_DEGREES),
-      bug: data.AUTOPILOT_HEADING_LOCK_DIR,
-      galt: data.GROUND_ALTITUDE,
-      heading: deg(data.PLANE_HEADING_DEGREES_MAGNETIC),
-      palt: data.PLANE_ALT_ABOVE_GROUND - this.state.cg,
-      pitch: deg(data.PLANE_PITCH_DEGREES),
-      speed: data.AIRSPEED_TRUE,
-      trim: data.ELEVATOR_TRIM_POSITION,
-      trueHeading: deg(data.PLANE_HEADING_DEGREES_TRUE),
-      turnRate: deg(data.TURN_INDICATOR_RATE),
-      vspeed: data.VERTICAL_SPEED,
-      yaw: deg(
-        data.PLANE_HEADING_DEGREES_MAGNETIC - data.GPS_GROUND_TRUE_TRACK
-      ),
-    });
-
-    // check to see if we need to mark the plane as crashed or not
-    const crashed = this.state.crashed;
-    if (this.lastUpdate.crashed !== crashed) {
-      const fn = crashed ? `add` : `remove`;
-      this.planeIcon.classList[fn](`crashed`);
-      Questions.planeCrashed(crashed);
-    }
-  }
-
-  async updatePage(data) {
-    if (paused) return;
-
+  /**
+   * We've seen this function before!
+   */
+  async updateState(state) {
+    this.state = state;
     const now = Date.now();
-    const { airBorn, speed, alt, galt, palt, vspeed, lat, long } = this.state;
-    const latLong = [lat, long];
+    const prev = this.lastUpdate.time || now - 1000;
+    if (now - prev < 100) return;
+    Questions.update(state);
 
-    if (airBorn && speed > 0) {
-      Questions.inTheAir(true);
-      Questions.usingAutoPilot(data.AUTOPILOT_MASTER);
+    // Check if we started a new flight because that requires
+    // immediately building a new flight trail:
+    try {
+      const { flying: wasFlying } = this.lastUpdate.flightInformation.general;
+      const { flying } = this.state.flightInformation.general;
+      const startedFlying = !wasFlying && flying;
+      if (startedFlying) this.startNewTrail();
+    } catch (e) {
+      // this will fail if we don't have lastUpdate yet, and that's fine.
     }
 
-    this.autopilot.setCurrentAltitude(alt);
+    // Keep our map up to date:
+    this.updateMap(now, state.flightInformation);
 
-    // Do we have a GPS coordinate? (And not the 0/0 you get while you're not in game?)
+    const flightData = state.flightInformation.data;
+    if (flightData) {
+      // Update the attitude indicator:
+      const { pitch, bank } = state.flightInformation.data;
+      Attitude.setPitchBank(pitch, bank);
+
+      // Update our science
+      this.updateChart(flightData);
+    }
+
+    // Super straight-forward:
+    const { autopilot: params } = state;
+    this.autopilot.update(flightData, params);
+    this.waypointOverlay.manage(params?.waypoints, params?.waypointsRepeat);
+
+    this.lastUpdate = { time: now, ...state };
+  }
+
+  /**
+   * A dedicated function for updating the map!
+   */
+  async updateMap(now, { model: flightModel, data: flightData, general }) {
+    if (!flightData) return;
+
+    const { map, marker, planeIcon } = this;
+    const { cruiseSpeed } = flightModel;
+    const { lat, long, speed } = flightData;
+
+    // Do we have a GPS coordinate? (And not the 0,0 off the West coast
+    // of Africa that you get while you're not in game?)
     if (lat === undefined || long === undefined) return;
     if (abs(lat) < 0.1 && abs(long) < 0.1) return;
-    document.getElementById(`lat`).textContent = lat.toFixed(5);
-    document.getElementById(`long`).textContent = long.toFixed(5);
 
-    // location change (or slew mode)
-    // 1 knot is 1.852 km/h, or 0.0005 km/s, which is 0.000005 degrees of arc per second.
-    // the "speed" is in (true) knots, so if we move more than speed * 0.000005 degrees,
-    // we know we teleported. Or the game's glitching. So to humour glitches, we'll
-    // double that to speed * 0.00001 and use that as cutoff value:
-    const moved = dist(this.lastUpdate.lat, this.lastUpdate.long, lat, long);
-    if (moved > speed * 0.0001) this.startNewTrail(latLong);
-
-    // Update our map and plane icon
-    if (centerBtn.checked) this.map.setView(latLong);
-    this.marker.setLatLng(latLong);
-
-    try {
-      this.trail.add(lat, long);
-    } catch (e) {
-      console.error(e);
+    // Then, did we teleport?
+    if (this.lastUpdate && this.trail) {
+      const [lat2, long2] = this.trail.getLast() || [lat, long];
+      const d = getDistanceBetweenPoints(lat, long, lat2, long2);
+      if (d > 1) this.startNewTrail([lat, long]);
     }
 
-    this.lastUpdate.lat;
-    this.lastUpdate.long = long;
+    // With all that done, we can add the current position to our current trail:
+    if (!this.trail) this.startNewTrail([lat, long]);
+    this.trail.add(lat, long);
 
-    const { bank, pitch, trim, aTrim, heading, trueHeading, turnRate, bug } =
-      this.state;
-    const { planeIcon } = this;
-    const st = planeIcon.style;
-    st.setProperty(`--altitude`, max(palt, 0));
-    st.setProperty(`--sqrt-alt`, sqrt(max(palt, 0)));
-    st.setProperty(`--speed`, speed | 0);
-    st.setProperty(`--north`, trueHeading - heading);
-    st.setProperty(`--heading`, heading);
-    st.setProperty(`--heading-bug`, bug);
+    // Update our plane's position on the Leaflet map:
+    marker.setLatLng([lat, long]);
 
-    let altitude =
-      (galt | 0) === 0 ? `${alt | 0}'` : `${palt | 0}' (${alt | 0}')`;
-    planeIcon.querySelector(`.alt`).textContent = altitude;
+    // And make sure the map stays centered on our plane,
+    // so we don't "fly off the screen":
+    if (this.centerMapOnPlane) map.setView([lat, long]);
+
+    // And set some classes that let us show pause/crash states:
+    const { paused, crashed } = general;
+    planeIcon.classList.toggle(`paused`, !!paused);
+    planeIcon.classList.toggle(`crashed`, !!crashed);
+
+    // Also, make sure we're using the right silhouette image:
+    const pic = getAirplaneSrc(flightModel.title);
+    [...planeIcon.querySelectorAll(`img`)].forEach(
+      (img) => (img.src = `planes/${pic}`)
+    );
+
+    // Then update the marker's CSS variables and various text bits:
+    this.updateMarker(planeIcon, flightData);
+  }
+
+  /**
+   * Show waypoints on the map, and allow the user to add, configure,
+   * and remove waypoints.
+   */
+  updateWaypoints(waypoints) {}
+
+  /**
+   * A dedicated function for updating the marker, which right now means
+   * updating the CSS variables we're using to show our plane and shadow.
+   */
+  updateMarker(planeIcon, flightData) {
+    const css = planeIcon.style;
+
+    const { alt, headingBug, groundAlt, lift } = flightData;
+    const { heading, speed, trueHeading } = flightData;
+
+    css.setProperty(`--altitude`, alt | 0);
+    css.setProperty(`--sqrt-alt`, sqrt(alt) | 0);
+    css.setProperty(`--speed`, speed | 0);
+    css.setProperty(`--north`, trueHeading - heading);
+    css.setProperty(`--heading`, heading);
+    css.setProperty(`--heading-bug`, headingBug);
+
+    const altitudeText =
+      (groundAlt | 0) === 0
+        ? `${alt | 0}'`
+        : `${(alt - groundAlt) | 0}' (${alt | 0}')`;
+    planeIcon.querySelector(`.alt`).textContent = altitudeText;
     planeIcon.querySelector(`.speed`).textContent = `${speed | 0}kts`;
+  }
 
-    Attitude.setPitchBank(pitch, bank);
-
-    const trimToDegree = (v) => (v / (Math.PI / 10)) * 90;
+  /**
+   * And then in the updateChart function we simply pick our
+   * values, and tell the charting solution to plot them.
+   */
+  updateChart(flightData) {
+    const { alt, bank, groundAlt, pitch } = flightData;
+    const { throttle, speed, heading, rudder } = flightData;
+    const { VS, pitchTrim, aileronTrim, turnRate, rudderTrim } = flightData;
+    const nullDelta = { VS: 0, pitch: 0, bank: 0 };
+    const { VS: dVS, pitch: dPitch, bank: dBank } = flightData.d ?? nullDelta;
 
     this.charts.update({
-      ground: galt,
+      // basics
+      ground: groundAlt,
       altitude: alt,
-      vspeed: vspeed * 60,
-      dvs:
-        ((vspeed - this.lastUpdate.vspeed) * 60) / (now - this.lastUpdate.time),
-      speed: speed,
-      pitch: pitch,
-      trim: trimToDegree(trim),
-      heading: heading - 180,
-      bank: bank,
-      dbank: (bank - this.lastUpdate.bank) / (now - this.lastUpdate.time),
-      "turn rate": turnRate,
-      "aileron trim": aTrim * 100,
+      throttle,
+      speed,
+      // elevator
+      VS,
+      dVS,
+      pitch,
+      dPitch,
+      // ailleron
+      heading,
+      bank,
+      dBank,
+      turnRate,
+      rudder,
+      //trim
+      pitchTrim,
+      aileronTrim,
+      rudderTrim,
     });
 
-    this.lastUpdate = { time: now, ...this.state };
-  }
-
-  // TEST
-
-  async setupAirportHandling(map) {
-    this.airports = [];
-    addEventListenerAPI(`AIRPORTS_IN_RANGE`, ([airports]) =>
-      this.addAirports(map, airports)
-    );
-    addEventListenerAPI(`AIRPORTS_OUT_OF_RANGE`, ([airports]) =>
-      this.removeAirports(airports)
-    );
-    const { NEARBY_AIRPORTS } = await getAPI(`NEARBY_AIRPORTS`);
-    console.log(NEARBY_AIRPORTS);
-    this.addAirports(map, NEARBY_AIRPORTS);
-  }
-
-  addAirports(map, added) {
-    const { airports } = this;
-    added.forEach((airport) => {
-      const { icao, latitude, longitude } = airport;
-      const marker = L.circle([latitude, longitude], 1);
-      marker.bindTooltip(icao, {
-        permanent: true,
-        direction: "bottom",
-      });
-      marker.addTo(map);
-      airports.push({ icao, marker });
-    });
-  }
-
-  removeAirports(removed) {
-    const { airports } = this;
-    removed.forEach((airport) => {
-      const pos = airports.findIndex((e) => e.icao === airport.icao);
-      if (pos > -1) {
-        const { marker } = airports[pos];
-        marker.remove();
-        airports.splice(pos, 1);
-      }
-    });
+    // and a special call to dual-plot the ground in the altitude graph
+    this.charts.updateChart(`altitude`, groundAlt, { limit: true });
   }
 }

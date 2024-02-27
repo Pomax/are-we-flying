@@ -1,66 +1,83 @@
-* {
-  font-family: Verdana;
+fieldset {
+  border: 1px solid black;
+  border-radius: 0.5em;
+  margin: 0;
+  padding: 0.25em 0.5em;
+  display: inline-block;
+
+  input[type="file"] {
+    color: transparent;
+    width: 6em;
+  }
 }
 
-#viz {
+input[type="number"] {
+  width: 8em;
+}
+
+div.modal {
+  width: 100%;
+  position: fixed;
   display: flex;
-  flex-direction: column;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: #0009;
+  z-index: 1000;
+  justify-content: center;
+  align-items: center;
+
+  & dialog.content {
+    background: white;
+    border: none;
+    border-radius: 0.5em;
+    padding: 0 2em 1em 2em;
+    box-shadow: 3px 3px 14px #000;
+
+    & h3 {
+      font-family: sans-serif;
+    }
+
+    & fieldset {
+      border: none;
+      padding: 0;
+      display: block;
+
+      & + fieldset {
+        margin-top: 1em;
+      }
+    }
+  }
 }
 
-.hidden {
-  display: none;
+label[for] {
+  cursor: pointer;
+  user-select: none;
 }
 
-formfield {
-  display: block;
+button.active {
+  background: red;
+  color: white;
 }
 
-input#title {
-  border: none;
-  font-size: 1rem;
-  color: inherit;
-  width: 30em;
-}
-
-.viz {
-  display: flex;
-  flex-direction: row;
-}
-
-#maps-selectors {
+#map-controls {
   margin: 0.5em 0;
 }
 
-#map {
-  border: 1px solid black;
-}
+body {
+  #science.hidden {
+    display: none;
+  }
 
-body > canvas,
-body > svg {
-  border: 1px solid black;
-}
+  &:has(#science.hidden) {
+    margin-bottom: 8em;
+  }
 
-.dashboard {
-  display: flex;
-  width: 100%;
-  flex-wrap: wrap;
-}
-.dashboard .panel {
-  width: 30vw;
-  border: 1px solid red;
-  flex: 0 0 auto;
-  margin: 5px;
-  overflow-x: scroll;
-}
-.dashboard .panel svg {
-  background: white;
-}
-
-.svg-chart {
-  width: 100%;
-  height: 200px;
-  margin: 0.25em;
-  border: 1px solid black;
-  display: block;
-  max-width: 100%;
+  &:has(.preamble.hidden) {
+    padding-top: 12em;
+  }
+  .preamble.hidden {
+    display: none;
+  }
 }

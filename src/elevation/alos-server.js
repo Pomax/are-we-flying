@@ -1,56 +1,65 @@
-import express from "express";
-import cors from "cors";
-import helmet from "helmet";
-import { ALOSInterface } from "./alos-interface.js";
+import http from "node:http";
+import { shimResponsePrototype } from "./shim-response-prototype.js";
+shimResponsePrototype(http.ServerResponse.prototype);
 
 import dotenv from "dotenv";
-dotenv.config({ path: "../../.env" });
+import { ENV_PATH } from "../utils/constants.js";
+dotenv.config({ path: ENV_PATH });
+
 const { DATA_FOLDER, ALOS_PORT: PORT } = process.env;
+import { ALOSInterface } from "./alos-interface.js";
 
-const app = express();
-app.disable("view cache");
-app.set("etag", false);
-app.use((_req, res, next) => {
-  res.set("Cache-Control", "no-store");
-  next();
-});
-app.use(helmet({ crossOriginEmbedderPolicy: false }));
-app.use(cors());
+// debugging magic
+import { traceFunctionCalls } from "../utils/tracer.js";
+const ALOS = traceFunctionCalls(new ALOSInterface(DATA_FOLDER));
 
-const ALOS = new ALOSInterface(DATA_FOLDER);
+// Boilerplate http server:
+function processRequest(req, res) {
+  const url = new URL(`http://localhost:${PORT}${req.url}`);
+  if (url.pathname !== `/`) return res.fail(`unsupported endpoint`);
 
-app.get(`/`, async (req, res) => {
-  const { locations } = req.query;
-  if (!locations) {
-    return res
-      .status(400)
-      .json({ reason: `There was no "locations" query parameter.` });
+  const query = new URLSearchParams(url.search);
+  const { points, poly } = Object.fromEntries(query.entries());
+  if (!points && !poly) {
+    return res.fail(`missing "points" or "poly" query argument`);
   }
 
-  try {
-    const coords = locations.split(`|`).map((s) => s.split(`,`));
-    await handleSingleLookup(res, coords);
-  } catch (err) {
-    console.error(`Caught`, err);
-    res.status(500).json({ reason: `lookup error` });
+  const values = (points || poly).split(`,`).map((v) => parseFloat(v));
+  if (values.length % 2 !== 0) {
+    return res.fail(`Wrong number of "points" values.`);
   }
-});
 
-async function handleSingleLookup(res, coords) {
-  const s = performance.now();
-  const data = coords.map(([lat, long]) => {
-    const elevation = ALOS.lookup(lat, long);
-    return {
-      latitude: +lat,
-      longitude: +long,
-      elevation,
+  const coords = [];
+  for (let i = 0, e = values.length; i < e; i += 2) {
+    coords.push(values.slice(i, i + 2));
+  }
+
+  if (points) {
+    console.log(`processing points`);
+    const start = Date.now();
+    const results = {
+      results: coords.map(([lat, long]) => ({
+        lat,
+        long,
+        elevation: ALOS.lookup(lat, long),
+      })),
     };
-  });
-  const e = performance.now() - s;
-  console.log(`Serviced query in ${e}ms`);
-  res.status(200).json(data);
+    results.ms = Date.now() - start;
+    return res.json(results);
+  }
+
+  if (poly) {
+    console.log(`processing poly`);
+    const start = Date.now();
+    const result = {
+      poly: coords,
+      result: ALOS.getMaxElevation(coords),
+    };
+    result.ms = Date.now() - start;
+    return res.json(result);
+  }
 }
 
-app.listen(PORT, () => {
+http.createServer(processRequest).listen(PORT, () => {
   console.log(`Elevation server listening on http://localhost:${PORT}`);
 });

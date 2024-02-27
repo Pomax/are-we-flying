@@ -1,25 +1,14 @@
 #questions {
+  list-style: none;
+  margin: 1em;
   padding: 0;
   text-indent: 0;
-  list-style: none;
-}
-
-#questions li:before {
-  content: "- ";
 }
 
 #questions li {
-  /* display: none; */
-}
-
-#questions li:has(input.server-up) {
   display: block;
 }
 
-#questions li:has(input:checked) + li {
-  display: block;
-}
-
-#questions li:has(input:checked) + li:has(span) + li {
-  display: block;
+#questions li:before {
+  content: "-";
 }

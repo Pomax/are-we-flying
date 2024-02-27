@@ -1,55 +1,53 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en-GB">
   <head>
-    <link rel="shortcut icon" href="data:;base64,iVBORw0KGgo=" />
     <meta charset="utf-8" />
-    <title>Is Pomax Flying?</title>
-    <link rel="stylesheet" href="css/index.css" />
-    <link rel="stylesheet" href="css/leaflet.css" />
-    <script type="module" src="js/index.js" defer async></script>
-    <script src="js/leaflet/leaflet.js" defer async></script>
-    <script src="js/leaflet/nautical.js" defer async type="module"></script>
+    <title>Are we flying?</title>
+    <link rel="stylesheet" href="js/leaflet/leaflet.min.css" async />
+    <script src="js/leaflet/leaflet.min.js" defer async></script>
+    <link rel="stylesheet" href="css/index.css" async />
+    <script src="js/index.js" type="module" async></script>
   </head>
   <body>
-    <section>
-      <h1>Is Pomax flying?</h1>
-
+    <div class="preamble">
+      <h1>Are we flying<span>?<span></h1>
       <p>
-        Let's see if Pomax is currently flying around in Microsoft Flight
-        Simulator 2020...
+        Let's see if we're currently flying around in Microsoft Flight Simulator
+        2020...
       </p>
-
       <ul id="questions" data-description="Templated from questions.html"></ul>
-    </section>
-
-    <div id="maps-selectors">
-      Map underlay:
-      <select class="map-layer-1"></select>
-      Map overlay:
-      <select class="map-layer-2"></select>
-      <label for="center-map">Center map on plane:</label>
-      <input id="center-map" type="checkbox" checked="checked" />
-
-      flight plan:
-      <button name="clear">clear</button>
-      <button name="reset">reset</button>
-      <button name="save">save</button>
-      load: <input type="file" name="load">
     </div>
-
-    <div id="viz">
+    <div id="map-controls">
+      <fieldset>
+        <label for="center-on-plane">Center map on plane</label>
+        <input id="center-on-plane" type="checkbox" checked="checked" />
+      </fieldset>
+      <fieldset>
+        <label for="show-labels">Show waypoint labels</label>
+        <input id="show-labels" type="checkbox" checked="checked" />
+      </fieldset>
+      <fieldset>
+        <label for="tiny-waypoints">Tiny waypoints</label>
+        <input id="tiny-waypoints" type="checkbox" />
+      </fieldset>
+      <fieldset>
+        flight plan:
+        <button class="save">save</button>
+        load: <input type="file" class="load" />
+      </fieldset>
+      <fieldset>
+        <button class="patrol">patrol</button>
+        <button class="go-around">go-around</button>
+        <button class="revalidate">revalidate</button>
+        <button class="reset">reset waypoints</button>
+        <button class="clear">clear waypoints</button>
+      </fieldset>
+    </div>
+    <div id="visualization">
       <div id="map" style="width: 1200px; height: 800px"></div>
-
-      <div style="width: 100%">
-        gps: <span id="lat">-</span>, <span id="long">-</span>
-      </div>
-
-      <div
-        id="attitude"
-        data-description="Templated from attitude.html"
-      ></div>
+      <div id="attitude" data-description="Templated from attitude.html"></div>
     </div>
-
     <div id="autopilot" data-description="Templated from autopilot.html"></div>
+    <div id="science" class="pane"></div>
   </body>
 </html>

@@ -1,3 +1,7 @@
+#visualization {
+  position: relative;
+}
+
 #attitude {
   --bank: 0;
   --pitch: 0;
@@ -8,15 +12,18 @@
   --dial-space: 3px;
 
   position: absolute;
+  top: 1em;
+  right: 1em;
   z-index: 1000;
   left: calc(1200px - 250px - 1.5em);
   width: 250px;
   height: 250px;
-  margin: 1em;
   background: #444;
   background-image: url(images/gray-textured-pattern-background-1488751952b8R.jpg);
   background-size: 120% 130%;
-  box-shadow: 0 0 13px 0 inset black, 7px 9px 10px 0px #0008;
+  box-shadow:
+    0 0 13px 0 inset black,
+    7px 9px 10px 0px #0008;
   border-radius: 1em;
 }
 
@@ -47,6 +54,10 @@
   border-radius: 0.3em 0.3em 0 0;
 }
 
+body:not(.connected) #attitude .sky {
+  background: #425d68;
+}
+
 #attitude .ground {
   background: sienna;
   position: absolute;
@@ -55,6 +66,10 @@
   left: 0;
   right: 0;
   border-radius: 0 0 0.3em 0.3em;
+}
+
+body:not(.connected) #attitude .ground {
+  background: #4d2918;
 }
 
 #attitude .scales {
@@ -189,6 +204,7 @@
   transform-origin: center center;
   transform: rotate(calc(1deg * var(--bank)));
   border: 2px solid #eee;
+  background: #384559;
 }
 
 #attitude .box .gyro .sky {

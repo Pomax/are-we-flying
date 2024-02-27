@@ -1,7 +1,5 @@
-import { join, resolve } from "path";
-import url from "url";
-
-const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
+import { join, resolve } from "node:path";
+const __dirname = import.meta.dirname;
 
 export const SEA_LEVEL = 0;
 export const ALOS_VOID_VALUE = -9999;

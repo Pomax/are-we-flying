@@ -1,8 +1,11 @@
 node_modules
-src/**/cache
-src/**/data
-src/**/alos-index.json
+**/node_modules
+**/cache
+**/data
+**/alos-index.json
 .DS_Store
 **/*.svg
 .env
+!parts/**/.env
 temp
+docs/index.html
