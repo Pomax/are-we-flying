@@ -61,7 +61,6 @@ export class ServerClass {
 
   async init() {
     const { clients } = this;
-    console.log(`clients:`, clients);
 
     // Mock (if needed)
     if (MOCKED) {

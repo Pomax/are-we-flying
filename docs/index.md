@@ -5173,7 +5173,92 @@ export class MockPlane {
 }
 ```
 
-## Waypoint navigation
+So how do we run this? Let's update our `src/classes/server/server.js` to look for a `--mock` runtime argument and then use this mock rather than trying to use the real SimConnect API:
+
+```javascript
+...
+
+// In order to prevent clients from directly accessing the MSFS
+// connector, we're going to make it a global (to our module):
+let api = false;
+
+import { MOCK_API } from "./mocks/mock-api.js";
+const USE_MOCK = process.argv.includes(`--mock`);
+
+// Next up, our server class:
+export class ServerClass {
+  ...
+
+  async init() {
+    const { clients } = this;
+
+    // set up the API variable - note that because this is a global,
+    // clients can't directly access the API. However, we'll be setting
+    // up some API routing to make that a non-issue in a bit.
+    api = USE_MOCK ? new MOCK_API() : new MSFS_API();
+
+    this.api = ...
+    autopilot = ...
+    this.autopilot = ...
+
+    if (USE_MOCK) {
+      // Explicitly bind the autopilot if we're running a mock,
+      // because the mock is going to have to turn it on without
+      // any sort of user involvement.
+      api.setAutopilot(autopilot);
+      // And allow clients to call this.server.mock.reset(),
+      this.mock = {
+        reset: (client) => api.reset(`Resetting the mock flight`),
+        setPlaybackRate: (client, v) => api.plane.setPlaybackRate(v),
+      };
+    }
+
+    connectServerToAPI(api, async () => {
+      ...
+    });
+  }
+
+  ...
+}
+```
+
+And done: if we now run `node api-server --mock`, we see the following:
+
+```
+
+      ==========================================
+      =                                        =
+      =        !!! USING MOCKED API !!!        =
+      =                                        =
+      ==========================================
+
+resetting autopilot
+--- Starting autopilot in 10 seconds ---
+Connected to MSFS.
+Registering API server to the general sim events.
+new game started, resetting autopilot
+resetting autopilot
+Server listening on http://localhost:8080
+9...
+8...
+7...
+6...
+5...
+4...
+3...
+2...
+1...
+Engaging autopilot
+Engaging heading hold at 270 degrees
+Engaging wing leveler. Initial trim: 0
+Engaging altitude hold at 1500 feet. Initial trim: 0
+```
+
+And firing up `node web-server.js --owner --browser` will show us that a flight's happening. As far as it knows, it's visualizing MSFS:
+
+![image-20240227091819795](./image-20240227091819795.png)
+
+## Adding waypoint navigation
 
 Our goal is going to be able to give the autopilot a bunch of coordinates and then make it fly our plane towards waypoints, and then when it gets close, transition to flying towards the next waypoint, and so on, until we run out of waypoints. Something like this:
 
@@ -12296,7 +12381,7 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
       height: 100%;
       padding: 1em 0;
       overflow: scroll;
-
+    
       & ul,
       & ol {
         padding-left: 1.25em;
