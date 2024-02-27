@@ -11894,6 +11894,7 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 
     #nav-menu {
       position: fixed;
+      top: 0;
       left: 0;
       width: 25%;
       height: 100%;
