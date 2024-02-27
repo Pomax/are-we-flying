@@ -11851,9 +11851,9 @@ First, let's do a quick "take-off and landing" at Victoria Airport in the Cessna
 
 <iframe width="1000" height="400" src="https://www.youtube.com/embed/jj1JLyk9c1s?si=pTMpkG-Qc1XcZ-I5" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
 
-And since that went pretty well, let's put this to real use: we'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/), on New Zealand's South Island, to [Wānaka](https://en.wikipedia.org/wiki/W%C4%81naka), with auto-takeoff, waypoint navigation, and auto-landing. Enjoy a 20 minute trip across some beautiful New Zealand scenery.
+And since that went pretty well, let's put this to real use: we'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/), on New Zealand's South Island, to [Wānaka](https://en.wikipedia.org/wiki/W%C4%81naka), with auto-takeoff, waypoint navigation, and auto-landing. Enjoy a 28 minute trip across some beautiful New Zealand scenery.
 
-<iframe width="1000" height="400" src="https://www.youtube.com/embed/xIyGfYj66T0" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
+<iframe width="1000" height="400" src="https://www.youtube.com/embed/TtmhvcGgsOo" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
 
 # Conclusions
 
