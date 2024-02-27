@@ -11890,6 +11890,15 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
   html body, html body div.container-lg {
     width: 75em!important;
     margin: 0 auto;
+    padding-left: 20em;
+
+    #nav-menu {
+      position: fixed;
+      left: 0;
+      width: 20em;
+      height: 100%;
+      overflow: scroll;
+    }
   }
   html body div.markdown-body h1:has(a) {
     display:none;
