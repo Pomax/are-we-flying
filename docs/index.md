@@ -1,3 +1,12 @@
+<section id="nav-menu">
+
+* table of contents goes here
+{:toc}
+
+</section>
+
+<main>
+
 # Flying planes with JavaScript
 {:.no_toc}
 
@@ -3229,7 +3238,7 @@ export const NAME_MAPPING = {
   IS_SLEW_ACTIVE: `slewMode`,
   ...
 ];
-  
+
 ...
 ```
 
@@ -3242,7 +3251,7 @@ export class AutoPilot {
 
   async run() {
     this.flightInfoUpdateHandler(await this.flightInformation.update());
-    
+
     // Should we skip this round?
     if (flightInformation.data.slewMode) return;
   }
@@ -10790,7 +10799,7 @@ function calculateRunwayApproaches(lat, long, vs1, climbSpeed, cruiseSpeed, airp
   runway.approach.forEach((approach, idx) => {
     ...
     approach.points = [p5, p4, p3, p2, p1;
-    
+
     // Calculate our pA point:
     const dA1 = 0.75 * d12;
     const dA = d1 + dA1;
@@ -10854,7 +10863,7 @@ function calculateRunwayApproaches(lat, long, vs1, climbSpeed, cruiseSpeed, airp
     ...
 
     // We're going to do this the simple way: we're simply going to
-    // sample along our path at 100m intervals, and if ALOS says 
+    // sample along our path at 100m intervals, and if ALOS says
     // there's an unsafe elevation at any sample point, the approach
     // is bad.
     const { points } = approach;
@@ -10908,7 +10917,7 @@ export class AutoLanding {
       const { approach } = approachData;
       const points = approach.points.slice();
       const last = points.at(-1);
-      // we store the 
+      // we store the
       points.forEach((p, i) => {
         points[i] = waypoints.add(
           ...p,       // lat, long, alt,
@@ -10936,7 +10945,7 @@ With the associated updates to the `waypoint-manager.js`:
 export class WayPointManager {
   ...
 
-  // We're going to add a boolean flag that we (potentially) update 
+  // We're going to add a boolean flag that we (potentially) update
   // each time we transition from one waypoint to the next:
   reset() {
     this.points = [];
@@ -10946,9 +10955,9 @@ export class WayPointManager {
     this.repeating = false;
     this.autopilot.onChange();
   }
-  
+
   ...
-   
+
   resetWaypoints() {
     this.glideReached = false;
     this.points.forEach((waypoint) => waypoint.reset());
@@ -10958,7 +10967,7 @@ export class WayPointManager {
   }
 
   ...
- 
+
   // Save a landing to the waypoint manager:
   setLanding({ airport, runway, approach }) {
     this.landing = { airport, runway, approach };
@@ -10968,7 +10977,7 @@ export class WayPointManager {
     this.landingPoints = this.points
       .slice()
       .filter((p) => p.landing)
-      .reverse();    
+      .reverse();
   }
 
   // Aaaand get the saved landing back out:
@@ -11038,7 +11047,7 @@ export class Waypoint {
   }
 
   ...
-  
+
   markForLanding(landing) {
     this.landing = landing;
   }
@@ -11055,7 +11064,7 @@ Nothing special going on there. Although we also want to update our `autopilot-r
 export class AutopilotRouter {
 
   ...
-  
+
   goAround(client) {
     autopilot.waypoints.goAround();
   }
@@ -11110,9 +11119,9 @@ export class WaypointOverlay {
 
     ...
   }
-    
+
   ...
-  
+
   addWaypoint(waypoint, number) {
     waypoint = Object.assign({}, waypoint);
     const { id, lat, long, completed, active, landing } = waypoint;
@@ -11120,10 +11129,10 @@ export class WaypointOverlay {
     const waypointClass = `waypoint-marker${completed ? ` completed` : ``}${
       active ? ` active` : ``
     }${landing ? ` landing` : ``}`;
-    
+
     ...
   }
-    
+
   updateWaypoint(waypoint, fromServer) {
     const { id, lat, long, alt, active, landing, completed } = fromServer;
 
@@ -11154,7 +11163,7 @@ And, of course, some CSS to make the landing points stand out, in `waypoint-over
   &.landing .waypoint-marker img {
     filter: hue-rotate(250deg) brightness(1.5);
   }
-  
+
   ...
 }
 ```
@@ -11171,7 +11180,7 @@ Which means it's time to actually implement the landing phases that get us safel
 ...
 export class AutoLanding {
   ...
-  
+
   async run(flightInformation) {
     // Should we even run?
     if (!flightInformation) return;
@@ -11187,16 +11196,16 @@ export class AutoLanding {
     const { api, waypoints } = autopilot;
     const points = waypoints.getLandingPoints();
     const [p5, p4, p3, p2, p1, pA, f1, f2] = points;
-    
+
     // And our flight plan.
     const { api, waypoints } = autopilot;
     let { currentWaypoint: target } = waypoints;
-    
+
     // Now then: which waypoint are we targeting, and what step of the landing are we flying?
     this.target = target;
     const { step } = this.stage;
     if (!target) { target = p5; } else if (!points.includes(target)) return;
-    
+
     // ... and we pick up the story here in the next section
   }
 }
@@ -11267,7 +11276,7 @@ Honestly: again, not much: we simply let the autopilot do what it needs to do un
 
 ```javascript
    ...
-   
+
    if (step === THROTTLE_TO_CLIMB_SPEED) {
       if (target === p2) {
         console.log(`glide slope reached`);
@@ -11277,7 +11286,7 @@ Honestly: again, not much: we simply let the autopilot do what it needs to do un
         stage.nextStage();
       }
     }
-   
+
    ...
 ```
 
@@ -11330,8 +11339,8 @@ export async function altitudeHold(autopilot, flightInformation) {
   const landing = waypoints.isLanding();
 
   ...
-  
-  if (FEATURES.EMERGENCY_PROTECTION) {  
+
+  if (FEATURES.EMERGENCY_PROTECTION) {
     // If we're landing, set reduced max VS values, biassed towards descent:
     const descentThreshold = landing ? 0.75 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
     const ascentThreshold = landing ? 0.5 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
@@ -11340,8 +11349,8 @@ export async function altitudeHold(autopilot, flightInformation) {
     // absolutely do not allow a positive VS. We want to go down, not up.
     const landingViolation = landing && alt > targetAlt && VS > 0;
     const VS_EMERGENCY = VS < -descentThreshold || VS > ascentThreshold || landingViolation;
-    
-    // Similarly, if we're landing, we don't want wild changes to 
+
+    // Similarly, if we're landing, we don't want wild changes to
     // our vertical speed. We want a glide, not a rollercoaster.
     const thresholdDvs = landing ? DEFAULT_MAX_dVS / 2 : DEFAULT_MAX_dVS;
     const DVS_EMERGENCY = dVS < -thresholdDvs || dVS > thresholdDvs;
@@ -11387,9 +11396,9 @@ And then our `fly-level.js`:
 export async function flyLevel(autopilot, state) {
   const { trim, api, waypoints } = autopilot;
   const landing = waypoints.isLanding();
-  
+
   ...
-  
+
   // First, we change our "max deflection" logic so we're always
   // decreasing it by a small amount, which will get counter-acted
   // as needed based on heading differences:
@@ -11449,7 +11458,7 @@ export class FlightInformation {
     }
 
     ...
-    
+
     return (this.data = data);
   }
   ...
@@ -11471,7 +11480,7 @@ The short final is similar to the main glide slope, except  we only need to drop
       const d2 = getDistanceBetweenPoints(p3.lat, p3.long, p4.lat, p4.long);
       const ratio = constrain(d1 / d2, 0, 1);
       const lerpAlt = constrainMap(ratio, 0, 1, p4.alt, p3.alt);
-      
+
       autopilot.setParameters({
         [ALTITUDE_HOLD]: lerpAlt,
         // However, we also want to make sure the plane slows down to
@@ -11497,7 +11506,7 @@ However, because this is the critical transition from "high up" to "low enough t
 
 export class AutoPilot {
   ...
-  
+
   async run() {
     ...
 
@@ -11524,10 +11533,10 @@ And then we make sure that the auto-landing `run` function returns a Boolean val
 ...
 export class AutoLanding {
   ...
-  
+
   async run(flightInformation) {
     ...
-    
+
     // Make the autopilot run at the higher polling interval based
     // on whether we return true or not at the end of this function:
     const shortFinal = step === RIDE_OUT_SHORT_FINAL;
@@ -11572,7 +11581,7 @@ export async function altitudeHold(autopilot, flightInformation) {
 
   ...
 
-  // ...and then scale our update so that we're only applying a 
+  // ...and then scale our update so that we're only applying a
   // "partial" update if we're running faster than baseline.
   update *= AP_INTERVAL / AUTOPILOT_INTERVAL;
 
@@ -11605,7 +11614,7 @@ This is the stage where we get to discover whether we land, or crash: we're goin
       for (let i = 1; i <= engineCount; i++) {
         await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
       }
-      
+
       stage.nextStage();
     }
 
@@ -11653,7 +11662,7 @@ While we're coasting down onto the runway, we do still have some work to do: we 
         for (let i = 1; i <= engineCount; i++) {
           await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
         }
-        
+
         // And in that same vein: speed brakes!
         console.log(`speed brakes (if available)`);
         await api.trigger(`SPOILERS_ON`);
@@ -11680,7 +11689,7 @@ Alright! We made it down, the plane is on the runway, we didn't crash... but tha
       for (let i = 1; i <= engineCount; i++) {
         await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
       }
-  
+
       // Also keep trying to pitch the plane up 2 degrees when the wheels
       // aren't on the runway. Because trust me: we're going to bounce.
       if (!onGround) {
@@ -11728,7 +11737,7 @@ Although in order to successfully auto-rudder, we'll need to add that `autoRudde
 ...
 export class AutoLanding {
   ...
-  
+
   reset(autopilot, lat, long, flightModel) {
     this.autoRudderPrevHDiff = 0;
     this.done = false;
@@ -11834,7 +11843,7 @@ function autoRudder(api, target, { onGround, lat, long, trueHeading, rudder }, p
 
   const newRudder = rudder / 100 + update;
   api.set(`RUDDER_POSITION`, newRudder);
-  
+
   // And return the current heading difference so the
   // code can cache that for use in the next call:
   return hDiff;
@@ -11845,7 +11854,7 @@ My god, we're done! _We're done!!_
 
 ### Testing \*Everything\*
 
-Now, testing this code is rather straight forward in that we just fire up MSFS, put a plan on a runway, create a bit of a flight plan, hit "take off" in the browser, and when we reach the last marker, we click "land" (we could automate that, but that's for another day. By you). However, since that does not translate well into pictures, let's just capture these tests using the medium of video. 
+Now, testing this code is rather straight forward in that we just fire up MSFS, put a plan on a runway, create a bit of a flight plan, hit "take off" in the browser, and when we reach the last marker, we click "land" (we could automate that, but that's for another day. By you). However, since that does not translate well into pictures, let's just capture these tests using the medium of video.
 
 First, let's do a quick "take-off and landing" at Victoria Airport in the Cessna 310R. We'll spawn the plane, click "land" to generate a set of landing waypoints, and then we'll click "take off" to make the plane take off, switch to autopilot, start flying the flight plan, and land itself on the same runway it took off from:
 
@@ -11876,6 +11885,7 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 
 — [Pomax](https://mastodon.social/@TheRealPomax)
 
+</main>
 
 
 <!-- This document has interactive graphics, which requires JS -->
@@ -11884,9 +11894,15 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 
 <!-- And I have style requirements -->
 <style>
-  html, body {
-    width: 800px;
+  html body, html body div.container-lg {
+    width: 75em!important;
     margin: 0 auto;
+  }
+  html body div.markdown-body h1:has(a) {
+    display:none;
+  }
+  html body div.markdown-body h1:not(:has(a)) {
+    font-size:2.5em;
   }
   img {
     max-width: 100%;
