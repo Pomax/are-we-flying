@@ -11898,6 +11898,11 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
       width: 20em;
       height: 100%;
       overflow: scroll;
+
+      &.markdown-body ul,
+      &.markdown-body ol {
+        padding-left: 1.25em;
+      }
     }
   }
   html body div.markdown-body h1:has(a) {
