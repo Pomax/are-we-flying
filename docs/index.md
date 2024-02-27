@@ -11898,10 +11898,11 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
       left: 0;
       width: 25%;
       height: 100%;
+      padding: 1em 0;
       overflow: scroll;
 
-      &.markdown-body ul,
-      &.markdown-body ol {
+      & ul,
+      & ol {
         padding-left: 1.25em;
       }
     }
