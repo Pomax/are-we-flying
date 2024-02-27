@@ -12369,9 +12369,10 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 <!-- And I have style requirements -->
 <style>
   html body, html body div.container-lg {
-    width: auto!important;
-    margin: auto!important;
-    padding-left: 12%!important;
+    width: auto !important;
+    max-width: 75% !important;
+    margin: auto !important;
+    padding-left: 12% !important;
 
     #nav-menu {
       position: fixed;
