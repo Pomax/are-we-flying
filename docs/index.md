@@ -51,7 +51,7 @@ If that sounds (and looks) good to you, then read on!
 
 {:.no_toc}
 
-table of contents goes here
+* table of contents goes here
 {:toc}
 
 # Part 1: The prep work
