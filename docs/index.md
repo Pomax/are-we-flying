@@ -4775,7 +4775,403 @@ If that sounds like too much work: it might be. And no one would blame you if yo
 
 ## Intermission: Mocking an MSFS
 
-I want people to have a `node api-server --mock`
+Not all the work we're doing here strictly speaking "requires" MSFS: if we had something that could pretend to be MSFS and feed us SimConnect data that is identical to MSFS then that would let us do some dev work with a "game" that we can tailor to suit whatever work we want to do, so before we start doing that work, let's mock ourselves a little MSFS, which requires:
+
+- Mocking the list of SimConnect variables we work with,
+- mocking a plane that works with those variables (basically creating the world's worst flight simulator), and
+- mocking a simconnect API so that calls go to our mocked variables.
+
+So let's do that! First, let's create a `src/classes/server/mocks` directory, and then create a file called `fake-flight-data.js`:
+
+```javascript
+import { radians } from "../../../utils/utils.js";
+
+/**
+ * Our starting point will be 1500 feet above runway 27
+ * at Victoria Airport on Vancouver Island, BC, Canada.
+ */
+const altitude = 1500;
+const static_cg_height = 5;
+const speed = 142;
+const declination = 15.883026056332483;
+const heading = 270;
+const lat = 48.646548831015394;
+const long = -123.41169834136964;
+const trimLimit = 18;
+
+/**
+ * All the values that our FlightInformation object needs:
+ */
+const data = {
+  AILERON_POSITION: 0,
+  AILERON_TRIM_PCT: 0,
+  AIRSPEED_INDICATED: speed * 0.95,
+  AIRSPEED_TRUE: speed,
+  AUTOPILOT_HEADING_LOCK_DIR: heading,
+  AUTOPILOT_MASTER: 0,
+  BRAKE_PARKING_POSITION: 0,
+  CAMERA_STATE: 2, // cockpit view
+  CAMERA_SUBSTATE: 2, // unlocked view
+  CATEGORY: 2,
+  CRASH_FLAG: 0,
+  CRASH_SEQUENCE: 0,
+  DESIGN_CRUISE_ALT: 12000,
+  DESIGN_SPEED_CLIMB: 100,
+  DESIGN_SPEED_MIN_ROTATION: 100,
+  DESIGN_SPEED_VC: 245,
+  DESIGN_SPEED_VS0: 60,
+  DESIGN_SPEED_VS1: 70,
+  DESIGN_TAKEOFF_SPEED: 100,
+  ELECTRICAL_AVIONICS_BUS_VOLTAGE: 480,
+  ELECTRICAL_TOTAL_LOAD_AMPS: -148.123,
+  ELEVATOR_POSITION: 0,
+  ELEVATOR_TRIM_DOWN_LIMIT: trimLimit,
+  ELEVATOR_TRIM_PCT: 0,
+  ELEVATOR_TRIM_POSITION: 0,
+  ELEVATOR_TRIM_UP_LIMIT: trimLimit,
+  ENG_COMBUSTION: 1, // note that we removed the :<num> suffix
+  ENGINE_TYPE: 1,
+  GEAR_HANDLE_POSITION: 0,
+  GEAR_POSITION: 1, // note that we removed the :<num> suffix
+  GEAR_SPEED_EXCEEDED: 0,
+  GENERAL_ENG_THROTTLE_LEVER_POSITION: 95,
+  GROUND_ALTITUDE: 0,
+  INCIDENCE_ALPHA: 0,
+  INDICATED_ALTITUDE: altitude,
+  IS_GEAR_FLOATS: 0,
+  IS_GEAR_RETRACTABLE: 1,
+  IS_TAIL_DRAGGER: 0,
+  MAGVAR: declination,
+  NUMBER_OF_ENGINES: 1,
+  OVERSPEED_WARNING: 0,
+  PLANE_ALT_ABOVE_GROUND_MINUS_CG: altitude - static_cg_height,
+  PLANE_ALT_ABOVE_GROUND: altitude,
+  PLANE_BANK_DEGREES: 0,
+  PLANE_HEADING_DEGREES_MAGNETIC: radians(heading),
+  PLANE_HEADING_DEGREES_TRUE: radians(heading + declination),
+  PLANE_LATITUDE: radians(lat),
+  PLANE_LONGITUDE: radians(long),
+  PLANE_PITCH_DEGREES: 0,
+  RUDDER_POSITION: 0,
+  RUDDER_TRIM_PCT: 0,
+  SIM_ON_GROUND: 0,
+  STALL_ALPHA: 0,
+  STATIC_CG_TO_GROUND: static_cg_height,
+  TAILWHEEL_LOCK_ON: 0,
+  TITLE: `pretty terrible testing plane`,
+  TOTAL_WEIGHT: 3000,
+  TURN_INDICATOR_RATE: 0,
+  TYPICAL_DESCENT_RATE: 80,
+  VERTICAL_SPEED: 0,
+  WING_AREA: 250,
+  WING_SPAN: 50,
+};
+
+/**
+ * And as our export, a function that returns a *copy*
+ * of the above data, so that we can reset to it if
+ * we need to.
+ */
+export function getInitialState() {
+  return Object.assign({}, data);
+}
+```
+
+Not much to it: since we're mocking the actual SimConnect variables, there's no conversion or renaming etc. Just the pure, original variables.
+
+Next up, a `mock-api.hs`:
+
+```javascript
+import { watch } from "../../../utils/reload-watcher.js";
+import { runLater } from "../../../utils/utils.js";
+
+let plane;
+let { MockPlane } = await watch(
+  import.meta.dirname,
+  "./mock-plane.js",
+  (lib) => {
+    MockPlane = lib.MockPlane;
+    if (plane) Object.setPrototypeOf(plane, MockPlane.prototype);
+  }
+);
+
+export class MOCK_API {
+  constructor() {
+    console.log(`
+      ==========================================
+      =                                        =
+      =        !!! USING MOCKED API !!!        =
+      =                                        =
+      ==========================================
+    `);
+    this.reset();
+  }
+
+  reset(notice) {
+    if (notice) console.log(notice);
+    plane ??= new MockPlane();
+    plane.reset();
+    this.plane = plane;
+    this.connected = true;
+    this.started = false;
+    const { autopilot } = this;
+    if (autopilot) {
+      autopilot.disable();
+      this.setAutopilot(autopilot);
+    }
+  }
+
+  async setAutopilot(autopilot) {
+    if (this.started) return;
+    this.autopilot = autopilot;
+    this.started = true;
+    // Start running a flight 10 seconds after start-up:
+    runLater(
+      () => autopilot.setParameters({ MASTER: true, LVL: true, ALT: 1500, HDG: 270 }),
+      10000,
+      `--- Starting autopilot in 10 seconds ---`,
+      // With a count-down so you know when things will happen:
+      () => {
+        for (let i = 1; i < 10; i++) {
+          const msg = `${10 - i}...`;
+          setTimeout(() => console.log(msg), 1000 * i);
+        }
+      }
+    );
+  }
+
+  // And then our API mocking: "get" and "set" go to our plane,
+  // the rest we're simply going to completely ignore.
+  async get(...props) {
+    const response = {};
+    props.forEach((name) => {
+      response[name] = plane.data[name.replace(/:.*/, ``)];
+    });
+    return response;
+  }
+
+  async set(name, value) {
+    plane.set(name.replace(/:.*/, ``), value);
+  }
+
+  async connect(options) {
+    // Always pretend we're connected
+    options?.onConnect?.();
+  }
+
+  async trigger() {
+    // do nothing.
+  }
+
+  async on() {
+    // also do nothing.
+  };
+}
+```
+
+And that leaves our `mock-plane.js`:
+
+```javascript
+import * as geomag from "geomag";
+import { getInitialState } from "./fake-flight-data.js";
+import { convertValues, renameData } from "../../../utils/flight-values.js";
+import {
+  FEET_PER_METER,
+  ONE_KTS_IN_KMS,
+  FPS_PER_KNOT,
+  ENV_PATH
+} from "../../../utils/constants.js";
+import {
+  constrainMap,
+  degrees,
+  getCompassDiff,
+  getPointAtDistance,
+  lerp,
+  radians,
+  runLater,
+} from "../../../utils/utils.js";
+
+import dotenv from "dotenv";
+dotenv.config({ path: ENV_PATH });
+const { DATA_FOLDER } = process.env;
+import { ALOSInterface } from "../../../elevation/alos-interface.js";
+const alos = new ALOSInterface(DATA_FOLDER);
+
+const { abs, sign, tan, PI } = Math;
+const UPDATE_FREQUENCY = 450;
+
+/**
+ * World's. Worst. Flight Sim.
+ */
+export class MockPlane {
+  constructor() {
+    this.reset();
+    this.playbackRate = 1;
+    this.run();
+  }
+
+  reset() {
+    this.data = getInitialState();
+  }
+
+  /**
+   * Make time pass for this plane.
+   */
+  run(previousCallTime = Date.now()) {
+    let callTime = Date.now();
+    const ms = callTime - previousCallTime;
+    if (ms > 10) {
+      this.update(ms);
+    } else {
+      callTime = previousCallTime;
+    }
+    runLater(() => this.run(callTime), UPDATE_FREQUENCY);
+  }
+
+  /**
+   * Set all heading-related values when the plane's heading updates.
+   */
+  setHeading(
+    deg,
+    lat = degrees(this.data.PLANE_LATITUDE),
+    long = degrees(this.data.PLANE_LONGITUDE),
+    alt = this.data.INDICATED_ALTITUDE / (1000 * FEET_PER_METER)
+  ) {
+    const { data } = this;
+    const declination = geomag.field(lat, long, alt).declination;
+    data.MAGVAR = radians(declination);
+    deg = (deg + 360) % 360;
+    data.PLANE_HEADING_DEGREES_MAGNETIC = radians(deg);
+    data.PLANE_HEADING_DEGREES_TRUE = radians(deg + declination);
+  }
+
+  /**
+   * Set all altitude-related values when the plane's altitude updates.
+   */
+  setAltitude(feet, groundAlt) {
+    const { data } = this;
+    data.INDICATED_ALTITUDE = feet;
+    data.PLANE_ALT_ABOVE_GROUND = feet - groundAlt * FEET_PER_METER;
+    data.PLANE_ALT_ABOVE_GROUND_MINUS_CG =
+      data.PLANE_ALT_ABOVE_GROUND - data.STATIC_CG_TO_GROUND;
+  }
+
+  /**
+   * This function basically runs the world's worst flight
+   * simulator: we're not even going to bother with a flight
+   * model and computing forces, even though we're trying to
+   * work with a trim-based autopilot, we're just going to
+   * constrainMap and interpolate our way to victory.
+   */
+  update(ms) {
+    // If the interval is too long, "do nothing",
+    // so we don't teleport around when the OS decides
+    // to throttle or suspend a process.
+    if (ms > 5 * UPDATE_FREQUENCY) return;
+
+    // allow "fast forward"
+    const interval = (ms / 1000) * this.playbackRate;
+
+    // First, use the code we already wrote to data-fy the flight.
+    const { data } = this;
+    const converted = Object.assign({}, data);
+    convertValues(converted);
+    renameData(converted, this.previousValues);
+    this.previousValues = converted;
+
+    // Update the current altitude by turning the current elevator
+    // trim position into a target pitch and vertical speed, and then
+    // applying a partial change so that the plane "takes a while to
+    // get there" because otherwise our autopilot won't work =)
+    const { pitchTrim, lat, long } = converted;
+    const p = sign(pitchTrim) * (abs(pitchTrim) / 100) ** 1.2;
+    const pitchAngle = constrainMap(p, -1, 1, -3, 3);
+    data.PLANE_PITCH_DEGREES = radians(pitchAngle);
+
+    // Okay fine, there's *one* bit of real math: converting
+    // the plane's pitch into a vertical speed, since we know
+    // how fast we're going, and thus how many feet per second
+    // we're covering, and thus how many vertical feet that
+    // works out to. This is, of course, *completely wrong*
+    // compared to the real world, but: this is a mock.
+    // We don't *need* realistic, we just need good enough.
+    const newVS =
+      tan(-data.PLANE_PITCH_DEGREES) *
+      FPS_PER_KNOT *
+      data.AIRSPEED_TRUE *
+      60 *
+      5;
+    data.VERTICAL_SPEED = lerp(0.15, data.VERTICAL_SPEED, newVS);
+
+    // Then update our current speed, based on the throttle lever,
+    // with a loss (or gain) offset based on the current vertical
+    // speed, so the autothrottle/targetVS code has something to
+    // work with.
+    const throttle = data.GENERAL_ENG_THROTTLE_LEVER_POSITION;
+    const vsOffset = constrainMap(newVS, -16, 16, -10, 10);
+    const speed = constrainMap(throttle, 0, 100, 0, 150) - vsOffset;
+    data.AIRSPEED_TRUE = lerp(0.8, data.AIRSPEED_TRUE, speed);
+    data.AIRSPEED_INDICATED = 0.95 * data.AIRSPEED_TRUE;
+
+    // Update the current bank and turn rate by turning the current
+    // aileron trim position into a values that we then "lerp to" so
+    // that the change is gradual.
+    const { aileronTrim } = converted;
+    const newBankDegrees = constrainMap(aileronTrim, -100, 100, 180, -180);
+    const newBank = 100 * radians(newBankDegrees);
+    data.PLANE_BANK_DEGREES = lerp(0.9, data.PLANE_BANK_DEGREES, newBank);
+    let turnRate = aileronTrim * 30;
+    data.TURN_INDICATOR_RATE = lerp(0.9, data.TURN_INDICATOR_RATE, turnRate);
+
+    // Update heading, taking into account that the slower we go, the
+    // faster we can turn, and the faster we go, the slower we can turn:
+    const { heading, headingBug } = converted;
+    const speedFactor = constrainMap(speed, 100, 150, 4, 1);
+    let updatedHeading = heading + speedFactor * turnRate * interval;
+    if (updatedHeading === heading && heading !== headingBug) {
+      const update = constrainMap(getCompassDiff(headingBug, heading), -3/2, 3/2, 3/2, -3/2);
+      updatedHeading = heading + update;
+    }
+    this.setHeading(updatedHeading, lat, long);
+
+    // Update our altitude values...
+    const { alt } = converted;
+    const newAltitude = alt + data.VERTICAL_SPEED * interval;
+    const groundAlt = (data.GROUND_ALTITUDE = alos.lookup(lat, long));
+    this.setAltitude(newAltitude, groundAlt * FEET_PER_METER);
+
+    // And update our GPS position.
+    const d = data.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
+    const h = degrees(data.PLANE_HEADING_DEGREES_TRUE);
+    const { lat: lat2, long: long2 } = getPointAtDistance(lat, long, d, h);
+    data.PLANE_LATITUDE = radians(lat2);
+    data.PLANE_LONGITUDE = radians(long2);
+  }
+
+  /**
+   * We accept all of four variables, one each so that
+   * ATT, ALT, and LVL modes work, and then one for updating
+   * the heading bug, because we use that in the browser.
+   */
+  set(name, value) {
+    const { data } = this;
+    if (name === `GENERAL_ENG_THROTTLE_LEVER_POSITION`) {
+      if (value < 0.01) value = 0;
+      data.GENERAL_ENG_THROTTLE_LEVER_POSITION = value;
+    }
+    if (name === `ELEVATOR_TRIM_POSITION`) {
+      data.ELEVATOR_TRIM_POSITION = value;
+      data.ELEVATOR_TRIM_PCT = constrainMap(value, -PI / 2, PI / 2, 1, -1);
+    }
+    if (name === `AILERON_TRIM_PCT`) {
+      data.AILERON_TRIM_PCT = value / 100;
+    }
+    if (name === `AUTOPILOT_HEADING_LOCK_DIR`) {
+      data.AUTOPILOT_HEADING_LOCK_DIR = value;
+    }
+  }
+}
+```
 
 ## Waypoint navigation
 
