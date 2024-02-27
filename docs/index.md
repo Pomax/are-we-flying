@@ -12381,7 +12381,7 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
       height: 100%;
       padding: 1em 0;
       overflow: scroll;
-    
+
       & ul,
       & ol {
         padding-left: 1.25em;
@@ -12409,6 +12409,15 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
       size: 80%;
       font-style: italic;
       text-align: right;
+    }
+  }
+  div.highlight pre.highlight span {
+    &.c, &.c1, &.cd, &.cm {
+      color: #137100!important;
+    }
+    &.err {
+      color: inherit;
+      background: inherit;
     }
   }
 </style>
