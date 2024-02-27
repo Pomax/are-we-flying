@@ -48,23 +48,11 @@ If that sounds (and looks) good to you, then read on!
 
 
 # Table of Contents
+
 {:.no_toc}
 
+table of contents goes here
 {:toc}
-
-# Table of topics
-
-This is a big read, and while the main focus is getting JavaScript to fly planes for us, we're also covering a lot of general programming topics because this is not a little toy problem, we're basically writing a product (just... a free one). So in addition to the regular table of content, you may also want to just find specific parts that teach you how to solve general programming problems:
-
-- websocket servers
-- environment files
-- test early, test often.
-- hot-reloading code
-- CSS variables and JS
-- SVG and JS
-- ...
-
-
 
 # Part 1: The prep work
 
