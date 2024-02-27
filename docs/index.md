@@ -5,7 +5,6 @@
 
 </section>
 
-<main>
 
 # Flying planes with JavaScript
 {:.no_toc}
@@ -57,7 +56,6 @@ If that sounds (and looks) good to you, then read on!
 
 
 # Table of Contents
-
 {:.no_toc}
 
 * table of contents goes here
@@ -11884,8 +11882,6 @@ So where do we go from here? Here are some thoughts:
 I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you see me flying, I might just be testing more code to add to this tutorial! =D
 
 — [Pomax](https://mastodon.social/@TheRealPomax)
-
-</main>
 
 
 <!-- This document has interactive graphics, which requires JS -->
