@@ -1,8 +1,5 @@
 <section id="nav-menu">
 
-* table of contents goes here
-{:toc}
-
 </section>
 
 
