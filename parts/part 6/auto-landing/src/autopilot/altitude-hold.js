@@ -103,18 +103,19 @@ export async function altitudeHold(autopilot, flightInformation) {
   // means we're pitching down (the same goes for dPitch).
   if (FEATURES.EMERGENCY_PROTECTION) {
     // Do we need to intervene?
-    const thresholdVS1 = landing ? 0.75 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
-    const thresholdVS2 = landing ? 0.5 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
+    const descentThreshold = landing ? 0.75 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
+    const ascentThreshold = landing ? 0.5 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
     // If we're landing, and our altitude is higher than our target,
     // absolutely do not allow a positive VS. We want to go down, not up.
     const landingViolation = landing && alt > targetAlt && VS > 0;
     const VS_EMERGENCY =
-      VS < -thresholdVS1 || VS > thresholdVS2 || landingViolation;
+      VS < -descentThreshold || VS > ascentThreshold || landingViolation;
+
+    // Similarly, if we're landing, we don't want wild changes to
+    // our vertical speed. We want a glide, not a rollercoaster.
     const thresholdDvs = landing ? DEFAULT_MAX_dVS / 2 : DEFAULT_MAX_dVS;
     const DVS_EMERGENCY = dVS < -thresholdDvs || dVS > thresholdDvs;
 
-    // If so, throw away the update we just computed, so
-    // we can put in a recovery update instead.
     if (VS_EMERGENCY || DVS_EMERGENCY) update = 0;
 
     const f = 4;
@@ -124,10 +125,13 @@ export async function altitudeHold(autopilot, flightInformation) {
 
     // Are we exceeding our "permissible" vertical speed?
     if (VS_EMERGENCY) {
-      console.log(`VS emergency! (${VS}/${thresholdVS1}/${thresholdVS2})`);
+      console.log(
+        `VS emergency! (${VS}/${descentThreshold}/${ascentThreshold})`
+      );
       if (landingViolation) {
-        // immediately trim down if we're ascending during landing
-        update += -fStep / 2;
+        // Immediately trim down if we're ascending during
+        // landing while we're still above the glide slope:
+        update -= fStep / 2;
       } else {
         update += constrainMap(VS, -fMaxVS, fMaxVS, fStep, -fStep);
       }

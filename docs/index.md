@@ -11333,24 +11333,25 @@ The first really interesting stage is the glide slope stage, where we want to pe
     ...
 ```
 
-Now, while we're gliding, we want to place some restrictions on the the altitude hold behaviour: we're supposed to glide down, and we don't want large VS swings, so let's add a little bit of extra code to our `altitude-hold.js`:
+Now, while we're gliding, we want to place some restrictions on the the altitude hold and wing leveler behaviour: we're supposed to glide down, and we don't want large VS swings, or "find mid-flight, not fine while landing" flight path drift, so let's add a little bit of extra code to our `altitude-hold.js`:
 
 ```javascript
 ...
 export async function altitudeHold(autopilot, flightInformation) {
   const { api, trim, AP_INTERVAL, waypoints } = autopilot;
+  const landing = waypoints.isLanding();
 
   ...
   
-  if (FEATURES.EMERGENCY_PROTECTION) {
-    // Do we need to intervene?
-    const landing = waypoints.isLanding();
-   
+  if (FEATURES.EMERGENCY_PROTECTION) {  
+    // If we're landing, set reduced max VS values, biassed towards descent:
+    const descentThreshold = landing ? 0.75 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
+    const ascentThreshold = landing ? 0.5 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
+
     // If we're landing, and our altitude is higher than our target,
     // absolutely do not allow a positive VS. We want to go down, not up.
-    const thresholdVS = landing ? DEFAULT_MAX_VS / 2 : DEFAULT_MAX_VS;
     const landingViolation = landing && alt > targetAlt && VS > 0;
-    const VS_EMERGENCY = VS < -thresholdVS || VS > thresholdVS || landingViolation;
+    const VS_EMERGENCY = VS < -descentThreshold || VS > ascentThreshold || landingViolation;
     
     // Similarly, if we're landing, we don't want wild changes to 
     // our vertical speed. We want a glide, not a rollercoaster.
@@ -11361,8 +11362,9 @@ export async function altitudeHold(autopilot, flightInformation) {
 
     if (VS_EMERGENCY) {
       if (landingViolation) {
-        // Immediately trim down if we're ascending during landing:
-        update +=  -fStep/2;
+        // Immediately trim down if we're ascending during
+        // landing while we're still above the glide slope:
+        update -=  fStep/2;
       } else {
         update += constrainMap(VS, -fMaxVS, fMaxVS, fStep, -fStep);
       }
@@ -11371,7 +11373,102 @@ export async function altitudeHold(autopilot, flightInformation) {
   }
   ...
 }
+
+// With a similar change to our target VS function, so that
+// we target a smaller max VS when we're landing.
+function getTargetVS(autopilot, maxVS, alt, speed, climbSpeed, VS, dVS) {
+  const { waypoints } = autopilot;
+  const landing = waypoints.isLanding();
+  ...
+  if (FEATURES.TARGET_TO_HOLD) {
+    ...
+    if (targetAlt) {
+      altDiff = targetAlt - alt;
+      if (landing) maxVS *= 0.75;
+      targetVS = constrainMap(altDiff, -plateau, plateau, -maxVS, maxVS);
+    }
+  }
+  ...
+}
 ```
+
+And then our `fly-level.js`:
+
+```javascript
+...
+export async function flyLevel(autopilot, state) {
+  const { trim, api, waypoints } = autopilot;
+  const landing = waypoints.isLanding();
+  
+  ...
+  
+  // First, we change our "max deflection" logic so we're always
+  // decreasing it by a small amount, which will get counter-acted
+  // as needed based on heading differences:
+  if (aHeadingDiff > 1) {
+    ...
+  }
+  updateMaxDeflection(autopilot, trim, -10, params);
+
+  // Then we'll use our offset value to help during landing
+  let offset = 0;
+
+  if (landing) {
+    offset -= headingDiff * 150;
+  }
+
+  if (upsideDown) {
+    ...
+  }
+  ...
+}
+```
+
+And then we'll also update the `getTargetHeading` function in `fly-level.js` because when we're landing we don't actually want to set our heading based on the direction the plane is _pointing_ in, but the direction we're _flying_ in. If we're flying with some kind of yaw, we actually want to look at our "real" heading in terms of where we just were, and where we are now, so let's add a `flightHeading` value and use that during landing:
+
+```javascript
+function getTargetHeading(parameters) {
+  const { autopilot, heading, flightHeading, speed, vs1, cruiseSpeed } =
+    parameters;
+  const { waypoints } = autopilot;
+  const landing = waypoints.isLanding();
+  ...
+  if (FEATURES.FLY_SPECIFIC_HEADING) {
+    targetHeading = waypoints.getHeading(parameters);
+    uncappedHeadingDiff = getCompassDiff(flightHeading, targetHeading);
+    if (!landing) {
+      const half = uncappedHeadingDiff / 2;
+      uncappedHeadingDiff = constrainMap(speed, vs1, cruiseSpeed, half, uncappedHeadingDiff);
+    }
+  }
+  ...
+}
+```
+
+And, for the last time, an update to our `flight-information.js` to add that value:
+
+```javascript
+...
+export class FlightInformation {
+  ...
+  async updateFlight() {
+    ...
+
+    data.flightHeading = data.heading;
+    if (this.data) {
+      data.flightHeading = getHeadingFromTo(this.data.lat, this.data.long, data.lat, data.long);
+      data.flightHeading -= data.declination;
+    }
+
+    ...
+    
+    return (this.data = data);
+  }
+  ...
+}
+```
+
+That's a bit more code than you might have expected, but we want to give ourselves the absolute best chance of making it to the ground alive!
 
 ####  Riding out the short final
 
@@ -11764,9 +11861,7 @@ Now, testing this code is rather straight forward in that we just fire up MSFS, 
 
 First, let's do a quick "take-off and landing" at Victoria Airport in the Cessna 310R. We'll spawn the plane, click "land" to generate a set of landing waypoints, and then we'll click "take off" to make the plane take off, switch to autopilot, start flying the flight plan, and land itself on the same runway it took off from:
 
-
-
-
+<iframe width="1000" height="400" src="https://www.youtube.com/embed/jj1JLyk9c1s?si=pTMpkG-Qc1XcZ-I5" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
 
 And since that went pretty well, let's put this to real use: we'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/), on New Zealand's South Island, to [Wānaka](https://en.wikipedia.org/wiki/W%C4%81naka), with auto-takeoff, waypoint navigation, and auto-landing. Enjoy a 20 minute trip across some beautiful New Zealand scenery.
 
@@ -11781,8 +11876,6 @@ We've just been writing JS bit by bit, and suddenly our code's flying aeroplanes
 And yes, getting to the point where can just hit "go" and enjoy the ride took a considerable amount of work, but the result is proportional to the time and effort we expended. We made something pretty damn impressive!
 
 So where do we go from here? Here are some thoughts:
-
-
 
 1. Our alt hold is still a bit wibbly, which is especially noticeable in planes like the Kodiak 100, or when playing game footage at 4x speed. This is a consequence of only firing off corrections every half second, but we could probably still find something that works a little better by using forward prediction and making the alt hold function not be stateless. And then the obvious follow-up would be to make the fly level/heading mode code not stateless, either.
 2. We could vastly improve auto landing by taking runway length and slope into account, as well as fitting an approach to the terrain instead of simply doing a yes/no basd on where we fairly naively placed our approach points. Imaging auto-landing at [Tenzing-Hillary Airport](https://en.wikipedia.org/wiki/Tenzing-Hillary_Airport), for instance!

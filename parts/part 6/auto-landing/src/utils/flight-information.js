@@ -95,12 +95,11 @@ export class FlightInformation {
     // As well as an "actually true heading" based on our
     // GPS track rather than the direction the plane is
     // pointing in
+    data.flightHeading = data.trueHeading;
     if (this.data) {
       data.flightHeading =
         getHeadingFromTo(this.data.lat, this.data.long, data.lat, data.long) -
         data.declination;
-    } else {
-      data.flightHeading = data.trueHeading;
     }
 
     // As well as for how many wheels are on the ground
