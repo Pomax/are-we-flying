@@ -5,13 +5,17 @@ import { constrainMap, runLater } from "../utils/utils.js";
 // Import our new constants
 import {
   ALTITUDE_HOLD,
-  AUTO_THROTTLE,
-  HEADING_MODE,
-  LEVEL_FLIGHT,
-  HEADING_TARGETS,
-  TERRAIN_FOLLOW,
-  TERRAIN_FOLLOW_DATA,
+  AUTO_LANDING_DATA,
+  AUTO_LANDING,
   AUTO_TAKEOFF,
+  AUTO_THROTTLE,
+  AUTOPILOT_INTERVAL,
+  FAST_AUTOPILOT_INTERVAL,
+  HEADING_MODE,
+  HEADING_TARGETS,
+  LEVEL_FLIGHT,
+  TERRAIN_FOLLOW_DATA,
+  TERRAIN_FOLLOW,
 } from "../utils/constants.js";
 
 let { flyLevel } = await watch(
@@ -52,8 +56,7 @@ let { AutoTakeoff } = await watch(dirname, `auto-takeoff.js`, (lib) => {
   }
 });
 
-const AUTOPILOT_INTERVAL = 500;
-const FAST_AUTOPILOT_INTERVAL = 100;
+let { AutoLanding } = await watch(dirname, `auto-landing.js`);
 
 export class AutoPilot {
   constructor(api, onChange = () => {}) {
@@ -66,6 +69,14 @@ export class AutoPilot {
     watch(dirname, `./waypoints/waypoint-manager.js`, (lib) => {
       WayPointManager = lib.WayPointManager;
       Object.setPrototypeOf(this.waypoints, WayPointManager.prototype);
+    });
+
+    this.autoLanding = false;
+    watch(dirname, `auto-landing.js`, (lib) => {
+      AutoLanding = lib.AutoLanding;
+      if (this.autoLanding) {
+        Object.setPrototypeOf(this.autoLanding, AutoLanding.prototype);
+      }
     });
 
     this.reset();
@@ -88,6 +99,8 @@ export class AutoPilot {
       [TERRAIN_FOLLOW]: false,
       [TERRAIN_FOLLOW_DATA]: false,
       [AUTO_TAKEOFF]: false,
+      [AUTO_LANDING]: false,
+      [AUTO_LANDING_DATA]: false,
     };
     this.resetTrim();
     if (autoTakeoff) {
@@ -171,6 +184,7 @@ export class AutoPilot {
   }
 
   async setTarget(key, value) {
+    // console.log(key, value);
     const { api, modes, trim } = this;
 
     if (modes[key] !== undefined) {
@@ -199,20 +213,18 @@ export class AutoPilot {
 
     // And we do the same if altitude hold got turned on.
     if (key === ALTITUDE_HOLD && value !== false) {
+      if (value === undefined) {
+        console.trace();
+      }
       const { ELEVATOR_TRIM_POSITION: pitch } = await api.get(
         "ELEVATOR_TRIM_POSITION"
       );
       trim.pitch = pitch;
-      // console.log(
-      //   `Engaging altitude hold at ${value} feet. Initial trim:`,
-      //   trim.pitch
-      // );
     }
 
     if (key === HEADING_MODE && value !== false) {
       // When we set a heading, update the "heading bug" in-game:
       api.set(`AUTOPILOT_HEADING_LOCK_DIR`, value);
-      // console.log(`Engaging heading hold at ${value} degrees`);
     }
 
     // Did we turn auto takeoff on or off?
@@ -224,6 +236,36 @@ export class AutoPilot {
       } else if (value === false && autoTakeoff) {
         autoTakeoff = false;
         this.AP_INTERVAL = AUTOPILOT_INTERVAL;
+      }
+    }
+
+    // Did we turn auto landing on or off?
+    if (key === AUTO_LANDING) {
+      if (!!value && this.flightInformation?.data) {
+        let { lat, long } = this.flightInformation.data;
+        const { waypoints } = this;
+        if (waypoints.active) {
+          const { lat: t, long: g } = waypoints.getWaypoints().at(-1);
+          lat = t;
+          long = g;
+        }
+
+        if (!this.autoLanding) {
+          // If we're turning it on, does it need run relative
+          // to our position, or the last waypoint?
+          this.autoLanding = new AutoLanding(
+            this,
+            lat,
+            long,
+            this.flightInformation.model,
+            value
+          );
+          this.setTarget(
+            AUTO_LANDING_DATA,
+            this.autoLanding.approachData ?? {}
+          );
+        }
+        this.autoLanding.reset(this, lat, long, this.flightInformation.model);
       }
     }
   }
@@ -257,19 +299,30 @@ export class AutoPilot {
   }
 
   async run() {
-    const { modes, flightInformation } = this;
+    const { modes, flightInformation, waypoints } = this;
+    const { currentWaypoint: waypoint } = waypoints;
 
-    // Get the most up to date flight information:
     this.flightInfoUpdateHandler(await flightInformation.update());
 
-    // Then run a single iteration of the wing leveler and altitude holder:
+    if (flightInformation.data.slewMode) return;
+
     try {
-      if (modes[LEVEL_FLIGHT]) flyLevel(this, flightInformation);
-      if (modes[ALTITUDE_HOLD]) altitudeHold(this, flightInformation);
-      if (modes[AUTO_THROTTLE]) autoThrottle(this, flightInformation);
-      if (modes[TERRAIN_FOLLOW]) terrainFollow(this, flightInformation);
+      if (modes[LEVEL_FLIGHT]) await flyLevel(this, flightInformation);
+      if (modes[ALTITUDE_HOLD]) await altitudeHold(this, flightInformation);
+      if (modes[AUTO_THROTTLE]) await autoThrottle(this, flightInformation);
+      if (modes[TERRAIN_FOLLOW]) await terrainFollow(this, flightInformation);
       if (modes[AUTO_TAKEOFF] && autoTakeoff) {
-        autoTakeoff.run(flightInformation);
+        await autoTakeoff.run(flightInformation);
+      } else if (
+        waypoint?.landing ||
+        (this.autoLanding && !this.autoLanding.done)
+      ) {
+        // While the landing can be done at the regular interval, once we're
+        // in the short final,
+        const shortFinal = await this.autoLanding.run(flightInformation);
+        this.AP_INTERVAL = shortFinal
+          ? FAST_AUTOPILOT_INTERVAL
+          : AUTOPILOT_INTERVAL;
       }
     } catch (e) {
       console.warn(e);

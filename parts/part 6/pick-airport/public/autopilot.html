@@ -1,0 +1,33 @@
+<div class="controls">
+  <link rel="stylesheet" href="/css/autopilot.css" />
+  <link rel="stylesheet" href="/css/waypoint-overlay.css" />
+  <button class="MASTER">AP</button>
+  <button class="arm-all">(arm all)</button>
+  <button class="ATT">ATT</button>
+  <button class="LVL">LVL</button>
+  <label>Target altitude: </label>
+  <input
+    class="altitude"
+    type="number"
+    min="0"
+    max="40000"
+    value="4500"
+    step="100"
+  />
+  <button title="altitude hold" class="ALT">ALT</button>
+  <label>Target heading: </label>
+  <input class="heading" type="number" min="1" max="360" value="360" step="1" />
+  <button title="heading mode" class="HDG">HDG</button>
+  <input type="hidden" class="HeadingTargets" value="" />
+  <fieldset>
+    <button title="terrain follow" class="TER">terrain follow</button>
+    <button title="auto takeoff" class="ATO no-arm">take off</button>
+    <button title="auto landing" class="ATL no-arm">land</button>
+  </fieldset>
+  <fieldset class="viz">
+    Show:
+    <button title="show radius" class="radius active">radius</button>
+    <button title="show radius" class="probe active">probe</button>
+    <button title="show radius" class="science active">science</button>
+  </fieldset>
+</div>

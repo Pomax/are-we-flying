@@ -7923,9 +7923,13 @@ Let's goooooo
 
 It's like flying a bullet. This is going to be amazing!
 
-#### [[ IMAGE SHOULD GO HERE ]]
+![image-20240229204704309](./image-20240229204704309.png)
 
-...or not? As it turns out, allowing the max aileron to go all the way down to zero, nor is allowing it to go all the way up to 50% of the physical stick tolerances, so we're going to need some extra rules for _properly_ twitchy planes if we want to keep them in the air. On the `autopilot.js` side we make the code "acrobatics-aware":
+...or not?
+
+![image-20240229204725354](./image-20240229204725354.png)
+
+As it turns out, allowing the max aileron to go all the way down to zero, and allowing it to go all the way up to 50% of the physical stick tolerances, means we're giving our plane either way too little, or way too much stick. So we're going to need some extra rules for _properly_ twitchy planes if we want to keep them in the air. On the `autopilot.js` side we make the code "acrobatics-aware":
 
 ```javascript
   resetTrim() {
@@ -10795,15 +10799,19 @@ There, how do we do now?
 
 Seriously? I've flown out of this place in the 310R, it's a joy, what more do you want?
 
-... as it turns out, what it wants is something that knows that there's trees at the end of the "runway" and thus knows to pull up hard to avoid them, which our autopilot just can't do. Of course, this code isn't done: we _could_ spend the next few days trying to refine it so that planes take off as early and as steeply as they physically can, but that sounds more like an exercise for the reader. In the mean time, we can still take off from something a little more "runway" than a grass field.
+... as it turns out, what it wants is something that knows that there's trees at the end of the "runway" and thus knows to pull up hard to avoid them, which our autopilot just can't do. Of course, this code isn't done: we _could_ spend the next few days trying to refine it so that planes take off as early and as steeply as they physically can, but that sounds more like an exercise for the reader. In the mean time, we can still take off from something a little more "runway" than a grass field. Welcome to [Chilliwack](https://en.wikipedia.org/wiki/Chilliwack), BC, Canada.
 
+![image-20240229205717077](./image-20240229205717077.png)
 
+Bit of a challenge: we're starting at, basically, sea level, and we'll need to get ourselves up many thousands of feet if we want to live.
 
----- insert graphics of a takeoff at Tahiti or the like ----
+![image-20240229205917427](./image-20240229205917427.png)
 
+Which we can't, so I'll set the plane to 360 degrees instead, which will give it a slight more realistic target:
 
+![image-20240229210154744](./image-20240229210154744.png)
 
-
+And now we'll get there so we can fly over, not _into_, the [Canadian Cascades](https://en.wikipedia.org/wiki/Canadian_Cascade_Arc)!
 
 ## Auto-landing
 
@@ -12328,7 +12336,7 @@ function autoRudder(api, target, { onGround, lat, long, trueHeading, rudder }, p
 
 My god, we're done! _We're done!!_
 
-### Testing \*Everything\*
+### Testing _Everything_
 
 Now, testing this code is rather straight forward in that we just fire up MSFS, put a plan on a runway, create a bit of a flight plan, hit "take off" in the browser, and when we reach the last marker, we click "land" (we could automate that, but that's for another day. By you). However, since that does not translate well into pictures, let's just capture these tests using the medium of video.
 
@@ -12382,7 +12390,7 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
       height: 100%;
       padding: 1em 0;
       overflow: scroll;
-
+    
       & ul,
       & ol {
         padding-left: 1.25em;
