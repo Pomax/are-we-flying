@@ -750,7 +750,7 @@ export API_PORT=8080
 export WEB_PORT=3000
 export FLIGHT_OWNER_KEY="dXNlcm5hbWVwYXNzd29yZA=="
 export FLIGHT_OWNER_USERNAME=username
-export FLIGHT_OWNER_PASSWORD=passwerd
+export FLIGHT_OWNER_PASSWORD=password
 ```
 
 Just a [base64](https://en.wikipedia.org/wiki/Base64) conversion of the string concatenation `"username" + "password"`... super secure! Of course, when we make our web page available, we'll want to make triple-sure that we change this key to something a little more secret-appropriate =)
@@ -12390,7 +12390,7 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
       height: 100%;
       padding: 1em 0;
       overflow: scroll;
-    
+
       & ul,
       & ol {
         padding-left: 1.25em;

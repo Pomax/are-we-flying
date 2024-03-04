@@ -2,7 +2,7 @@
 import { SystemEvents, loadAirportDB } from "msfs-simconnect-api-wrapper";
 import { KM_PER_NM } from "../../../utils/constants.js";
 const airports = loadAirportDB();
-
+const { min } = Math;
 const eventTracker = {};
 
 // And in order to cache GET requests, we're going to hash requests based on
@@ -89,22 +89,37 @@ export class APIRouter {
     );
 
     if (airportCall) {
-      const terms = airportCall.split(`:`);
+      let terms = airportCall.split(`:`);
       const radius = parseFloat(terms[1]) * KM_PER_NM;
-      let { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } = await api.get(
-        `PLANE_LATITUDE`,
-        `PLANE_LONGITUDE`
-      );
-      lat = degrees(lat);
-      long = degrees(long);
+      const coords = [];
+      if (terms.length === 2) {
+        let { PLANE_LATITUDE: lat, PLANE_LONGITUDE: long } = await api.get(
+          `PLANE_LATITUDE`,
+          `PLANE_LONGITUDE`
+        );
+        lat = degrees(lat);
+        long = degrees(long);
+        coords.push([lat, long]);
+      } else {
+        terms = terms.slice(2);
+        terms.forEach((v, i) => {
+          if (i % 2 === 1) return;
+          coords.push([v, terms[i + 1]]);
+        });
+      }
+
       return {
         [airportCall]: airports
           .map((airport) => {
-            airport.d = getDistanceBetweenPoints(
-              lat,
-              long,
-              airport.latitude,
-              airport.longitude
+            airport.d = min(
+              ...coords.map((target) =>
+                getDistanceBetweenPoints(
+                  target[0],
+                  target[1],
+                  airport.latitude,
+                  airport.longitude
+                )
+              )
             );
             return airport;
           })

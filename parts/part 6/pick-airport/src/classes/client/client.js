@@ -139,20 +139,25 @@ export class ClientClass {
     const lat = this.state.flightInformation?.data?.lat;
     const long = this.state.flightInformation?.data?.long;
 
+    let airportData = this.state.airportData;
     if (lat && long) {
-      this.airportData ??= { lat: 0, long: 0 };
-      const lat2 = this.airportData.lat;
-      const long2 = this.airportData.long;
+      airportData ??= { lat: 0, long: 0 };
+      const lat2 = airportData.lat;
+      const long2 = airportData.long;
       const d = getDistanceBetweenPoints(lat, long, lat2, long2);
       if (d > 10) {
-        const varName = `NEARBY_AIRPORTS:25`;
+        let waypoints = this.state.autopilot?.waypoints?.slice();
+        if (waypoints.length > 0) {
+          waypoints = `:${waypoints.map(p => `${p.lat}:${p.long}`).join(`:`)}`;
+        }
+        const varName = `NEARBY_AIRPORTS:25:${lat}:${long}${waypoints}`;
         const data = await this.server.api.get(varName);
         const airports = data[varName];
-        this.airportData = { airports, lat, long };
+        airportData = { airports, lat, long };
       }
     }
 
-    this.setState({ airportData: this.airportData, flightInformation });
+    this.setState({ airportData, flightInformation });
   }
 
   async onAutoPilot(params) {

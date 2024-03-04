@@ -43,9 +43,5 @@
     "socketless": "^3.1.0",
     "tiff": "^5.0.3",
     "ws": "^8.12.1"
-  },
-  "devDependencies": {
-    "cmark-gfm": "^0.9.0",
-    "serve": "^14.2.1"
   }
 }
