@@ -2,6 +2,8 @@
 
 ### https://pomax.github.io/are-we-flying
 
+(and if feel like you got _anything_ out of this work, consider (temporarily, even?) becoming a patron of my work over on https://www.patreon.com/bezierinfo, or send a one-time donatation to [help keep this project funded](https://www.paypal.com/donate/?cmd=_s-xclick&hosted_button_id=QPRDLNGDANJSW). Any amount is appreciated!)
+
 # What is this?
 
 this project is both the completed code for, and a tutorial on, writing an autopilot for MSFS that runs in Node and is controlled via a web page, by using MSFS's SimConnect SDK.
