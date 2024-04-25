@@ -1974,7 +1974,7 @@ Let's make a quick little plane icon and put that on the map, at the correct lat
 
 With that `plane.png` being a simple little non-existent plane silhouette:
 
-<img src="./images/plane.png" style="width: 72px; height: 50px" />
+<img src="./images/planes/plane.png" style="width: 72px; height: 50px" />
 
 And then we add a bit of CSS here, because while we _could_ rotate our plane and shadow using JavaScript, that's a bit silly when CSS comes with `tranform: rotate(...)` built in. All we need to do is make sure that the CSS variable `--heading` is some plain number in degrees (which we can, because that's one of our flight data values), and then CSS can do the rest. So:
 
