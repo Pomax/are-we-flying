@@ -1,8 +1,3 @@
-<section id="nav-menu">
-
-</section>
-
-
 # Flying planes with JavaScript
 {:.no_toc}
 
@@ -55,8 +50,21 @@ If that sounds (and looks) good to you, then read on!
 # Table of Contents
 {:.no_toc}
 
-* table of contents goes here
 {:toc}
+
+# Table of topics
+
+This is a big read, and while the main focus is getting JavaScript to fly planes for us, we're also covering a lot of general programming topics because this is not a little toy problem, we're basically writing a product (just... a free one). So in addition to the regular table of content, you may also want to just find specific parts that teach you how to solve general programming problems:
+
+- websocket servers
+- environment files
+- test early, test often.
+- hot-reloading code
+- CSS variables and JS
+- SVG and JS
+- ...
+
+
 
 # Part 1: The prep work
 
@@ -750,7 +758,7 @@ export API_PORT=8080
 export WEB_PORT=3000
 export FLIGHT_OWNER_KEY="dXNlcm5hbWVwYXNzd29yZA=="
 export FLIGHT_OWNER_USERNAME=username
-export FLIGHT_OWNER_PASSWORD=password
+export FLIGHT_OWNER_PASSWORD=passwerd
 ```
 
 Just a [base64](https://en.wikipedia.org/wiki/Base64) conversion of the string concatenation `"username" + "password"`... super secure! Of course, when we make our web page available, we'll want to make triple-sure that we change this key to something a little more secret-appropriate =)
@@ -1966,7 +1974,7 @@ Let's make a quick little plane icon and put that on the map, at the correct lat
 
 With that `plane.png` being a simple little non-existent plane silhouette:
 
-<img src="../public/planes/plane.png" style="width: 72px; height: 50px" />
+<img src="./images/planes/plane.png" style="width: 72px; height: 50px" />
 
 And then we add a bit of CSS here, because while we _could_ rotate our plane and shadow using JavaScript, that's a bit silly when CSS comes with `tranform: rotate(...)` built in. All we need to do is make sure that the CSS variable `--heading` is some plain number in degrees (which we can, because that's one of our flight data values), and then CSS can do the rest. So:
 
@@ -3233,7 +3241,7 @@ export const NAME_MAPPING = {
   IS_SLEW_ACTIVE: `slewMode`,
   ...
 ];
-
+  
 ...
 ```
 
@@ -3246,7 +3254,7 @@ export class AutoPilot {
 
   async run() {
     this.flightInfoUpdateHandler(await this.flightInformation.update());
-
+    
     // Should we skip this round?
     if (flightInformation.data.slewMode) return;
   }
@@ -3461,7 +3469,7 @@ Let's start with the simplest bit of the autopilot: "cruise control", which cons
 
 ### LVL: level mode
 
-<img src="./images/fly-level/left-bank.png" alt="left bank" style="height:10em" /><img src="./images/fly-level/level-flight.png" alt="flying straight" style="height:10em;" /><img src="./images/fly-level/right-bank.png" alt="right bank" style="height:10em;" />
+<img src="./images/fly-level/left-bank.png" alt="left bank" style="width:30%" /><img src="./images/fly-level/level-flight.png" alt="flying straight" style="width:30%" /><img src="./images/fly-level/right-bank.png" alt="right bank" style="width:30%" />
 
 Implementing level mode is probably the easiest of all autopilot functions: we're going to simply check "is the plane tilting left or right?" and if so, we move the **aileron trim**—a value that "biases" the plane to tilt left or right by adjusting the wing surfaces that tilt the plane—in the opposite direction. As long we do that a little bit at a time, and we do that for long enough, we'll eventually have the plane flying level.
 
@@ -4775,490 +4783,9 @@ If that sounds like too much work: it might be. And no one would blame you if yo
 
 ## Intermission: Mocking an MSFS
 
-Not all the work we're doing here strictly speaking "requires" MSFS: if we had something that could pretend to be MSFS and feed us SimConnect data that is identical to MSFS then that would let us do some dev work with a "game" that we can tailor to suit whatever work we want to do, so before we start doing that work, let's mock ourselves a little MSFS, which requires:
+I want people to have a `node api-server --mock`
 
-- Mocking the list of SimConnect variables we work with,
-- mocking a plane that works with those variables (basically creating the world's worst flight simulator), and
-- mocking a simconnect API so that calls go to our mocked variables.
-
-So let's do that! First, let's create a `src/classes/server/mocks` directory, and then create a file called `fake-flight-data.js`:
-
-```javascript
-import { radians } from "../../../utils/utils.js";
-
-/**
- * Our starting point will be 1500 feet above runway 27
- * at Victoria Airport on Vancouver Island, BC, Canada.
- */
-const altitude = 1500;
-const static_cg_height = 5;
-const speed = 142;
-const declination = 15.883026056332483;
-const heading = 270;
-const lat = 48.646548831015394;
-const long = -123.41169834136964;
-const trimLimit = 18;
-
-/**
- * All the values that our FlightInformation object needs:
- */
-const data = {
-  AILERON_POSITION: 0,
-  AILERON_TRIM_PCT: 0,
-  AIRSPEED_INDICATED: speed * 0.95,
-  AIRSPEED_TRUE: speed,
-  AUTOPILOT_HEADING_LOCK_DIR: heading,
-  AUTOPILOT_MASTER: 0,
-  BRAKE_PARKING_POSITION: 0,
-  CAMERA_STATE: 2, // cockpit view
-  CAMERA_SUBSTATE: 2, // unlocked view
-  CATEGORY: 2,
-  CRASH_FLAG: 0,
-  CRASH_SEQUENCE: 0,
-  DESIGN_CRUISE_ALT: 12000,
-  DESIGN_SPEED_CLIMB: 100,
-  DESIGN_SPEED_MIN_ROTATION: 100,
-  DESIGN_SPEED_VC: 245,
-  DESIGN_SPEED_VS0: 60,
-  DESIGN_SPEED_VS1: 70,
-  DESIGN_TAKEOFF_SPEED: 100,
-  ELECTRICAL_AVIONICS_BUS_VOLTAGE: 480,
-  ELECTRICAL_TOTAL_LOAD_AMPS: -148.123,
-  ELEVATOR_POSITION: 0,
-  ELEVATOR_TRIM_DOWN_LIMIT: trimLimit,
-  ELEVATOR_TRIM_PCT: 0,
-  ELEVATOR_TRIM_POSITION: 0,
-  ELEVATOR_TRIM_UP_LIMIT: trimLimit,
-  ENG_COMBUSTION: 1, // note that we removed the :<num> suffix
-  ENGINE_TYPE: 1,
-  GEAR_HANDLE_POSITION: 0,
-  GEAR_POSITION: 1, // note that we removed the :<num> suffix
-  GEAR_SPEED_EXCEEDED: 0,
-  GENERAL_ENG_THROTTLE_LEVER_POSITION: 95,
-  GROUND_ALTITUDE: 0,
-  INCIDENCE_ALPHA: 0,
-  INDICATED_ALTITUDE: altitude,
-  IS_GEAR_FLOATS: 0,
-  IS_GEAR_RETRACTABLE: 1,
-  IS_TAIL_DRAGGER: 0,
-  MAGVAR: declination,
-  NUMBER_OF_ENGINES: 1,
-  OVERSPEED_WARNING: 0,
-  PLANE_ALT_ABOVE_GROUND_MINUS_CG: altitude - static_cg_height,
-  PLANE_ALT_ABOVE_GROUND: altitude,
-  PLANE_BANK_DEGREES: 0,
-  PLANE_HEADING_DEGREES_MAGNETIC: radians(heading),
-  PLANE_HEADING_DEGREES_TRUE: radians(heading + declination),
-  PLANE_LATITUDE: radians(lat),
-  PLANE_LONGITUDE: radians(long),
-  PLANE_PITCH_DEGREES: 0,
-  RUDDER_POSITION: 0,
-  RUDDER_TRIM_PCT: 0,
-  SIM_ON_GROUND: 0,
-  STALL_ALPHA: 0,
-  STATIC_CG_TO_GROUND: static_cg_height,
-  TAILWHEEL_LOCK_ON: 0,
-  TITLE: `pretty terrible testing plane`,
-  TOTAL_WEIGHT: 3000,
-  TURN_INDICATOR_RATE: 0,
-  TYPICAL_DESCENT_RATE: 80,
-  VERTICAL_SPEED: 0,
-  WING_AREA: 250,
-  WING_SPAN: 50,
-};
-
-/**
- * And as our export, a function that returns a *copy*
- * of the above data, so that we can reset to it if
- * we need to.
- */
-export function getInitialState() {
-  return Object.assign({}, data);
-}
-```
-
-Not much to it: since we're mocking the actual SimConnect variables, there's no conversion or renaming etc. Just the pure, original variables.
-
-Next up, a `mock-api.hs`:
-
-```javascript
-import { watch } from "../../../utils/reload-watcher.js";
-import { runLater } from "../../../utils/utils.js";
-
-let plane;
-let { MockPlane } = await watch(
-  import.meta.dirname,
-  "./mock-plane.js",
-  (lib) => {
-    MockPlane = lib.MockPlane;
-    if (plane) Object.setPrototypeOf(plane, MockPlane.prototype);
-  }
-);
-
-export class MOCK_API {
-  constructor() {
-    console.log(`
-      ==========================================
-      =                                        =
-      =        !!! USING MOCKED API !!!        =
-      =                                        =
-      ==========================================
-    `);
-    this.reset();
-  }
-
-  reset(notice) {
-    if (notice) console.log(notice);
-    plane ??= new MockPlane();
-    plane.reset();
-    this.plane = plane;
-    this.connected = true;
-    this.started = false;
-    const { autopilot } = this;
-    if (autopilot) {
-      autopilot.disable();
-      this.setAutopilot(autopilot);
-    }
-  }
-
-  async setAutopilot(autopilot) {
-    if (this.started) return;
-    this.autopilot = autopilot;
-    this.started = true;
-    // Start running a flight 10 seconds after start-up:
-    runLater(
-      () => autopilot.setParameters({ MASTER: true, LVL: true, ALT: 1500, HDG: 270 }),
-      10000,
-      `--- Starting autopilot in 10 seconds ---`,
-      // With a count-down so you know when things will happen:
-      () => {
-        for (let i = 1; i < 10; i++) {
-          const msg = `${10 - i}...`;
-          setTimeout(() => console.log(msg), 1000 * i);
-        }
-      }
-    );
-  }
-
-  // And then our API mocking: "get" and "set" go to our plane,
-  // the rest we're simply going to completely ignore.
-  async get(...props) {
-    const response = {};
-    props.forEach((name) => {
-      response[name] = plane.data[name.replace(/:.*/, ``)];
-    });
-    return response;
-  }
-
-  async set(name, value) {
-    plane.set(name.replace(/:.*/, ``), value);
-  }
-
-  async connect(options) {
-    // Always pretend we're connected
-    options?.onConnect?.();
-  }
-
-  async trigger() {
-    // do nothing.
-  }
-
-  async on() {
-    // also do nothing.
-  };
-}
-```
-
-And that leaves our `mock-plane.js`:
-
-```javascript
-import * as geomag from "geomag";
-import { getInitialState } from "./fake-flight-data.js";
-import { convertValues, renameData } from "../../../utils/flight-values.js";
-import {
-  FEET_PER_METER,
-  ONE_KTS_IN_KMS,
-  FPS_PER_KNOT,
-  ENV_PATH
-} from "../../../utils/constants.js";
-import {
-  constrainMap,
-  degrees,
-  getCompassDiff,
-  getPointAtDistance,
-  lerp,
-  radians,
-  runLater,
-} from "../../../utils/utils.js";
-
-import dotenv from "dotenv";
-dotenv.config({ path: ENV_PATH });
-const { DATA_FOLDER } = process.env;
-import { ALOSInterface } from "../../../elevation/alos-interface.js";
-const alos = new ALOSInterface(DATA_FOLDER);
-
-const { abs, sign, tan, PI } = Math;
-const UPDATE_FREQUENCY = 450;
-
-/**
- * World's. Worst. Flight Sim.
- */
-export class MockPlane {
-  constructor() {
-    this.reset();
-    this.playbackRate = 1;
-    this.run();
-  }
-
-  reset() {
-    this.data = getInitialState();
-  }
-
-  /**
-   * Make time pass for this plane.
-   */
-  run(previousCallTime = Date.now()) {
-    let callTime = Date.now();
-    const ms = callTime - previousCallTime;
-    if (ms > 10) {
-      this.update(ms);
-    } else {
-      callTime = previousCallTime;
-    }
-    runLater(() => this.run(callTime), UPDATE_FREQUENCY);
-  }
-
-  /**
-   * Set all heading-related values when the plane's heading updates.
-   */
-  setHeading(
-    deg,
-    lat = degrees(this.data.PLANE_LATITUDE),
-    long = degrees(this.data.PLANE_LONGITUDE),
-    alt = this.data.INDICATED_ALTITUDE / (1000 * FEET_PER_METER)
-  ) {
-    const { data } = this;
-    const declination = geomag.field(lat, long, alt).declination;
-    data.MAGVAR = radians(declination);
-    deg = (deg + 360) % 360;
-    data.PLANE_HEADING_DEGREES_MAGNETIC = radians(deg);
-    data.PLANE_HEADING_DEGREES_TRUE = radians(deg + declination);
-  }
-
-  /**
-   * Set all altitude-related values when the plane's altitude updates.
-   */
-  setAltitude(feet, groundAlt) {
-    const { data } = this;
-    data.INDICATED_ALTITUDE = feet;
-    data.PLANE_ALT_ABOVE_GROUND = feet - groundAlt * FEET_PER_METER;
-    data.PLANE_ALT_ABOVE_GROUND_MINUS_CG =
-      data.PLANE_ALT_ABOVE_GROUND - data.STATIC_CG_TO_GROUND;
-  }
-
-  /**
-   * This function basically runs the world's worst flight
-   * simulator: we're not even going to bother with a flight
-   * model and computing forces, even though we're trying to
-   * work with a trim-based autopilot, we're just going to
-   * constrainMap and interpolate our way to victory.
-   */
-  update(ms) {
-    // If the interval is too long, "do nothing",
-    // so we don't teleport around when the OS decides
-    // to throttle or suspend a process.
-    if (ms > 5 * UPDATE_FREQUENCY) return;
-
-    // allow "fast forward"
-    const interval = (ms / 1000) * this.playbackRate;
-
-    // First, use the code we already wrote to data-fy the flight.
-    const { data } = this;
-    const converted = Object.assign({}, data);
-    convertValues(converted);
-    renameData(converted, this.previousValues);
-    this.previousValues = converted;
-
-    // Update the current altitude by turning the current elevator
-    // trim position into a target pitch and vertical speed, and then
-    // applying a partial change so that the plane "takes a while to
-    // get there" because otherwise our autopilot won't work =)
-    const { pitchTrim, lat, long } = converted;
-    const p = sign(pitchTrim) * (abs(pitchTrim) / 100) ** 1.2;
-    const pitchAngle = constrainMap(p, -1, 1, -3, 3);
-    data.PLANE_PITCH_DEGREES = radians(pitchAngle);
-
-    // Okay fine, there's *one* bit of real math: converting
-    // the plane's pitch into a vertical speed, since we know
-    // how fast we're going, and thus how many feet per second
-    // we're covering, and thus how many vertical feet that
-    // works out to. This is, of course, *completely wrong*
-    // compared to the real world, but: this is a mock.
-    // We don't *need* realistic, we just need good enough.
-    const newVS =
-      tan(-data.PLANE_PITCH_DEGREES) *
-      FPS_PER_KNOT *
-      data.AIRSPEED_TRUE *
-      60 *
-      5;
-    data.VERTICAL_SPEED = lerp(0.15, data.VERTICAL_SPEED, newVS);
-
-    // Then update our current speed, based on the throttle lever,
-    // with a loss (or gain) offset based on the current vertical
-    // speed, so the autothrottle/targetVS code has something to
-    // work with.
-    const throttle = data.GENERAL_ENG_THROTTLE_LEVER_POSITION;
-    const vsOffset = constrainMap(newVS, -16, 16, -10, 10);
-    const speed = constrainMap(throttle, 0, 100, 0, 150) - vsOffset;
-    data.AIRSPEED_TRUE = lerp(0.8, data.AIRSPEED_TRUE, speed);
-    data.AIRSPEED_INDICATED = 0.95 * data.AIRSPEED_TRUE;
-
-    // Update the current bank and turn rate by turning the current
-    // aileron trim position into a values that we then "lerp to" so
-    // that the change is gradual.
-    const { aileronTrim } = converted;
-    const newBankDegrees = constrainMap(aileronTrim, -100, 100, 180, -180);
-    const newBank = 100 * radians(newBankDegrees);
-    data.PLANE_BANK_DEGREES = lerp(0.9, data.PLANE_BANK_DEGREES, newBank);
-    let turnRate = aileronTrim * 30;
-    data.TURN_INDICATOR_RATE = lerp(0.9, data.TURN_INDICATOR_RATE, turnRate);
-
-    // Update heading, taking into account that the slower we go, the
-    // faster we can turn, and the faster we go, the slower we can turn:
-    const { heading, headingBug } = converted;
-    const speedFactor = constrainMap(speed, 100, 150, 4, 1);
-    let updatedHeading = heading + speedFactor * turnRate * interval;
-    if (updatedHeading === heading && heading !== headingBug) {
-      const update = constrainMap(getCompassDiff(headingBug, heading), -3/2, 3/2, 3/2, -3/2);
-      updatedHeading = heading + update;
-    }
-    this.setHeading(updatedHeading, lat, long);
-
-    // Update our altitude values...
-    const { alt } = converted;
-    const newAltitude = alt + data.VERTICAL_SPEED * interval;
-    const groundAlt = (data.GROUND_ALTITUDE = alos.lookup(lat, long));
-    this.setAltitude(newAltitude, groundAlt * FEET_PER_METER);
-
-    // And update our GPS position.
-    const d = data.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
-    const h = degrees(data.PLANE_HEADING_DEGREES_TRUE);
-    const { lat: lat2, long: long2 } = getPointAtDistance(lat, long, d, h);
-    data.PLANE_LATITUDE = radians(lat2);
-    data.PLANE_LONGITUDE = radians(long2);
-  }
-
-  /**
-   * We accept all of four variables, one each so that
-   * ATT, ALT, and LVL modes work, and then one for updating
-   * the heading bug, because we use that in the browser.
-   */
-  set(name, value) {
-    const { data } = this;
-    if (name === `GENERAL_ENG_THROTTLE_LEVER_POSITION`) {
-      if (value < 0.01) value = 0;
-      data.GENERAL_ENG_THROTTLE_LEVER_POSITION = value;
-    }
-    if (name === `ELEVATOR_TRIM_POSITION`) {
-      data.ELEVATOR_TRIM_POSITION = value;
-      data.ELEVATOR_TRIM_PCT = constrainMap(value, -PI / 2, PI / 2, 1, -1);
-    }
-    if (name === `AILERON_TRIM_PCT`) {
-      data.AILERON_TRIM_PCT = value / 100;
-    }
-    if (name === `AUTOPILOT_HEADING_LOCK_DIR`) {
-      data.AUTOPILOT_HEADING_LOCK_DIR = value;
-    }
-  }
-}
-```
-
-So how do we run this? Let's update our `src/classes/server/server.js` to look for a `--mock` runtime argument and then use this mock rather than trying to use the real SimConnect API:
-
-```javascript
-...
-
-// In order to prevent clients from directly accessing the MSFS
-// connector, we're going to make it a global (to our module):
-let api = false;
-
-import { MOCK_API } from "./mocks/mock-api.js";
-const USE_MOCK = process.argv.includes(`--mock`);
-
-// Next up, our server class:
-export class ServerClass {
-  ...
-
-  async init() {
-    const { clients } = this;
-
-    // set up the API variable - note that because this is a global,
-    // clients can't directly access the API. However, we'll be setting
-    // up some API routing to make that a non-issue in a bit.
-    api = USE_MOCK ? new MOCK_API() : new MSFS_API();
-
-    this.api = ...
-    autopilot = ...
-    this.autopilot = ...
-
-    if (USE_MOCK) {
-      // Explicitly bind the autopilot if we're running a mock,
-      // because the mock is going to have to turn it on without
-      // any sort of user involvement.
-      api.setAutopilot(autopilot);
-      // And allow clients to call this.server.mock.reset(),
-      this.mock = {
-        reset: (client) => api.reset(`Resetting the mock flight`),
-        setPlaybackRate: (client, v) => api.plane.setPlaybackRate(v),
-      };
-    }
-
-    connectServerToAPI(api, async () => {
-      ...
-    });
-  }
-
-  ...
-}
-```
-
-And done: if we now run `node api-server --mock`, we see the following:
-
-```
-
-      ==========================================
-      =                                        =
-      =        !!! USING MOCKED API !!!        =
-      =                                        =
-      ==========================================
-
-resetting autopilot
---- Starting autopilot in 10 seconds ---
-Connected to MSFS.
-Registering API server to the general sim events.
-new game started, resetting autopilot
-resetting autopilot
-Server listening on http://localhost:8080
-9...
-8...
-7...
-6...
-5...
-4...
-3...
-2...
-1...
-Engaging autopilot
-Engaging heading hold at 270 degrees
-Engaging wing leveler. Initial trim: 0
-Engaging altitude hold at 1500 feet. Initial trim: 0
-```
-
-And firing up `node web-server.js --owner --browser` will show us that a flight's happening. As far as it knows, it's visualizing MSFS:
-
-![image-20240227091819795](./image-20240227091819795.png)
-
-## Adding waypoint navigation
+## Waypoint navigation
 
 Our goal is going to be able to give the autopilot a bunch of coordinates and then make it fly our plane towards waypoints, and then when it gets close, transition to flying towards the next waypoint, and so on, until we run out of waypoints. Something like this:
 
@@ -7923,13 +7450,9 @@ Let's goooooo
 
 It's like flying a bullet. This is going to be amazing!
 
-![image-20240229204704309](./image-20240229204704309.png)
+#### [[ IMAGE SHOULD GO HERE ]]
 
-...or not?
-
-![image-20240229204725354](./image-20240229204725354.png)
-
-As it turns out, allowing the max aileron to go all the way down to zero, and allowing it to go all the way up to 50% of the physical stick tolerances, means we're giving our plane either way too little, or way too much stick. So we're going to need some extra rules for _properly_ twitchy planes if we want to keep them in the air. On the `autopilot.js` side we make the code "acrobatics-aware":
+...or not? As it turns out, allowing the max aileron to go all the way down to zero, nor is allowing it to go all the way up to 50% of the physical stick tolerances, so we're going to need some extra rules for _properly_ twitchy planes if we want to keep them in the air. On the `autopilot.js` side we make the code "acrobatics-aware":
 
 ```javascript
   resetTrim() {
@@ -8630,7 +8153,7 @@ And suddenly we have a way to query elevations for GPS coordinates, without havi
 
 If we look at the previous result's `ms` value, we see that it takes about 100 milliseconds to get a result... that's pretty long! It might not seem very long, but we don't want to get "a handful of elevation values", we're going to want to get a _whole bunch_ of them and find the highest elevation amongst them, so we Let's see which part(s) of the code are taking up how much time, [tracing the function calls](https://github.com/Pomax/js-call-tracer/tree/main):
 
-```
+```javascript
 ╭┈┈
 │ —> call: ALOSInterface.lookup([48.8,-123.8])
 │ —>   call: ALOSInterface.getTileFor(...)
@@ -8740,7 +8263,7 @@ export class ALOSInterface {
 
 Just a few lines of code, but look at the improvement that bought us:
 
-```
+```javascript
 ╭┈┈
 │ —> call: ALOSInterface.lookup([48.8,-123.8])
 │ —>   call: ALOSInterface.getTileFor(...)
@@ -9379,7 +8902,7 @@ export class ALOSInterface {
 
 So let's explore that `splitAsQuadrants` function. At the distances we want to work with, polygons will almost certainly cross degree lines, but they _won't_ be crossing more than one degree line in either direction, which leaves us with the following possibilities:
 
-<div style="text-align:center"><img src="./image-20240207220242889.png" alt="image-20240207220242889" style="zoom:20%;" /><img src="./image-20240207220309961.png" alt="image-20240207220309961" style="zoom:20%;" /><img src="./image-20240207220348606.png" alt="image-20240207220348606" style="zoom:20%;" /><img src="./image-20240207220430386.png" alt="image-20240207220430386" style="zoom:20%;" /></div>
+<div style="text-align:center"><img src="./image-20240207220242889.png" alt="image-20240207220242889" style="width:21%" /><img src="./image-20240207220309961.png" alt="image-20240207220309961" style="width:21%" /><img src="./image-20240207220348606.png" alt="image-20240207220348606" style="width:21%" /><img src="./image-20240207220430386.png" alt="image-20240207220430386" style="width:21%" /></div>
 
 As well as a special case where one of our edges may cross both the vertical and horizontal degree lines at the same time:
 
@@ -10799,19 +10322,15 @@ There, how do we do now?
 
 Seriously? I've flown out of this place in the 310R, it's a joy, what more do you want?
 
-... as it turns out, what it wants is something that knows that there's trees at the end of the "runway" and thus knows to pull up hard to avoid them, which our autopilot just can't do. Of course, this code isn't done: we _could_ spend the next few days trying to refine it so that planes take off as early and as steeply as they physically can, but that sounds more like an exercise for the reader. In the mean time, we can still take off from something a little more "runway" than a grass field. Welcome to [Chilliwack](https://en.wikipedia.org/wiki/Chilliwack), BC, Canada.
+... as it turns out, what it wants is something that knows that there's trees at the end of the "runway" and thus knows to pull up hard to avoid them, which our autopilot just can't do. Of course, this code isn't done: we _could_ spend the next few days trying to refine it so that planes take off as early and as steeply as they physically can, but that sounds more like an exercise for the reader. In the mean time, we can still take off from something a little more "runway" than a grass field.
 
-![image-20240229205717077](./image-20240229205717077.png)
 
-Bit of a challenge: we're starting at, basically, sea level, and we'll need to get ourselves up many thousands of feet if we want to live.
 
-![image-20240229205917427](./image-20240229205917427.png)
+---- insert graphics of a takeoff at Tahiti or the like ----
 
-Which we can't, so I'll set the plane to 360 degrees instead, which will give it a slight more realistic target:
 
-![image-20240229210154744](./image-20240229210154744.png)
 
-And now we'll get there so we can fly over, not _into_, the [Canadian Cascades](https://en.wikipedia.org/wiki/Canadian_Cascade_Arc)!
+
 
 ## Auto-landing
 
@@ -11283,7 +10802,7 @@ function calculateRunwayApproaches(lat, long, vs1, climbSpeed, cruiseSpeed, airp
   runway.approach.forEach((approach, idx) => {
     ...
     approach.points = [p5, p4, p3, p2, p1;
-
+    
     // Calculate our pA point:
     const dA1 = 0.75 * d12;
     const dA = d1 + dA1;
@@ -11347,7 +10866,7 @@ function calculateRunwayApproaches(lat, long, vs1, climbSpeed, cruiseSpeed, airp
     ...
 
     // We're going to do this the simple way: we're simply going to
-    // sample along our path at 100m intervals, and if ALOS says
+    // sample along our path at 100m intervals, and if ALOS says 
     // there's an unsafe elevation at any sample point, the approach
     // is bad.
     const { points } = approach;
@@ -11401,7 +10920,7 @@ export class AutoLanding {
       const { approach } = approachData;
       const points = approach.points.slice();
       const last = points.at(-1);
-      // we store the
+      // we store the 
       points.forEach((p, i) => {
         points[i] = waypoints.add(
           ...p,       // lat, long, alt,
@@ -11429,7 +10948,7 @@ With the associated updates to the `waypoint-manager.js`:
 export class WayPointManager {
   ...
 
-  // We're going to add a boolean flag that we (potentially) update
+  // We're going to add a boolean flag that we (potentially) update 
   // each time we transition from one waypoint to the next:
   reset() {
     this.points = [];
@@ -11439,9 +10958,9 @@ export class WayPointManager {
     this.repeating = false;
     this.autopilot.onChange();
   }
-
+  
   ...
-
+   
   resetWaypoints() {
     this.glideReached = false;
     this.points.forEach((waypoint) => waypoint.reset());
@@ -11451,7 +10970,7 @@ export class WayPointManager {
   }
 
   ...
-
+ 
   // Save a landing to the waypoint manager:
   setLanding({ airport, runway, approach }) {
     this.landing = { airport, runway, approach };
@@ -11461,7 +10980,7 @@ export class WayPointManager {
     this.landingPoints = this.points
       .slice()
       .filter((p) => p.landing)
-      .reverse();
+      .reverse();    
   }
 
   // Aaaand get the saved landing back out:
@@ -11531,7 +11050,7 @@ export class Waypoint {
   }
 
   ...
-
+  
   markForLanding(landing) {
     this.landing = landing;
   }
@@ -11548,7 +11067,7 @@ Nothing special going on there. Although we also want to update our `autopilot-r
 export class AutopilotRouter {
 
   ...
-
+  
   goAround(client) {
     autopilot.waypoints.goAround();
   }
@@ -11603,9 +11122,9 @@ export class WaypointOverlay {
 
     ...
   }
-
+    
   ...
-
+  
   addWaypoint(waypoint, number) {
     waypoint = Object.assign({}, waypoint);
     const { id, lat, long, completed, active, landing } = waypoint;
@@ -11613,10 +11132,10 @@ export class WaypointOverlay {
     const waypointClass = `waypoint-marker${completed ? ` completed` : ``}${
       active ? ` active` : ``
     }${landing ? ` landing` : ``}`;
-
+    
     ...
   }
-
+    
   updateWaypoint(waypoint, fromServer) {
     const { id, lat, long, alt, active, landing, completed } = fromServer;
 
@@ -11647,7 +11166,7 @@ And, of course, some CSS to make the landing points stand out, in `waypoint-over
   &.landing .waypoint-marker img {
     filter: hue-rotate(250deg) brightness(1.5);
   }
-
+  
   ...
 }
 ```
@@ -11664,7 +11183,7 @@ Which means it's time to actually implement the landing phases that get us safel
 ...
 export class AutoLanding {
   ...
-
+  
   async run(flightInformation) {
     // Should we even run?
     if (!flightInformation) return;
@@ -11680,16 +11199,16 @@ export class AutoLanding {
     const { api, waypoints } = autopilot;
     const points = waypoints.getLandingPoints();
     const [p5, p4, p3, p2, p1, pA, f1, f2] = points;
-
+    
     // And our flight plan.
     const { api, waypoints } = autopilot;
     let { currentWaypoint: target } = waypoints;
-
+    
     // Now then: which waypoint are we targeting, and what step of the landing are we flying?
     this.target = target;
     const { step } = this.stage;
     if (!target) { target = p5; } else if (!points.includes(target)) return;
-
+    
     // ... and we pick up the story here in the next section
   }
 }
@@ -11760,7 +11279,7 @@ Honestly: again, not much: we simply let the autopilot do what it needs to do un
 
 ```javascript
    ...
-
+   
    if (step === THROTTLE_TO_CLIMB_SPEED) {
       if (target === p2) {
         console.log(`glide slope reached`);
@@ -11770,7 +11289,7 @@ Honestly: again, not much: we simply let the autopilot do what it needs to do un
         stage.nextStage();
       }
     }
-
+   
    ...
 ```
 
@@ -11823,8 +11342,8 @@ export async function altitudeHold(autopilot, flightInformation) {
   const landing = waypoints.isLanding();
 
   ...
-
-  if (FEATURES.EMERGENCY_PROTECTION) {
+  
+  if (FEATURES.EMERGENCY_PROTECTION) {  
     // If we're landing, set reduced max VS values, biassed towards descent:
     const descentThreshold = landing ? 0.75 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
     const ascentThreshold = landing ? 0.5 * DEFAULT_MAX_VS : DEFAULT_MAX_VS;
@@ -11833,8 +11352,8 @@ export async function altitudeHold(autopilot, flightInformation) {
     // absolutely do not allow a positive VS. We want to go down, not up.
     const landingViolation = landing && alt > targetAlt && VS > 0;
     const VS_EMERGENCY = VS < -descentThreshold || VS > ascentThreshold || landingViolation;
-
-    // Similarly, if we're landing, we don't want wild changes to
+    
+    // Similarly, if we're landing, we don't want wild changes to 
     // our vertical speed. We want a glide, not a rollercoaster.
     const thresholdDvs = landing ? DEFAULT_MAX_dVS / 2 : DEFAULT_MAX_dVS;
     const DVS_EMERGENCY = dVS < -thresholdDvs || dVS > thresholdDvs;
@@ -11880,9 +11399,9 @@ And then our `fly-level.js`:
 export async function flyLevel(autopilot, state) {
   const { trim, api, waypoints } = autopilot;
   const landing = waypoints.isLanding();
-
+  
   ...
-
+  
   // First, we change our "max deflection" logic so we're always
   // decreasing it by a small amount, which will get counter-acted
   // as needed based on heading differences:
@@ -11942,7 +11461,7 @@ export class FlightInformation {
     }
 
     ...
-
+    
     return (this.data = data);
   }
   ...
@@ -11964,7 +11483,7 @@ The short final is similar to the main glide slope, except  we only need to drop
       const d2 = getDistanceBetweenPoints(p3.lat, p3.long, p4.lat, p4.long);
       const ratio = constrain(d1 / d2, 0, 1);
       const lerpAlt = constrainMap(ratio, 0, 1, p4.alt, p3.alt);
-
+      
       autopilot.setParameters({
         [ALTITUDE_HOLD]: lerpAlt,
         // However, we also want to make sure the plane slows down to
@@ -11990,7 +11509,7 @@ However, because this is the critical transition from "high up" to "low enough t
 
 export class AutoPilot {
   ...
-
+  
   async run() {
     ...
 
@@ -12017,10 +11536,10 @@ And then we make sure that the auto-landing `run` function returns a Boolean val
 ...
 export class AutoLanding {
   ...
-
+  
   async run(flightInformation) {
     ...
-
+    
     // Make the autopilot run at the higher polling interval based
     // on whether we return true or not at the end of this function:
     const shortFinal = step === RIDE_OUT_SHORT_FINAL;
@@ -12065,7 +11584,7 @@ export async function altitudeHold(autopilot, flightInformation) {
 
   ...
 
-  // ...and then scale our update so that we're only applying a
+  // ...and then scale our update so that we're only applying a 
   // "partial" update if we're running faster than baseline.
   update *= AP_INTERVAL / AUTOPILOT_INTERVAL;
 
@@ -12098,7 +11617,7 @@ This is the stage where we get to discover whether we land, or crash: we're goin
       for (let i = 1; i <= engineCount; i++) {
         await api.set(`GENERAL_ENG_THROTTLE_LEVER_POSITION:${i}`, 0);
       }
-
+      
       stage.nextStage();
     }
 
@@ -12146,7 +11665,7 @@ While we're coasting down onto the runway, we do still have some work to do: we 
         for (let i = 1; i <= engineCount; i++) {
           await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
         }
-
+        
         // And in that same vein: speed brakes!
         console.log(`speed brakes (if available)`);
         await api.trigger(`SPOILERS_ON`);
@@ -12173,7 +11692,7 @@ Alright! We made it down, the plane is on the runway, we didn't crash... but tha
       for (let i = 1; i <= engineCount; i++) {
         await api.trigger(`THROTTLE${i}_AXIS_SET_EX1`, -32000);
       }
-
+  
       // Also keep trying to pitch the plane up 2 degrees when the wheels
       // aren't on the runway. Because trust me: we're going to bounce.
       if (!onGround) {
@@ -12221,7 +11740,7 @@ Although in order to successfully auto-rudder, we'll need to add that `autoRudde
 ...
 export class AutoLanding {
   ...
-
+  
   reset(autopilot, lat, long, flightModel) {
     this.autoRudderPrevHDiff = 0;
     this.done = false;
@@ -12327,7 +11846,7 @@ function autoRudder(api, target, { onGround, lat, long, trueHeading, rudder }, p
 
   const newRudder = rudder / 100 + update;
   api.set(`RUDDER_POSITION`, newRudder);
-
+  
   // And return the current heading difference so the
   // code can cache that for use in the next call:
   return hDiff;
@@ -12336,17 +11855,17 @@ function autoRudder(api, target, { onGround, lat, long, trueHeading, rudder }, p
 
 My god, we're done! _We're done!!_
 
-### Testing _Everything_
+### Testing \*Everything\*
 
-Now, testing this code is rather straight forward in that we just fire up MSFS, put a plan on a runway, create a bit of a flight plan, hit "take off" in the browser, and when we reach the last marker, we click "land" (we could automate that, but that's for another day. By you). However, since that does not translate well into pictures, let's just capture these tests using the medium of video.
+Now, testing this code is rather straight forward in that we just fire up MSFS, put a plan on a runway, create a bit of a flight plan, hit "take off" in the browser, and when we reach the last marker, we click "land" (we could automate that, but that's for another day. By you). However, since that does not translate well into pictures, let's just capture these tests using the medium of video. 
 
 First, let's do a quick "take-off and landing" at Victoria Airport in the Cessna 310R. We'll spawn the plane, click "land" to generate a set of landing waypoints, and then we'll click "take off" to make the plane take off, switch to autopilot, start flying the flight plan, and land itself on the same runway it took off from:
 
 <iframe width="1000" height="400" src="https://www.youtube.com/embed/jj1JLyk9c1s?si=pTMpkG-Qc1XcZ-I5" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
 
-And since that went pretty well, let's put this to real use: we'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/), on New Zealand's South Island, to [Wānaka](https://en.wikipedia.org/wiki/W%C4%81naka), with auto-takeoff, waypoint navigation, and auto-landing. Enjoy a 28 minute trip across some beautiful New Zealand scenery.
+And since that went pretty well, let's put this to real use: we'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/), on New Zealand's South Island, to [Wānaka](https://en.wikipedia.org/wiki/W%C4%81naka), with auto-takeoff, waypoint navigation, and auto-landing. Enjoy a 20 minute trip across some beautiful New Zealand scenery.
 
-<iframe width="1000" height="400" src="https://www.youtube.com/embed/TtmhvcGgsOo" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
+<iframe width="1000" height="400" src="https://www.youtube.com/embed/xIyGfYj66T0" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
 
 # Conclusions
 
@@ -12361,7 +11880,7 @@ So where do we go from here? Here are some thoughts:
 1. Our alt hold is still a bit wibbly, which is especially noticeable in planes like the Kodiak 100, or when playing game footage at 4x speed. This is a consequence of only firing off corrections every half second, but we could probably still find something that works a little better by using forward prediction and making the alt hold function not be stateless. And then the obvious follow-up would be to make the fly level/heading mode code not stateless, either.
 2. We could vastly improve auto landing by taking runway length and slope into account, as well as fitting an approach to the terrain instead of simply doing a yes/no basd on where we fairly naively placed our approach points. Imaging auto-landing at [Tenzing-Hillary Airport](https://en.wikipedia.org/wiki/Tenzing-Hillary_Airport), for instance!
 3. We could make the waypoint code more like "path tracking" code, where we don't just define waypoints with an implicit polygon, but where we define the actual flight path itself, so that at any point on the path there is some "ideal" heading that the plane should be flying, so that we can actually fly through curvy canyons or slalom some hills, rather than just flying mostly straight lines.
-4. We could try to replace our blocks of "control code guesses" with self-tuning PID controlles so we that we only need to say what targets we want, and have the PID controllers figure out what good steps sizes for that are. This is one of those "conceptually, this is simple" because we can replace a whole bunch of code with a PID initialization and then a few lines of update loop, but actually making that work can be the worst time sink you never knew existed. The problem with PID controllers isn't setting them up, it's the full-time job of tweaking them that will make you regret your life decisions.
+4. If you've read ["Creating an autopilot in X-Plane using Python"](https://austinsnerdythings.com/2021/10/15/creating-an-autopilot-in-x-plane-using-python-part-1/), you might want to try to replace our blocks of "control code guesses" with self-tuning [PID controlles](https://en.wikipedia.org/wiki/Proportional%E2%80%93integral%E2%80%93derivative_controller) so we that we only need to say what targets we want, and have the PID controllers figure out what good steps sizes for that are. This is one of those "conceptually, this is simple" because we can replace a whole bunch of code with a PID initialization and then a few lines of update loop, but actually making that work can be the worst time sink you never knew existed. The problem with PID controllers isn't setting them up, it's the full-time job of tweaking them that will make you regret your life decisions.
 5. We could make our ALOS server generate "XYZ tiles", so that we can use it as a map source for our leaflet map rather than using google's topology layer.
 6. ...you've seen what we can do already, the sky's the limit. Or, you know what: no, it isn't. We're already flying, there are no limits. Get your learn on and write something amazing, and then tell the world about it.
 
@@ -12370,38 +11889,16 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 — [Pomax](https://mastodon.social/@TheRealPomax)
 
 
+
 <!-- This document has interactive graphics, which requires JS -->
 <script  type="module" src="./graphics/graphics-element/graphics-element.js" async></script>
 <link rel="stylesheet" href="./graphics/graphics-element/graphics-element.css" async>
 
 <!-- And I have style requirements -->
 <style>
-  html body, html body div.container-lg {
-    width: auto !important;
-    max-width: 75% !important;
-    margin: auto !important;
-    padding-left: 12% !important;
-
-    #nav-menu {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 25%;
-      height: 100%;
-      padding: 1em 0;
-      overflow: scroll;
-
-      & ul,
-      & ol {
-        padding-left: 1.25em;
-      }
-    }
-  }
-  html body div.markdown-body h1:has(a) {
-    display:none;
-  }
-  html body div.markdown-body h1:not(:has(a)) {
-    font-size:2.5em;
+  html, body {
+    width: 800px;
+    margin: 0 auto;
   }
   img {
     max-width: 100%;
@@ -12420,15 +11917,4 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
       text-align: right;
     }
   }
-  div.highlight pre.highlight span {
-    &.c, &.c1, &.cd, &.cm {
-      color: #137100!important;
-    }
-    &.err {
-      color: inherit;
-      background: inherit;
-    }
-  }
 </style>
-
-<script src="create-side-nav.js" async defer></script>
