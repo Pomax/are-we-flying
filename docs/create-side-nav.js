@@ -1,8 +1,14 @@
-const toc = document.getElementById(`markdown-toc`);
 const nav = document.getElementById(`nav-menu`);
-const copied = toc.cloneNode(true);
-copied.id = `nav-toc`;
-nav.appendChild(copied);
+const toc = document.getElementById(`markdown-toc`);
+if (toc) {
+  // move title
+  const heading = document.querySelector(`h1#table-of-contents`);
+  if (heading) {
+    heading.id = `nav-toc-title`;
+    nav.appendChild(heading);
+  }
 
-document.querySelector(`h1#table-of-contents`)?.remove();
-toc?.remove();
+  // move content
+  toc.id = `nav-toc`;
+  nav.appendChild(toc);
+}
