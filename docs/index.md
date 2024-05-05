@@ -12339,11 +12339,11 @@ Now, testing this code is rather straight forward in that we just fire up MSFS, 
 
 First, let's do a quick "take-off and landing" at Victoria Airport in the Cessna 310R. We'll spawn the plane, click "land" to generate a set of landing waypoints, and then we'll click "take off" to make the plane take off, switch to autopilot, start flying the flight plan, and land itself on the same runway it took off from:
 
-<iframe width="1000" height="400" src="https://www.youtube.com/embed/jj1JLyk9c1s?si=pTMpkG-Qc1XcZ-I5" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
+<iframe width="100%" height="400px" src="https://www.youtube.com/embed/jj1JLyk9c1s?si=pTMpkG-Qc1XcZ-I5" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
 
 And since that went pretty well, let's put this to real use: we'll fly the Beaver from [Dingleburn Station](https://dingleburn.co.nz/), on New Zealand's South Island, to [Wānaka](https://en.wikipedia.org/wiki/W%C4%81naka), with auto-takeoff, waypoint navigation, and auto-landing. Enjoy a 28 minute trip across some beautiful New Zealand scenery.
 
-<iframe width="1000" height="400" src="https://www.youtube.com/embed/TtmhvcGgsOo" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
+<iframe width="100%" height="400px" src="https://www.youtube.com/embed/TtmhvcGgsOo" frameborder="0" allow="picture-in-picture" allowfullscreen></iframe>
 
 # Conclusions
 
@@ -12373,24 +12373,36 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 
 <!-- And I have style requirements -->
 <style>
-  html body, html body div.container-lg {
-    width: auto !important;
-    max-width: 75% !important;
-    margin: auto !important;
-    padding-left: 12% !important;
+  html body, html body {
+    @media only screen and (min-width: 1000px) {
+      div:has(#nav-menu #nav-toc-title) {
+        width: 75% !important;
+        max-width: unset;
+        margin: unset !important;
+          margin-left: unset;
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 62.5%;
+        overflow-y: scroll;
+        padding: 0 5% !important;
+        margin-left: -37.5% !important;
+      }
 
-    #nav-menu {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 25%;
-      height: 100%;
-      padding: 1em 0;
-      overflow: scroll;
-
-      & ul,
-      & ol {
-        padding-left: 1.25em;
+      #nav-menu {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 25%;
+        height: 100%;
+        padding: 1em 0;
+        overflow: scroll;
+        #nav-toc-title {
+          display: none;
+        }
+        ul, ol {
+          padding-left: 1.25em;
+        }
       }
     }
   }
