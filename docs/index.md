@@ -1,8 +1,3 @@
-<section id="nav-menu">
-
-</section>
-
-
 # Flying planes with JavaScript
 {:.no_toc}
 
@@ -55,8 +50,12 @@ If that sounds (and looks) good to you, then read on!
 # Table of Contents
 {:.no_toc}
 
+<section id="nav-menu">
+
 * table of contents goes here
 {:toc}
+
+</section>
 
 # Part 1: The prep work
 
@@ -12431,4 +12430,6 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
   }
 </style>
 
+<!--
 <script src="create-side-nav.js" async defer></script>
+-->
