@@ -12453,6 +12453,12 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 
 <!-- load disqus comments -->
 <script>
+  function disqus_config() {
+    const { page } = this;
+    page.url = `https://pomax.github.io/are-we-flying`;
+    page.identifier = `are-we-flying`;
+  };	
+
   (() => {
     const s = d.createElement('script');
     s.src = 'https://pomax.github.io/are-we-flying/js/embed.js';
@@ -12460,3 +12466,4 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
     document.head.appendChild(s);
   })();
 </script>
+<script id="dsq-count-scr" src="//are-we-flying.disqus.com/count.js" async></script>
