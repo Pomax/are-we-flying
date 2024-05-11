@@ -12466,4 +12466,3 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
     document.head.appendChild(s);
   })();
 </script>
-<script id="dsq-count-scr" src="//are-we-flying.disqus.com/count.js" async></script>
