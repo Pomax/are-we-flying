@@ -12366,10 +12366,12 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 
 — [Pomax](https://mastodon.social/@TheRealPomax)
 
-
 <!-- This document has interactive graphics, which requires JS -->
 <script  type="module" src="./graphics/graphics-element/graphics-element.js" async></script>
 <link rel="stylesheet" href="./graphics/graphics-element/graphics-element.css" async>
+
+<!-- update the DOM a little so that the ToC can be a sidebar instead -->
+<script src="create-side-nav.js" async defer></script>
 
 <!-- And I have style requirements -->
 <style>
@@ -12440,4 +12442,21 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
   }
 </style>
 
-<script src="create-side-nav.js" async defer></script>
+
+# Questions and comments
+
+<div id="disqus_thread">
+  <noscript>
+    Comments are handled by Disqus, so if you didn't already have JS enabled, but you want to ask a question or leave a comment: you're going to have to enable JS =)
+  </noscript>
+</div>
+
+<!-- load disqus comments -->
+<script>
+  (() => {
+    const s = d.createElement('script');
+    s.src = 'https://pomax.github.io/are-we-flying/js/embed.js';
+    s.dataset.timestamp = Date.now();
+    document.head.appendChild(s);
+  })();
+</script>
