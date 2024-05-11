@@ -12446,8 +12446,9 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 # Questions and comments
 
 <div id="disqus_thread">
+  Loading comments...
   <noscript>
-    Comments are handled by Disqus, so if you didn't already have JS enabled, but you want to ask a question or leave a comment: you're going to have to enable JS =)
+    Note that comments are handled by Disqus, so if you didn't already have JS enabled, but you want to ask a question or leave a comment: you're going to have to enable JS =)
   </noscript>
 </div>
 
@@ -12460,7 +12461,7 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
   };	
 
   (() => {
-    const s = d.createElement('script');
+    const s = document.createElement('script');
     s.src = 'https://pomax.github.io/are-we-flying/js/embed.js';
     s.dataset.timestamp = Date.now();
     document.head.appendChild(s);
