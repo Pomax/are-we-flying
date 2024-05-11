@@ -12462,7 +12462,7 @@ I hope you had fun, and maybe I'll see you in-sim. Send me a screenshot if you s
 
   (() => {
     const s = document.createElement('script');
-    s.src = `https://areweflying.disqus.com/embed.js`;
+    s.src = `https://are-we-flying.disqus.com/embed.js`;
     s.dataset.timestamp = Date.now();
     document.head.appendChild(s);
   })();
