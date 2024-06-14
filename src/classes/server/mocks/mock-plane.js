@@ -12,6 +12,7 @@ import {
   NO_ALOS_DATA_VALUE,
   DATA_FOLDER,
 } from "../../../elevation/alos-interface.js";
+import { roll, pitch, yaw, Computer } from "./geometry/computer.js";
 
 const { abs, sign, PI } = Math;
 const TAU = PI * 2;
@@ -27,8 +28,17 @@ const ONE_KTS_IN_KMS = 0.000514444;
 const UPDATE_FREQUENCY = 450;
 
 export class MockPlane {
+  computer = new Computer();
+
   constructor() {
     this.TITLE = "Generic Airplane Number 1";
+
+    this.computer.init({
+      lat: 48.646548831015394,
+      long: -123.41169834136964,
+      heading: 285.8,
+      elevation: 1500,
+    })
 
     // airplane data
     this.CATEGORY = 2;
@@ -54,7 +64,7 @@ export class MockPlane {
     // flight data
     this.AILERON_POSITION = 0;
     this.ELEVATOR_TRIM_PCT = 0;
-    this['GEAR_POSITION:1'] = 1;
+    this["GEAR_POSITION:1"] = 1;
     this.GEAR_SPEED_EXCEEDED = 0;
     this.RUDDER_POSITION = 0;
 
@@ -115,46 +125,73 @@ export class MockPlane {
     const now = Date.now();
     const interval = (now - this.lastCall) / 1000;
 
-    // update the current altitude
-    if (sign(this.VS) !== sign(this.dVS)) this.VS -= this.VS / 10;
-    const update = this.dVS / interval;
-    if (sign(this.VS) !== sign(this.dVS)) {
-      this.VS += constrainMap(this.VS, 0, 100, update, 100 * update);
-    } else {
-      this.VS += update;
-    }
-    this.ALT += (this.VS / interval) * this.speedFactor;
+    const data = this.computer.update(interval);
+
+    lat = data.lat;
+    long = data.long;
+    heading = data.heading;
+    deviation = geomag.field(
+      lat,
+      long,
+      (data.elevation * FEET_PER_METER) / 1000
+    ).declination;
+
+    this.AIRSPEED_TRUE = data.speed;
+    this.ALT = data.elevation;
+    this.VS = data.vs;
+
     if (this.ALT < 0) {
       this.ALT = 0;
       this.VS = 0;
       this.dVS = 0;
     }
-    this.PLANE_PITCH_DEGREES = radians(
-      constrainMap(this.AIRSPEED_TRUE, 0, 200, -10, 0) - this.VS / 2
-    );
 
-    // update the current GPS position
-    const d = this.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
-    const { lat: lat2, long: long2 } = getPointAtDistance(
-      lat,
-      long,
-      d,
-      heading
-    );
-    lat = lat2;
-    long = long2;
+    this.TURN_INDICATOR_RATE = data.turnRate;
+    this.PLANE_BANK_DEGREES = degrees(asin(data.localFrame[pitch][2]));
+    this.PLANE_PITCH_DEGREES = degrees(asin(data.localFrame[roll][2]));
 
-    // update the altitude and magnetic deviation given this position
-    let altMeters = this.alos.lookup(lat, long);
-    if (altMeters === NO_ALOS_DATA_VALUE) {
-      altMeters = 5;
-    }
-    altitude = altMeters * FEET_PER_METER;
-    deviation = geomag.field(lat, long, altMeters / 1000).declination;
+    /*
+      // update the current altitude
+      if (sign(this.VS) !== sign(this.dVS)) this.VS -= this.VS / 10;
+      const update = this.dVS / interval;
+      if (sign(this.VS) !== sign(this.dVS)) {
+        this.VS += constrainMap(this.VS, 0, 100, update, 100 * update);
+      } else {
+        this.VS += update;
+      }
+      this.ALT += (this.VS / interval) * this.speedFactor;
+      if (this.ALT < 0) {
+        this.ALT = 0;
+        this.VS = 0;
+        this.dVS = 0;
+      }
+      this.PLANE_PITCH_DEGREES = radians(
+        constrainMap(this.AIRSPEED_TRUE, 0, 200, -10, 0) - this.VS / 2
+      );
 
-    // update the current heading
-    this.PLANE_BANK_DEGREES += -100 * radians(this.AILERON_TRIM_PCT);
-    heading -= (this.speedFactor * degrees(this.PLANE_BANK_DEGREES)) / 5;
+      // update the current GPS position
+      const d = this.AIRSPEED_TRUE * ONE_KTS_IN_KMS * interval;
+      const { lat: lat2, long: long2 } = getPointAtDistance(
+        lat,
+        long,
+        d,
+        heading
+      );
+      lat = lat2;
+      long = long2;
+
+      // update the altitude and magnetic deviation given this position
+      let altMeters = this.alos.lookup(lat, long);
+      if (altMeters === NO_ALOS_DATA_VALUE) {
+        altMeters = 5;
+      }
+      altitude = altMeters * FEET_PER_METER;
+      deviation = geomag.field(lat, long, altMeters / 1000).declination;
+
+      // update the current heading
+      this.PLANE_BANK_DEGREES += -100 * radians(this.AILERON_TRIM_PCT);
+      heading -= (this.speedFactor * degrees(this.PLANE_BANK_DEGREES)) / 5;
+    */
 
     this.run(now);
   }
