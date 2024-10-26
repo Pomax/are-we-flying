@@ -11,6 +11,12 @@ const projectRoot = path.dirname(await findUp("package.json", { cwd: __dirname }
 
 dotenv.config({ path: path.join(projectRoot, ".env") });
 
+let username, password;
+if (process.argv.includes(`--owner`)) {
+  username = process.env.FLIGHT_OWNER_USERNAME;
+  password = process.env.FLIGHT_OWNER_PASSWORD;
+}
+
 import { runLater } from "../../utils/utils.js";
 
 // when we lose the connection to the server, this will be our reconnection interval:

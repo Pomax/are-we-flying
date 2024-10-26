@@ -17,7 +17,9 @@ export DATA_FOLDER=
 export ALOS_PORT=9000
 export WEB_PORT=3000
 export API_PORT=8080
-export FLIGHT_OWNER_KEY=FOK-12345
+export FLIGHT_OWNER_KEY="dXNlcm5hbWVwYXNzd29yZA=="
+export FLIGHT_OWNER_USERNAME="username"
+export FLIGHT_OWNER_PASSWORD="password"
 ```
 The ports are really just whatever's convenient for you, but they need to exist. Also, the "flight owner key" can be whatever you like, but again it needs to exist.
 
