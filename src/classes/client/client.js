@@ -11,6 +11,7 @@ const projectRoot = path.dirname(await findUp("package.json", { cwd: __dirname }
 
 dotenv.config({ path: path.join(projectRoot, ".env") });
 
+// Do we have a flight owner key that we need to authenticate with?
 let username, password;
 if (process.argv.includes(`--owner`)) {
   username = process.env.FLIGHT_OWNER_USERNAME;
