@@ -1,13 +1,15 @@
 // Load in our environment variables now we have
 import dotenv from "dotenv";
-dotenv.config({ path: `${import.meta.dirname}/../../../../../../.env` });
+import { fileURLToPath } from "url";
+import path from "path";
+import { findUp } from "find-up";
 
-// Do we have a flight owner key that we need to authenticate with?
-let username, password;
-if (process.argv.includes(`--owner`)) {
-  username = process.env.FLIGHT_OWNER_USERNAME;
-  password = process.env.FLIGHT_OWNER_PASSWORD;
-}
+// Resolve the root directory by finding the project’s root package.json
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.dirname(await findUp("package.json", { cwd: __dirname }));
+
+dotenv.config({ path: path.join(projectRoot, ".env") });
 
 import { runLater } from "../../utils/utils.js";
 
