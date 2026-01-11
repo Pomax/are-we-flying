@@ -34,14 +34,15 @@
   },
   "homepage": "https://github.com/Pomax/are-we-flying#readme",
   "dependencies": {
-    "dotenv": "^16.0.3",
+    "dotenv": "^16.4.5",
+    "esm-class-reloading": "^1.0.0",
     "geomag": "^1.0.0",
-    "msfs-simconnect-api-wrapper": "^4.5.0",
+    "msfs-simconnect-api-wrapper": "^4.6.0",
     "npm-run-all": "^4.1.5",
-    "open": "^8.4.0",
-    "prettier": "^3.0.3",
+    "open": "^10.1.0",
+    "prettier": "^3.3.3",
     "socketless": "^3.1.0",
     "tiff": "^5.0.3",
-    "ws": "^8.12.1"
+    "ws": "^8.18.0"
   }
 }

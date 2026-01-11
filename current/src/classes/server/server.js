@@ -1,8 +1,3 @@
-// Load the environment:
-const dirname = import.meta.dirname;
-import dotenv from "dotenv";
-dotenv.config({ path: `${dirname}/../../../../../../.env` });
-
 const { FLIGHT_OWNER_KEY } = process.env;
 
 // And get the "how frequentlu to poll" from theÏ environment.
