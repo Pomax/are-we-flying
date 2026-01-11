@@ -1,4 +1,4 @@
-# Are We Flying? (in Microsoft Flight Simulator 2020)
+# Are We Flying? (in Microsoft Flight Simulator 2020/2024)
 
 ### https://pomax.github.io/are-we-flying
 
