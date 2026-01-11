@@ -27,7 +27,7 @@ I'm still thinking of a way to make that less of a problem =)
 
 Have MSFS running, and then run `run.bat` in the root folder to start two command prompt instances that run the API server and web page server, respectively (which means you can kill and restart them individually if necessary)
 
-Needless to say, you need to be on Windows for this, because MSFS doesn't run on anything else (I mean, I guess XBox? But I doubt you have git and/or Node installed on that).
+Needless to say, you need to be on Windows for this, because MSFS doesn't run on anything else (I mean, I guess consoles, but I doubt you have git and/or Node installed on that?).
 
 ## Using the autopilot
 
@@ -58,7 +58,7 @@ Waypoint navigation is based on flying legs between waypoints, with the active l
 
 Waypoint based flight plans can be saved and loaded, as well as reset (marking each waypoint as not having been visited yet) or cleared (removing all waypoints from the map)
 
-## Testing the code without even running MSFS
+## Testing the code without running MSFS
 
 There is a convenient `mock.bat` that runs the api server in "mock mode" where it has a SimConnect shim that's just barely complete enough to fake a plane, with a shim that lets it correctly respond to get/set/autopilot instructions so you can test code without having to run MSFS. You're still going to have to test the code with MSFS running eventually, but it can save a bunch of time by not having to constantly restart flights in-game just to see if some function no longer errors out because you had a typo somewhere. A bunch of the AP code is also [set up for server-side hot-reloading](https://pomax.github.io/are-we-flying/#hot-reloading-to-make-our-dev-lives-easier) so that changes immediately kick in rather than having to restart the API server.
 
